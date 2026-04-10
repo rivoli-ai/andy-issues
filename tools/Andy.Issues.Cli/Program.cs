@@ -8,7 +8,7 @@ var rootCommand = new RootCommand("Andy Issues CLI - Manage andy-issues resource
 
 var apiUrlOption = new Option<string>(
     "--api-url",
-    getDefaultValue: () => "https://localhost:5400",
+    getDefaultValue: () => "https://localhost:5410",
     description: "The Andy Issues API base URL");
 rootCommand.AddGlobalOption(apiUrlOption);
 

@@ -3,7 +3,7 @@
 
 use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 
-const API_URL: &str = "https://localhost:5400";
+const API_URL: &str = "https://localhost:5410";
 const TOKEN: &str = "YOUR_BEARER_TOKEN"; // Obtain from Andy Auth
 
 #[tokio::main]

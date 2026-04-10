@@ -23,10 +23,10 @@ Full documentation is available at:
 
 | Service | Port |
 |---------|------|
-| API HTTPS | 5400 |
-| API HTTP | 5401 |
-| PostgreSQL | 5442 |
-| Angular Client | 4202 |
+| API HTTPS | 5410 |
+| API HTTP | 5411 |
+| PostgreSQL | 5443 |
+| Angular Client | 4203 |
 
 ## License
 

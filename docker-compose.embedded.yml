@@ -23,8 +23,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "5400:8443"
-      - "5401:8080"
+      - "5410:8443"
+      - "5411:8080"
     volumes:
       - ./certs:/usr/local/share/ca-certificates/custom:ro
       - sqlite_data:/data

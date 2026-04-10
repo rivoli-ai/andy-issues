@@ -1,7 +1,7 @@
 # Copyright (c) Rivoli AI 2026. All rights reserved.
 # Example: Using the Andy Issues API from PowerShell
 
-$ApiUrl = "https://localhost:5400"
+$ApiUrl = "https://localhost:5410"
 $Token = "YOUR_BEARER_TOKEN" # Obtain from Andy Auth
 
 $Headers = @{

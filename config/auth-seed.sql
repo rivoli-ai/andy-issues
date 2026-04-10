@@ -74,11 +74,11 @@ await manager.CreateAsync(new OpenIddictApplicationDescriptor
     },
     RedirectUris =
     {
-        new Uri("https://localhost:5400/callback"),
+        new Uri("https://localhost:5410/callback"),
     },
     PostLogoutRedirectUris =
     {
-        new Uri("https://localhost:5400/"),
+        new Uri("https://localhost:5410/"),
     }
 });
 
@@ -115,12 +115,12 @@ await manager.CreateAsync(new OpenIddictApplicationDescriptor
     },
     RedirectUris =
     {
-        new Uri("https://localhost:4202/callback"),
+        new Uri("https://localhost:4203/callback"),
         new Uri("https://localhost:4200/callback"),
     },
     PostLogoutRedirectUris =
     {
-        new Uri("https://localhost:4202/"),
+        new Uri("https://localhost:4203/"),
         new Uri("https://localhost:4200/"),
     }
 });

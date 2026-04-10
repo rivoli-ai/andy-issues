@@ -1,7 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Example: Using the Andy Issues API from JavaScript (Node.js)
 
-const API_URL = "https://localhost:5400";
+const API_URL = "https://localhost:5410";
 const TOKEN = "YOUR_BEARER_TOKEN"; // Obtain from Andy Auth
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"; // Dev only

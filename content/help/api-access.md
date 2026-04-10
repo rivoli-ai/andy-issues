@@ -20,8 +20,8 @@ Authorization: Bearer <your-jwt-token>
 
 ### Base URL
 
-- Development: `https://localhost:5400`
-- Docker: `https://localhost:5400`
+- Development: `https://localhost:5410`
+- Docker: `https://localhost:5410`
 
 ## MCP (Model Context Protocol)
 
@@ -48,7 +48,7 @@ For service-to-service communication. Proto definitions are in `src/Api/Protos/`
 
 ```bash
 # List items
-dotnet run --project tools/*.Cli -- items list --api-url https://localhost:5400
+dotnet run --project tools/*.Cli -- items list --api-url https://localhost:5410
 
 # Create item
 dotnet run --project tools/*.Cli -- items create --name "My Item" --description "Details"

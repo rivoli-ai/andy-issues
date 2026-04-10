@@ -58,10 +58,10 @@ kubectl create secret generic andy-issues-db \
 
 | Service | Port |
 |---------|------|
-| API HTTPS | 5400 |
-| API HTTP | 5401 |
-| PostgreSQL | 5442 |
-| Client (Angular) | 4202 |
+| API HTTPS | 5410 |
+| API HTTP | 5411 |
+| PostgreSQL | 5443 |
+| Client (Angular) | 4203 |
 
 ## Conductor Integration
 

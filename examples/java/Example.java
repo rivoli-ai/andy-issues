@@ -11,7 +11,7 @@ import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
 
 public class Example {
-    static final String API_URL = "https://localhost:5400";
+    static final String API_URL = "https://localhost:5410";
     static final String TOKEN = "YOUR_BEARER_TOKEN"; // Obtain from Andy Auth
 
     public static void main(String[] args) throws Exception {

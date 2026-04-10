@@ -146,11 +146,11 @@ dotnet ef database update --project src/Andy.Issues.Infrastructure --startup-pro
 
 | Service | Port |
 |---------|------|
-| API HTTPS | 5400 |
-| API HTTP | 5401 |
-| PostgreSQL | 5442 |
+| API HTTPS | 5410 |
+| API HTTP | 5411 |
+| PostgreSQL | 5443 |
 | Client (Angular dev) | 4200 |
-| Client (Docker) | 4202 |
+| Client (Docker) | 4203 |
 
 ## External Dependencies
 
