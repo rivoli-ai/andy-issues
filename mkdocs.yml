@@ -1,0 +1,18 @@
+site_name: Andy Issues
+site_description: Issues management service
+repo_url: https://github.com/rivoli-ai/andy-issues
+
+theme:
+  name: material
+  palette:
+    primary: blue
+    accent: blue
+
+nav:
+  - Home: index.md
+  - Features: features.md
+  - Architecture: architecture.md
+  - Implementation: implementation.md
+  - Testing: testing.md
+  - Deployment: deployment.md
+  - Security: security.md
