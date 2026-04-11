@@ -7,6 +7,7 @@ using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -88,6 +89,41 @@ public class SandboxesControllerTests : IClassFixture<TestWebApplicationFactory>
 
         var afterResp = await _client.GetAsync($"/api/sandboxes/{created.Id}");
         Assert.Equal(HttpStatusCode.NotFound, afterResp.StatusCode);
+    }
+
+    [Fact]
+    public async Task Create_RepoWithAzureIdentity_ForwardsEnvVarsToContainer()
+    {
+        Guid repoId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var repo = new Repository
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "dev-user",
+                Name = $"az-{Guid.NewGuid():N}",
+                CloneUrl = "https://example.com/az.git",
+                AzureClientId = "http-client-id",
+                AzureClientSecret = "http-client-secret",
+                AzureTenantId = "http-tenant-id",
+                AzureSubscriptionId = "http-sub-id"
+            };
+            db.Repositories.Add(repo);
+            await db.SaveChangesAsync();
+            repoId = repo.Id;
+        }
+
+        var createResp = await _client.PostAsJsonAsync("/api/sandboxes",
+            new CreateSandboxRequest(repoId, "main", null));
+        createResp.EnsureSuccessStatusCode();
+
+        var call = Assert.Single(_factory.FakeContainersClient.CreateCalls);
+        Assert.NotNull(call.environmentVariables);
+        Assert.Equal("http-client-id", call.environmentVariables!["AZURE_CLIENT_ID"]);
+        Assert.Equal("http-client-secret", call.environmentVariables["AZURE_CLIENT_SECRET"]);
+        Assert.Equal("http-tenant-id", call.environmentVariables["AZURE_TENANT_ID"]);
+        Assert.Equal("http-sub-id", call.environmentVariables["AZURE_SUBSCRIPTION_ID"]);
     }
 
     [Fact]

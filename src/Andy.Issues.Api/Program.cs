@@ -1,13 +1,12 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using Andy.Containers.Client;
 using Andy.Issues.Api.Hubs;
+using Andy.Issues.Api.Infrastructure;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Services;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -93,38 +92,19 @@ builder.Services.AddSignalR();
 
 // --- andy-containers client ---
 // andy-issues never manages containers directly — every call goes through andy-containers.
-// Cloud deployments set AndyContainers:BaseUrl explicitly; Conductor wires it in-process and
-// provides a callback-based token provider on top of the ambient HttpContext.
-var andyContainersBaseUrl = builder.Configuration["AndyContainers:BaseUrl"];
-if (!string.IsNullOrEmpty(andyContainersBaseUrl))
-{
-    builder.Services.AddHttpContextAccessor();
-    builder.Services.AddTransient(sp => new AuthenticatedHttpHandler(() =>
+// Cloud deployments set AndyContainers:BaseUrl explicitly and the BearerForwardingHandler
+// propagates the caller's JWT from the ambient HttpContext. Conductor-embedded mode can
+// override IContainersClient directly, so tests and Conductor need no HTTP stack at all.
+builder.Services.AddHttpContextAccessor();
+var andyContainersBaseUrl = builder.Configuration["AndyContainers:BaseUrl"]
+    ?? "http://andy-containers.local/";
+builder.Services.AddTransient<BearerForwardingHandler>();
+builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(client =>
     {
-        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
-        var token = accessor.HttpContext?.Request.Headers["Authorization"].ToString();
-        if (!string.IsNullOrEmpty(token) && token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            return Task.FromResult<string?>(token["Bearer ".Length..]);
-        return Task.FromResult<string?>(null);
-    }));
-    builder.Services.AddHttpClient<ContainersClient>(client =>
-        {
-            client.BaseAddress = new Uri(andyContainersBaseUrl);
-        })
-        .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<AuthenticatedHttpHandler>());
-}
-else
-{
-    // When no base URL is configured (e.g. in tests or Conductor scenarios that inject their
-    // own adapter), still register a ContainersClient against a transient HttpClient so the
-    // adapter can be instantiated without crashing — tests replace IContainersClient entirely.
-    builder.Services.AddHttpClient<ContainersClient>(client =>
-    {
-        client.BaseAddress = new Uri("http://andy-containers.local/");
-    });
-}
+        client.BaseAddress = new Uri(andyContainersBaseUrl);
+    })
+    .AddHttpMessageHandler<BearerForwardingHandler>();
 
-builder.Services.AddScoped<IContainersClient, AndyContainersClientAdapter>();
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();

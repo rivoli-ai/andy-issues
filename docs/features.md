@@ -56,6 +56,21 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Azure profile injection
+
+When a sandbox is created on a repository that has an Azure service principal configured (via Story 2.5 / 2.6), the credentials flow into the container as `AZURE_*` environment variables so the sandbox entrypoint can `az login` without any additional plumbing:
+
+| Source (Repository column) | Environment variable |
+|---|---|
+| `AzureClientId` | `AZURE_CLIENT_ID` |
+| `AzureClientSecret` | `AZURE_CLIENT_SECRET` |
+| `AzureTenantId` | `AZURE_TENANT_ID` |
+| `AzureSubscriptionId` (optional) | `AZURE_SUBSCRIPTION_ID` |
+
+`SandboxService` treats the Azure identity as all-or-nothing: unless `ClientId`, `ClientSecret`, and `TenantId` are all present on the repository row (`Repository.HasAzureIdentity`), the env vars are omitted entirely and the container starts without Azure credentials. `AZURE_SUBSCRIPTION_ID` is additive — it's only included when set on the row.
+
+The env vars are passed to `IContainersClient.CreateContainerAsync` via the `environmentVariables` dictionary, which the andy-containers adapter forwards on the POST to `api/containers`. Nightly end-to-end runs use `verify-azure-identity` (Story 2.6) against a real container to confirm `az login` succeeds inside the sandbox.
+
 ## Pull request from a sandbox
 
 Once work is complete inside a sandbox, a single call can push the feature branch to the upstream and open a pull request. The flow is:

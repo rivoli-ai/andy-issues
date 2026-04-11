@@ -14,7 +14,7 @@ public class FakeContainersClient : IContainersClient
     public IReadOnlyDictionary<string, ContainerInfo> Containers => _containers;
 
     public List<string> DestroyCalls { get; } = new();
-    public List<(string name, string templateCode)> CreateCalls { get; } = new();
+    public List<(string name, string templateCode, IReadOnlyDictionary<string, string>? environmentVariables)> CreateCalls { get; } = new();
     public Func<string, string, ContainerInfo>? CreateOverride { get; set; }
     public Exception? ThrowOnCreate { get; set; }
     public Exception? ThrowOnDestroy { get; set; }
@@ -26,9 +26,13 @@ public class FakeContainersClient : IContainersClient
 
     public void RemoveContainer(string id) => _containers.TryRemove(id, out _);
 
-    public Task<ContainerInfo> CreateContainerAsync(string name, string templateCode, CancellationToken ct = default)
+    public Task<ContainerInfo> CreateContainerAsync(
+        string name,
+        string templateCode,
+        IReadOnlyDictionary<string, string>? environmentVariables = null,
+        CancellationToken ct = default)
     {
-        CreateCalls.Add((name, templateCode));
+        CreateCalls.Add((name, templateCode, environmentVariables));
         if (ThrowOnCreate is not null) throw ThrowOnCreate;
 
         var info = CreateOverride?.Invoke(name, templateCode)

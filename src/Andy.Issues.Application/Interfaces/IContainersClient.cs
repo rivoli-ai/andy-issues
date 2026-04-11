@@ -14,6 +14,7 @@ public interface IContainersClient
     Task<ContainerInfo> CreateContainerAsync(
         string name,
         string templateCode,
+        IReadOnlyDictionary<string, string>? environmentVariables = null,
         CancellationToken ct = default);
 
     Task<ContainerInfo?> GetContainerAsync(string containerId, CancellationToken ct = default);

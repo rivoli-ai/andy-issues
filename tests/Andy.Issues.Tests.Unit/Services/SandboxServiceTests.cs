@@ -263,4 +263,101 @@ public class SandboxServiceTests : IDisposable
             new CreateSandboxRequest(Guid.NewGuid(), "main", null), "alice");
         Assert.Null(dto);
     }
+
+    [Fact]
+    public async Task Create_WithAzureIdentity_PropagatesAzureEnvVars()
+    {
+        var repoId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            ctx.Repositories.Add(new Repository
+            {
+                Id = repoId,
+                OwnerUserId = "alice",
+                Name = "az-repo",
+                CloneUrl = "https://example.com/a.git",
+                AzureClientId = "client-guid",
+                AzureClientSecret = "supersecret",
+                AzureTenantId = "tenant-guid",
+                AzureSubscriptionId = "sub-guid"
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var dto = await NewService(ctx2).CreateAsync(
+            new CreateSandboxRequest(repoId, "main", null), "alice");
+        Assert.NotNull(dto);
+
+        var call = Assert.Single(_containers.CreateCalls);
+        Assert.NotNull(call.environmentVariables);
+        Assert.Equal("client-guid", call.environmentVariables!["AZURE_CLIENT_ID"]);
+        Assert.Equal("supersecret", call.environmentVariables["AZURE_CLIENT_SECRET"]);
+        Assert.Equal("tenant-guid", call.environmentVariables["AZURE_TENANT_ID"]);
+        Assert.Equal("sub-guid", call.environmentVariables["AZURE_SUBSCRIPTION_ID"]);
+    }
+
+    [Fact]
+    public async Task Create_WithoutAzureIdentity_OmitsEnvVars()
+    {
+        var repoId = await SeedRepoAsync();
+        await using var ctx = NewContext();
+        var dto = await NewService(ctx).CreateAsync(
+            new CreateSandboxRequest(repoId, "main", null), "alice");
+        Assert.NotNull(dto);
+
+        var call = Assert.Single(_containers.CreateCalls);
+        Assert.Null(call.environmentVariables);
+    }
+
+    [Fact]
+    public async Task Create_AzureIdentityWithoutSubscription_SkipsSubscriptionVar()
+    {
+        var repoId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            ctx.Repositories.Add(new Repository
+            {
+                Id = repoId,
+                OwnerUserId = "alice",
+                Name = "az-repo",
+                CloneUrl = "https://example.com/a.git",
+                AzureClientId = "c",
+                AzureClientSecret = "s",
+                AzureTenantId = "t"
+                // AzureSubscriptionId intentionally omitted
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        await NewService(ctx2).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+
+        var env = _containers.CreateCalls[0].environmentVariables!;
+        Assert.False(env.ContainsKey("AZURE_SUBSCRIPTION_ID"));
+        Assert.Equal("c", env["AZURE_CLIENT_ID"]);
+    }
+
+    [Fact]
+    public void BuildEnvironmentVariables_NoAzureIdentity_ReturnsNull()
+    {
+        var repo = new Repository { Id = Guid.NewGuid(), Name = "r", CloneUrl = "x" };
+        Assert.Null(SandboxService.BuildEnvironmentVariables(repo));
+    }
+
+    [Fact]
+    public void BuildEnvironmentVariables_PartialAzureIdentity_IsTreatedAsAbsent()
+    {
+        // HasAzureIdentity requires all three of ClientId/Secret/TenantId.
+        var repo = new Repository
+        {
+            Id = Guid.NewGuid(),
+            Name = "r",
+            CloneUrl = "x",
+            AzureClientId = "c",
+            AzureClientSecret = "s"
+            // Tenant missing
+        };
+        Assert.Null(SandboxService.BuildEnvironmentVariables(repo));
+    }
 }

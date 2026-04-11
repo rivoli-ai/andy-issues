@@ -14,7 +14,7 @@ public class FakeContainersClient : IContainersClient
     public IReadOnlyDictionary<string, ContainerInfo> Containers => _containers;
 
     public List<string> DestroyCalls { get; } = new();
-    public List<(string name, string templateCode)> CreateCalls { get; } = new();
+    public List<(string name, string templateCode, IReadOnlyDictionary<string, string>? environmentVariables)> CreateCalls { get; } = new();
     public List<(string containerId, string command)> ExecCalls { get; } = new();
 
     public void Reset()
@@ -32,9 +32,13 @@ public class FakeContainersClient : IContainersClient
             _containers[containerId] = existing with { Status = status };
     }
 
-    public Task<ContainerInfo> CreateContainerAsync(string name, string templateCode, CancellationToken ct = default)
+    public Task<ContainerInfo> CreateContainerAsync(
+        string name,
+        string templateCode,
+        IReadOnlyDictionary<string, string>? environmentVariables = null,
+        CancellationToken ct = default)
     {
-        CreateCalls.Add((name, templateCode));
+        CreateCalls.Add((name, templateCode, environmentVariables));
         var id = $"ctr-{Interlocked.Increment(ref _nextId):x8}";
         var info = new ContainerInfo(id, name, "Creating", IdeEndpoint: null, VncEndpoint: null);
         _containers[id] = info;

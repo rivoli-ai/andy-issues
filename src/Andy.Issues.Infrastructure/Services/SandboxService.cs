@@ -59,11 +59,13 @@ public class SandboxService : ISandboxService
 
         var templateCode = _config[DefaultTemplateCodeKey] ?? FallbackTemplateCode;
         var containerName = BuildContainerName(repo.Name, request.Branch);
+        var environmentVariables = BuildEnvironmentVariables(repo);
 
         ContainerInfo container;
         try
         {
-            container = await _containers.CreateContainerAsync(containerName, templateCode, ct);
+            container = await _containers.CreateContainerAsync(
+                containerName, templateCode, environmentVariables, ct);
         }
         catch (Exception ex)
         {
@@ -202,6 +204,20 @@ public class SandboxService : ISandboxService
             "destroyed" or "gone" => SandboxStatus.Destroyed,
             _ => SandboxStatus.Pending
         };
+    }
+
+    public static IReadOnlyDictionary<string, string>? BuildEnvironmentVariables(Domain.Entities.Repository repo)
+    {
+        var vars = new Dictionary<string, string>();
+        if (repo.HasAzureIdentity)
+        {
+            vars["AZURE_CLIENT_ID"] = repo.AzureClientId!;
+            vars["AZURE_CLIENT_SECRET"] = repo.AzureClientSecret!;
+            vars["AZURE_TENANT_ID"] = repo.AzureTenantId!;
+            if (!string.IsNullOrEmpty(repo.AzureSubscriptionId))
+                vars["AZURE_SUBSCRIPTION_ID"] = repo.AzureSubscriptionId;
+        }
+        return vars.Count == 0 ? null : vars;
     }
 
     private static string BuildContainerName(string repoName, string branch)
