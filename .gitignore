@@ -28,6 +28,7 @@ project.fragment.lock.json
 # --- NuGet ---
 *.nupkg
 *.snupkg
+!local-packages/*.nupkg
 **/packages/*
 !**/packages/build/
 *.nuget.props
