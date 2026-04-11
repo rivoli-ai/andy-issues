@@ -153,6 +153,7 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Sandbox>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.ContainerId).IsRequired().HasMaxLength(128);
             e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.Branch).IsRequired().HasMaxLength(256);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);

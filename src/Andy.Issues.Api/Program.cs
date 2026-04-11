@@ -1,11 +1,13 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Containers.Client;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Services;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -88,6 +90,42 @@ builder.Services.AddScoped<IBacklogService, BacklogService>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();
 builder.Services.AddSignalR();
+
+// --- andy-containers client ---
+// andy-issues never manages containers directly — every call goes through andy-containers.
+// Cloud deployments set AndyContainers:BaseUrl explicitly; Conductor wires it in-process and
+// provides a callback-based token provider on top of the ambient HttpContext.
+var andyContainersBaseUrl = builder.Configuration["AndyContainers:BaseUrl"];
+if (!string.IsNullOrEmpty(andyContainersBaseUrl))
+{
+    builder.Services.AddHttpContextAccessor();
+    builder.Services.AddTransient(sp => new AuthenticatedHttpHandler(() =>
+    {
+        var accessor = sp.GetRequiredService<IHttpContextAccessor>();
+        var token = accessor.HttpContext?.Request.Headers["Authorization"].ToString();
+        if (!string.IsNullOrEmpty(token) && token.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+            return Task.FromResult<string?>(token["Bearer ".Length..]);
+        return Task.FromResult<string?>(null);
+    }));
+    builder.Services.AddHttpClient<ContainersClient>(client =>
+        {
+            client.BaseAddress = new Uri(andyContainersBaseUrl);
+        })
+        .ConfigurePrimaryHttpMessageHandler(sp => sp.GetRequiredService<AuthenticatedHttpHandler>());
+}
+else
+{
+    // When no base URL is configured (e.g. in tests or Conductor scenarios that inject their
+    // own adapter), still register a ContainersClient against a transient HttpClient so the
+    // adapter can be instantiated without crashing — tests replace IContainersClient entirely.
+    builder.Services.AddHttpClient<ContainersClient>(client =>
+    {
+        client.BaseAddress = new Uri("http://andy-containers.local/");
+    });
+}
+
+builder.Services.AddScoped<IContainersClient, AndyContainersClientAdapter>();
+builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 builder.Services.AddHostedService<AzureDevOpsBacklogPullJob>();

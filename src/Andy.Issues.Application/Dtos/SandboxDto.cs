@@ -5,7 +5,7 @@ namespace Andy.Issues.Application.Dtos;
 
 public record SandboxDto(
     Guid Id,
-    Guid ContainerId,
+    string ContainerId,
     Guid RepositoryId,
     string OwnerUserId,
     string Branch,

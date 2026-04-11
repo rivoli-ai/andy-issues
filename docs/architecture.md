@@ -56,6 +56,27 @@ The API exposes a SignalR hub at `/hubs/board` that pushes live backlog updates 
 - **Publication path**: `BacklogService` and the Azure DevOps pull loop depend on `IBoardNotifier` (defined in the Application layer) and publish events after every successful mutation. The API wires `IBoardNotifier` to `SignalRBoardNotifier`, a thin adapter over `IHubContext<BoardHub>`. Tests (and any future background consumers that should not broadcast) can inject `NullBoardNotifier` or a recording fake instead.
 - **Scope**: the notifier layer is infrastructure-agnostic, so a later epic can swap SignalR for a message bus without touching service code.
 
+## Sandboxes and andy-containers
+
+andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.
+
+```
+┌──────────────┐  CreateContainerAsync  ┌────────────────┐   Docker / K8s
+│  andy-issues │ ─────────────────────▶ │ andy-containers│ ───────────────▶  runtime
+│   Sandbox    │  GetContainer / Exec   │                │
+│   Service    │ ─────────────────────▶ │                │
+└──────────────┘  Destroy / Connection  └────────────────┘
+       │
+       │ persists a thin projection
+       ▼
+   Sandbox rows
+ (container id, repo, branch, owner, cached status)
+```
+
+- `Andy.Issues.Application.Interfaces.IContainersClient` is the seam andy-issues code depends on. `Andy.Issues.Infrastructure.External.AndyContainersClientAdapter` wraps the upstream sealed `Andy.Containers.Client.ContainersClient` so tests (and Conductor mode) can substitute a lightweight fake without pulling a real HTTP stack.
+- `SandboxService` keeps only a minimal `Sandbox` projection locally: container id (the opaque identifier returned by andy-containers), repo/branch/owner, cached status, and IDE/VNC endpoints surfaced for convenience. Status is refreshed from the live container on `List`/`Get`; if the container is gone remotely the sandbox is marked `Destroyed` and eventually cleaned up.
+- Deployments wire `ContainersClient` to the configured `AndyContainers:BaseUrl`. In cloud mode, an `AuthenticatedHttpHandler` forwards the caller's bearer token from the ambient `HttpContext`. In Conductor-embedded mode the `IContainersClient` binding can be supplied directly by the Conductor host so the two services share an in-process channel — no HTTP roundtrip required.
+
 ## Database Strategy
 
 - **PostgreSQL** (default): Used in standalone deployment

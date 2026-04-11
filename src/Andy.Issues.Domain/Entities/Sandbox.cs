@@ -8,7 +8,7 @@ namespace Andy.Issues.Domain.Entities;
 public class Sandbox
 {
     public Guid Id { get; set; }
-    public Guid ContainerId { get; set; }
+    public string ContainerId { get; set; } = string.Empty;
     public Guid RepositoryId { get; set; }
     public Repository Repository { get; set; } = null!;
     public string OwnerUserId { get; set; } = string.Empty;

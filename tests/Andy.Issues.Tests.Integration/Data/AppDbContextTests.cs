@@ -167,7 +167,7 @@ public class AppDbContextTests : IDisposable
     public async Task Sandbox_RoundTrip_AndUniqueContainerId()
     {
         var repoId = Guid.NewGuid();
-        var containerId = Guid.NewGuid();
+        var containerId = $"ctr-{Guid.NewGuid():N}";
         await using (var ctx = NewContext())
         {
             ctx.Repositories.Add(new Repository
