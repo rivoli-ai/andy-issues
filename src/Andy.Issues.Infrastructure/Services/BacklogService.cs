@@ -6,6 +6,7 @@ using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -197,6 +198,38 @@ public class BacklogService : IBacklogService
         story.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
         return story.ToDto();
+    }
+
+    public async Task<UserStoryStatusUpdateResult> UpdateStoryStatusAsync(
+        Guid storyId,
+        UpdateUserStoryStatusRequest request,
+        string userId,
+        CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<UserStoryStatus>(request.Status, ignoreCase: true, out var next))
+            return UserStoryStatusUpdateResult.InvalidStatus(request.Status);
+
+        var story = await _db.UserStories
+            .Include(s => s.Feature).ThenInclude(f => f.Epic)
+            .FirstOrDefaultAsync(s => s.Id == storyId, ct);
+        if (story is null) return UserStoryStatusUpdateResult.NotFound();
+        if (!await _guard.CanViewAsync(story.Feature.Epic.RepositoryId, userId, ct))
+            return UserStoryStatusUpdateResult.NotFound();
+
+        try
+        {
+            story.SetStatus(next);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return UserStoryStatusUpdateResult.InvalidTransition(ex.Message);
+        }
+
+        if (request.PullRequestUrl is not null)
+            story.PullRequestUrl = request.PullRequestUrl;
+
+        await _db.SaveChangesAsync(ct);
+        return UserStoryStatusUpdateResult.Ok(story.ToDto());
     }
 
     public async Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default)

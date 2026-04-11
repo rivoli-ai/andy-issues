@@ -94,6 +94,50 @@ public class BacklogControllerTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task UpdateStoryStatus_EndToEnd()
+    {
+        var repoId = await SeedRepoAsync();
+        var epicResp = await _client.PostAsJsonAsync(
+            $"/api/repositories/{repoId}/epics",
+            new CreateEpicRequest("E", null, null, null));
+        var epic = await epicResp.Content.ReadFromJsonAsync<EpicDto>(JsonOptions);
+        var featureResp = await _client.PostAsJsonAsync(
+            $"/api/epics/{epic!.Id}/features",
+            new CreateFeatureRequest("F", null, null, null));
+        var feature = await featureResp.Content.ReadFromJsonAsync<FeatureDto>(JsonOptions);
+        var storyResp = await _client.PostAsJsonAsync(
+            $"/api/features/{feature!.Id}/stories",
+            new CreateUserStoryRequest("S", null, null, null, null, null));
+        var story = await storyResp.Content.ReadFromJsonAsync<UserStoryDto>(JsonOptions);
+
+        // Happy path: transition to InReview with a PR URL.
+        var patchResp = await _client.PatchAsJsonAsync(
+            $"/api/stories/{story!.Id}/status",
+            new UpdateUserStoryStatusRequest("InReview", "https://example.com/pr/42"));
+        Assert.Equal(HttpStatusCode.OK, patchResp.StatusCode);
+        var updated = await patchResp.Content.ReadFromJsonAsync<UserStoryDto>(JsonOptions);
+        Assert.Equal("InReview", updated!.Status);
+        Assert.Equal("https://example.com/pr/42", updated.PullRequestUrl);
+
+        // Move to Done.
+        await _client.PatchAsJsonAsync(
+            $"/api/stories/{story.Id}/status",
+            new UpdateUserStoryStatusRequest("Done", null));
+
+        // Done → Draft is blocked with 409.
+        var rejectResp = await _client.PatchAsJsonAsync(
+            $"/api/stories/{story.Id}/status",
+            new UpdateUserStoryStatusRequest("Draft", null));
+        Assert.Equal(HttpStatusCode.Conflict, rejectResp.StatusCode);
+
+        // Unknown status string → 400.
+        var badResp = await _client.PatchAsJsonAsync(
+            $"/api/stories/{story.Id}/status",
+            new UpdateUserStoryStatusRequest("Bogus", null));
+        Assert.Equal(HttpStatusCode.BadRequest, badResp.StatusCode);
+    }
+
+    [Fact]
     public async Task GetBacklog_StrangerRepo_Returns404()
     {
         using var scope = _factory.Services.CreateScope();

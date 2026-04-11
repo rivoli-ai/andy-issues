@@ -111,6 +111,23 @@ public class BacklogController : ControllerBase
         return Ok(dto);
     }
 
+    [HttpPatch("api/stories/{storyId:guid}/status")]
+    public async Task<ActionResult<UserStoryDto>> UpdateStoryStatus(
+        Guid storyId,
+        [FromBody] UpdateUserStoryStatusRequest request,
+        CancellationToken ct)
+    {
+        var result = await _backlog.UpdateStoryStatusAsync(storyId, request, GetUserId(), ct);
+        return result.Outcome switch
+        {
+            UserStoryStatusUpdateOutcome.Updated => Ok(result.Story),
+            UserStoryStatusUpdateOutcome.NotFound => NotFound(),
+            UserStoryStatusUpdateOutcome.InvalidStatus => BadRequest(new { error = result.Error }),
+            UserStoryStatusUpdateOutcome.InvalidTransition => Conflict(new { error = result.Error }),
+            _ => StatusCode(500)
+        };
+    }
+
     [HttpDelete("api/stories/{storyId:guid}")]
     public async Task<IActionResult> DeleteStory(Guid storyId, CancellationToken ct)
     {

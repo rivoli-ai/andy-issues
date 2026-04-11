@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Infrastructure.Data;
@@ -129,6 +130,109 @@ public class BacklogServiceTests : IDisposable
             Assert.NotNull(dto);
             Assert.Equal("updated", dto!.Title);
             Assert.Equal(5, dto.StoryPoints);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateStoryStatus_ValidTransition_UpdatesStatusAndPrUrl()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid storyId;
+        await using (var ctx = NewContext())
+        {
+            var svc = NewService(ctx);
+            var e = await svc.AddEpicAsync(repoId, new CreateEpicRequest("E", null, null, null), "alice");
+            var f = await svc.AddFeatureAsync(e!.Id, new CreateFeatureRequest("F", null, null, null), "alice");
+            var s = await svc.AddStoryAsync(f!.Id, new CreateUserStoryRequest("S", null, null, null, null, null), "alice");
+            storyId = s!.Id;
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).UpdateStoryStatusAsync(
+                storyId,
+                new UpdateUserStoryStatusRequest("InReview", "https://github.com/x/y/pull/1"),
+                "alice");
+            Assert.Equal(UserStoryStatusUpdateOutcome.Updated, result.Outcome);
+            Assert.NotNull(result.Story);
+            Assert.Equal("InReview", result.Story!.Status);
+            Assert.Equal("https://github.com/x/y/pull/1", result.Story.PullRequestUrl);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateStoryStatus_DoneToDraft_ReturnsInvalidTransition()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid storyId;
+        await using (var ctx = NewContext())
+        {
+            var svc = NewService(ctx);
+            var e = await svc.AddEpicAsync(repoId, new CreateEpicRequest("E", null, null, null), "alice");
+            var f = await svc.AddFeatureAsync(e!.Id, new CreateFeatureRequest("F", null, null, null), "alice");
+            var s = await svc.AddStoryAsync(f!.Id, new CreateUserStoryRequest("S", null, null, null, null, null), "alice");
+            storyId = s!.Id;
+
+            await NewService(ctx).UpdateStoryStatusAsync(storyId, new UpdateUserStoryStatusRequest("Done", null), "alice");
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).UpdateStoryStatusAsync(
+                storyId,
+                new UpdateUserStoryStatusRequest("Draft", null),
+                "alice");
+            Assert.Equal(UserStoryStatusUpdateOutcome.InvalidTransition, result.Outcome);
+            Assert.Null(result.Story);
+            Assert.Contains("Done", result.Error);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateStoryStatus_UnknownStatusString_ReturnsInvalidStatus()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid storyId;
+        await using (var ctx = NewContext())
+        {
+            var svc = NewService(ctx);
+            var e = await svc.AddEpicAsync(repoId, new CreateEpicRequest("E", null, null, null), "alice");
+            var f = await svc.AddFeatureAsync(e!.Id, new CreateFeatureRequest("F", null, null, null), "alice");
+            var s = await svc.AddStoryAsync(f!.Id, new CreateUserStoryRequest("S", null, null, null, null, null), "alice");
+            storyId = s!.Id;
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).UpdateStoryStatusAsync(
+                storyId,
+                new UpdateUserStoryStatusRequest("Bogus", null),
+                "alice");
+            Assert.Equal(UserStoryStatusUpdateOutcome.InvalidStatus, result.Outcome);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateStoryStatus_Stranger_ReturnsNotFound()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid storyId;
+        await using (var ctx = NewContext())
+        {
+            var svc = NewService(ctx);
+            var e = await svc.AddEpicAsync(repoId, new CreateEpicRequest("E", null, null, null), "alice");
+            var f = await svc.AddFeatureAsync(e!.Id, new CreateFeatureRequest("F", null, null, null), "alice");
+            var s = await svc.AddStoryAsync(f!.Id, new CreateUserStoryRequest("S", null, null, null, null, null), "alice");
+            storyId = s!.Id;
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).UpdateStoryStatusAsync(
+                storyId,
+                new UpdateUserStoryStatusRequest("Ready", null),
+                "mallory");
+            Assert.Equal(UserStoryStatusUpdateOutcome.NotFound, result.Outcome);
         }
     }
 

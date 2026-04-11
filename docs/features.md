@@ -36,3 +36,22 @@
 
 - **Command-line interface** - Manage resources from the terminal
 - **Token-based auth** - Works with Andy Auth Bearer tokens
+
+## Story workflow
+
+User stories progress through a fixed set of statuses: `Draft → Ready → InProgress → InReview → Done`. Fresh stories start in `Draft`.
+
+Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
+
+```json
+{ "status": "InReview", "pullRequestUrl": "https://github.com/org/repo/pull/42" }
+```
+
+- The server enforces one transition rule: `Done → Draft` is rejected (use a different target status to re-open). All other transitions are allowed so re-work loops remain possible.
+- `pullRequestUrl` is optional; supplying it attaches or replaces the link on the story. Omitting it leaves any existing URL untouched.
+- Responses:
+  - `200 OK` with the updated story DTO on success.
+  - `400 Bad Request` if `status` is not a recognized enum value.
+  - `409 Conflict` if the transition is forbidden (currently only `Done → Draft`).
+  - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
+- Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).

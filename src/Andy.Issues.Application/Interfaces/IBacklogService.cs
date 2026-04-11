@@ -20,5 +20,6 @@ public interface IBacklogService
 
     Task<UserStoryDto?> AddStoryAsync(Guid featureId, CreateUserStoryRequest request, string userId, CancellationToken ct = default);
     Task<UserStoryDto?> UpdateStoryAsync(Guid storyId, UpdateUserStoryRequest request, string userId, CancellationToken ct = default);
+    Task<UserStoryStatusUpdateResult> UpdateStoryStatusAsync(Guid storyId, UpdateUserStoryStatusRequest request, string userId, CancellationToken ct = default);
     Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default);
 }
