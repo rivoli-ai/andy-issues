@@ -52,6 +52,7 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.Id);
             e.Property(x => x.SharedWithUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.GrantedByUserId).IsRequired().HasMaxLength(256);
+            e.HasIndex(x => new { x.RepositoryId, x.SharedWithUserId }).IsUnique();
             e.HasOne(x => x.Repository)
                 .WithMany(r => r.Shares)
                 .HasForeignKey(x => x.RepositoryId)
@@ -117,6 +118,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.OwnerUserId).HasMaxLength(256);
             e.Property(x => x.Command).HasMaxLength(1024);
             e.Property(x => x.Url).HasMaxLength(1024);
+            e.HasIndex(x => new { x.OwnerUserId, x.Name }).IsUnique();
         });
 
         modelBuilder.Entity<ArtifactFeedConfig>(e =>

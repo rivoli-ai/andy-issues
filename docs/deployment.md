@@ -77,3 +77,31 @@ export Database__Provider=Sqlite
 export ConnectionStrings__DefaultConnection="Data Source=andy_issues.db"
 dotnet run --project src/Andy.Issues.Api
 ```
+
+## Database schema
+
+Schema evolution uses two complementary paths:
+
+- **PostgreSQL (default)** — EF Core migrations committed under
+  `src/Andy.Issues.Infrastructure/Data/Migrations/`. In Development the API
+  calls `Database.MigrateAsync()` on startup; in other environments run:
+
+  ```bash
+  dotnet ef database update \
+    --project src/Andy.Issues.Infrastructure \
+    --startup-project src/Andy.Issues.Infrastructure
+  ```
+
+- **SQLite (Conductor / embedded)** — the API calls
+  `Database.EnsureCreatedAsync()` on startup, which materializes the current
+  schema without a migrations history. This keeps the embedded path
+  self-contained and migration-free.
+
+To add a new migration:
+
+```bash
+dotnet ef migrations add <Name> \
+  --project src/Andy.Issues.Infrastructure \
+  --startup-project src/Andy.Issues.Infrastructure \
+  --output-dir Data/Migrations
+```
