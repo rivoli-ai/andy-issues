@@ -1,7 +1,9 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -77,7 +79,8 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
 }
 
 // --- Services ---
-// Service registrations will be added per-epic as the new domain is built out.
+builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
+builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddDataProtection();
 
 // --- OpenTelemetry ---

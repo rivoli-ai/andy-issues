@@ -3,12 +3,29 @@
 
 using Andy.Issues.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Andy.Issues.Infrastructure.Data;
 
 public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
+
+    protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
+    {
+        base.ConfigureConventions(configurationBuilder);
+
+        // SQLite has no native DateTimeOffset type and cannot ORDER BY one.
+        // Store as BIGINT via the built-in binary converter so comparisons and
+        // ordering are valid. Postgres keeps its native timestamptz mapping.
+        if (Database.IsSqlite())
+        {
+            configurationBuilder.Properties<DateTimeOffset>()
+                .HaveConversion<DateTimeOffsetToBinaryConverter>();
+            configurationBuilder.Properties<DateTimeOffset?>()
+                .HaveConversion<DateTimeOffsetToBinaryConverter>();
+        }
+    }
 
     public DbSet<Repository> Repositories => Set<Repository>();
     public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
