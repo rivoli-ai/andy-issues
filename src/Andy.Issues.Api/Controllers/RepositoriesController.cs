@@ -107,6 +107,24 @@ public class RepositoriesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPatch("{id:guid}/llm-setting")]
+    public async Task<IActionResult> SetLlmSetting(
+        Guid id,
+        [FromBody] UpdateRepositoryLlmRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.SetLlmSettingAsync(id, request.LlmSettingId, userId, ct);
+        return result switch
+        {
+            SetLlmResult.Updated => NoContent(),
+            SetLlmResult.RepositoryNotFound => NotFound(),
+            SetLlmResult.LlmSettingNotFound => NotFound(new { error = "LLM setting not found." }),
+            SetLlmResult.NotOwner => Forbid(),
+            _ => StatusCode(500)
+        };
+    }
+
     [HttpPost("sync-azure")]
     public async Task<ActionResult<SyncResult>> SyncAzureDevOps(
         [FromBody] SyncAzureDevOpsRepositoriesRequest request,

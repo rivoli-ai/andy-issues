@@ -268,6 +268,31 @@ public class RepositoryService : IRepositoryService
         return new SyncResult(added, updated, skipped, errors);
     }
 
+    public async Task<SetLlmResult> SetLlmSettingAsync(
+        Guid repositoryId,
+        Guid? llmSettingId,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        var repo = await _db.Repositories
+            .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
+        if (repo is null) return SetLlmResult.RepositoryNotFound;
+        if (repo.OwnerUserId != ownerUserId) return SetLlmResult.NotOwner;
+
+        if (llmSettingId is not null)
+        {
+            var llmExists = await _db.LlmSettings
+                .AsNoTracking()
+                .AnyAsync(l => l.Id == llmSettingId && l.OwnerUserId == ownerUserId, ct);
+            if (!llmExists) return SetLlmResult.LlmSettingNotFound;
+        }
+
+        repo.LlmSettingId = llmSettingId;
+        repo.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return SetLlmResult.Updated;
+    }
+
     public async Task<SyncResult?> SyncFromAzureDevOpsAsync(
         string userId,
         string organization,

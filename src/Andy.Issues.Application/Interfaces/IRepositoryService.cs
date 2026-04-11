@@ -63,4 +63,18 @@ public interface IRepositoryService
         string? project,
         IReadOnlyList<string> repositoryIds,
         CancellationToken ct = default);
+
+    Task<SetLlmResult> SetLlmSettingAsync(
+        Guid repositoryId,
+        Guid? llmSettingId,
+        string ownerUserId,
+        CancellationToken ct = default);
+}
+
+public enum SetLlmResult
+{
+    Updated = 0,
+    RepositoryNotFound = 1,
+    LlmSettingNotFound = 2,
+    NotOwner = 3
 }
