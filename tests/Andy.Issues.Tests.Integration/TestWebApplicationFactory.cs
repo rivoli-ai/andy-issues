@@ -19,6 +19,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     private readonly string _databaseName = $"andy-issues-tests-{Guid.NewGuid()}";
     public FakeGitHubClient FakeGitHubClient { get; } = new();
     public FakeAzureDevOpsClient FakeAzureDevOpsClient { get; } = new();
+    public FakeContainersClient FakeContainersClient { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -56,6 +57,12 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (azDescriptor is not null)
                 services.Remove(azDescriptor);
             services.AddSingleton<IAzureDevOpsClient>(FakeAzureDevOpsClient);
+
+            var containersDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IContainersClient));
+            if (containersDescriptor is not null)
+                services.Remove(containersDescriptor);
+            services.AddSingleton<IContainersClient>(FakeContainersClient);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the

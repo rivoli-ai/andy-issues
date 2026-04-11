@@ -56,6 +56,16 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Sandboxes
+
+A sandbox is a working container managed by the sibling `andy-containers` service. andy-issues keeps only a thin local projection (container id, repo, branch, owner, cached status) and delegates every lifecycle operation.
+
+- `POST /api/sandboxes` — body `{ repositoryId, branch, resolution? }`. Creates a container from the template code configured at `AndyContainers:DefaultTemplateCode`, persists a `Sandbox` row, and returns the new DTO. Returns `404` if the caller cannot view the repository.
+- `GET /api/sandboxes` — lists the caller's sandboxes. Each row's status is refreshed from andy-containers before being returned so stale `Creating` rows flip to `Running` / `Stopped` / `Destroyed` automatically.
+- `GET /api/sandboxes/{id}` — same refresh, but for a single sandbox. Returns `404` if the sandbox does not exist *or* the caller is not the owner (ownership is intentionally not shared).
+- `GET /api/sandboxes/{id}/connection` — on-demand lookup of connection details (IDE URL, VNC URL, SSH endpoint) from andy-containers. Never cached.
+- `DELETE /api/sandboxes/{id}` — destroys the remote container and removes the local row. Already-gone containers (404 from andy-containers) are treated as success so local state can reconcile after out-of-band cleanup.
+
 ## Azure DevOps sync
 
 User stories attached to Azure-DevOps-backed repositories can be mirrored to Work Items in the linked AzDO project.
