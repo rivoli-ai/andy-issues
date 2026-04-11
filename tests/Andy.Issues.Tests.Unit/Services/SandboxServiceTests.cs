@@ -47,7 +47,8 @@ public class SandboxServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
     private SandboxService NewService(AppDbContext ctx) =>
-        new(ctx, _containers, new RepositoryAccessGuard(ctx), _config,
+        new(ctx, _containers, new RepositoryAccessGuard(ctx),
+            new ArtifactFeedService(ctx), _config,
             NullLogger<SandboxService>.Instance);
 
     private async Task<Guid> SeedRepoAsync(string owner = "alice", bool shareWith = false)
@@ -336,6 +337,95 @@ public class SandboxServiceTests : IDisposable
         var env = _containers.CreateCalls[0].environmentVariables!;
         Assert.False(env.ContainsKey("AZURE_SUBSCRIPTION_ID"));
         Assert.Equal("c", env["AZURE_CLIENT_ID"]);
+    }
+
+    [Fact]
+    public async Task Create_WithEnabledArtifactFeeds_SerializesToJsonAndAttachesPat()
+    {
+        var repoId = await SeedRepoAsync();
+        await using (var ctx = NewContext())
+        {
+            ctx.ArtifactFeedConfigs.AddRange(
+                new ArtifactFeedConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "internal-nuget",
+                    Organization = "rivoli",
+                    FeedName = "pkgs",
+                    Project = "shared",
+                    Type = ArtifactFeedType.Nuget,
+                    Enabled = true
+                },
+                new ArtifactFeedConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "legacy",
+                    Organization = "rivoli",
+                    FeedName = "legacy-pkgs",
+                    Type = ArtifactFeedType.Pip,
+                    Enabled = false // disabled — should be skipped
+                });
+            ctx.LinkedProviders.Add(new LinkedProvider
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Provider = LinkedProviderKind.AzureDevOps,
+                AccessToken = "pat-from-feeds"
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        await NewService(ctx2).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+
+        var env = _containers.CreateCalls[0].environmentVariables!;
+        Assert.True(env.ContainsKey("ARTIFACT_FEEDS_JSON"));
+        Assert.Equal("pat-from-feeds", env["AZURE_DEVOPS_PAT"]);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(env["ARTIFACT_FEEDS_JSON"]);
+        var items = doc.RootElement.EnumerateArray().ToList();
+        Assert.Single(items);
+        Assert.Equal("internal-nuget", items[0].GetProperty("name").GetString());
+        Assert.Equal("Nuget", items[0].GetProperty("type").GetString());
+        Assert.Equal("rivoli", items[0].GetProperty("organization").GetString());
+        Assert.Equal("pkgs", items[0].GetProperty("feedName").GetString());
+        Assert.Equal("shared", items[0].GetProperty("project").GetString());
+    }
+
+    [Fact]
+    public async Task Create_NoArtifactFeeds_OmitsFeedEnvVars()
+    {
+        var repoId = await SeedRepoAsync();
+        await using var ctx = NewContext();
+        await NewService(ctx).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+
+        Assert.Null(_containers.CreateCalls[0].environmentVariables);
+    }
+
+    [Fact]
+    public async Task Create_ArtifactFeedsWithoutPat_OmitsPatVar()
+    {
+        var repoId = await SeedRepoAsync();
+        await using (var ctx = NewContext())
+        {
+            ctx.ArtifactFeedConfigs.Add(new ArtifactFeedConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "feed",
+                Organization = "rivoli",
+                FeedName = "p",
+                Type = ArtifactFeedType.Npm,
+                Enabled = true
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        await NewService(ctx2).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+
+        var env = _containers.CreateCalls[0].environmentVariables!;
+        Assert.True(env.ContainsKey("ARTIFACT_FEEDS_JSON"));
+        Assert.False(env.ContainsKey("AZURE_DEVOPS_PAT"));
     }
 
     [Fact]

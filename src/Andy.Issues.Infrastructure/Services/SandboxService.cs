@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
@@ -28,6 +29,7 @@ public class SandboxService : ISandboxService
     private readonly AppDbContext _db;
     private readonly IContainersClient _containers;
     private readonly IRepositoryAccessGuard _guard;
+    private readonly IArtifactFeedService _artifactFeeds;
     private readonly IConfiguration _config;
     private readonly ILogger<SandboxService> _logger;
 
@@ -35,12 +37,14 @@ public class SandboxService : ISandboxService
         AppDbContext db,
         IContainersClient containers,
         IRepositoryAccessGuard guard,
+        IArtifactFeedService artifactFeeds,
         IConfiguration config,
         ILogger<SandboxService> logger)
     {
         _db = db;
         _containers = containers;
         _guard = guard;
+        _artifactFeeds = artifactFeeds;
         _config = config;
         _logger = logger;
     }
@@ -59,7 +63,7 @@ public class SandboxService : ISandboxService
 
         var templateCode = _config[DefaultTemplateCodeKey] ?? FallbackTemplateCode;
         var containerName = BuildContainerName(repo.Name, request.Branch);
-        var environmentVariables = BuildEnvironmentVariables(repo);
+        var environmentVariables = await BuildEnvironmentVariablesAsync(repo, userId, ct);
 
         ContainerInfo container;
         try
@@ -209,15 +213,58 @@ public class SandboxService : ISandboxService
     public static IReadOnlyDictionary<string, string>? BuildEnvironmentVariables(Domain.Entities.Repository repo)
     {
         var vars = new Dictionary<string, string>();
-        if (repo.HasAzureIdentity)
-        {
-            vars["AZURE_CLIENT_ID"] = repo.AzureClientId!;
-            vars["AZURE_CLIENT_SECRET"] = repo.AzureClientSecret!;
-            vars["AZURE_TENANT_ID"] = repo.AzureTenantId!;
-            if (!string.IsNullOrEmpty(repo.AzureSubscriptionId))
-                vars["AZURE_SUBSCRIPTION_ID"] = repo.AzureSubscriptionId;
-        }
+        AppendAzureIdentity(vars, repo);
         return vars.Count == 0 ? null : vars;
+    }
+
+    internal async Task<IReadOnlyDictionary<string, string>?> BuildEnvironmentVariablesAsync(
+        Domain.Entities.Repository repo,
+        string userId,
+        CancellationToken ct)
+    {
+        var vars = new Dictionary<string, string>();
+        AppendAzureIdentity(vars, repo);
+        await AppendArtifactFeedsAsync(vars, userId, ct);
+        return vars.Count == 0 ? null : vars;
+    }
+
+    private static void AppendAzureIdentity(Dictionary<string, string> vars, Domain.Entities.Repository repo)
+    {
+        if (!repo.HasAzureIdentity) return;
+        vars["AZURE_CLIENT_ID"] = repo.AzureClientId!;
+        vars["AZURE_CLIENT_SECRET"] = repo.AzureClientSecret!;
+        vars["AZURE_TENANT_ID"] = repo.AzureTenantId!;
+        if (!string.IsNullOrEmpty(repo.AzureSubscriptionId))
+            vars["AZURE_SUBSCRIPTION_ID"] = repo.AzureSubscriptionId;
+    }
+
+    private async Task AppendArtifactFeedsAsync(
+        Dictionary<string, string> vars,
+        string userId,
+        CancellationToken ct)
+    {
+        var feeds = await _artifactFeeds.GetEnabledAsync(ct);
+        if (feeds.Count == 0) return;
+
+        var serialized = feeds
+            .Select(f => new
+            {
+                name = f.Name,
+                type = f.Type,
+                organization = f.Organization,
+                project = f.Project,
+                feedName = f.FeedName
+            })
+            .ToList();
+        vars["ARTIFACT_FEEDS_JSON"] = JsonSerializer.Serialize(serialized);
+
+        var pat = await _db.LinkedProviders
+            .AsNoTracking()
+            .Where(p => p.OwnerUserId == userId && p.Provider == LinkedProviderKind.AzureDevOps)
+            .Select(p => p.AccessToken)
+            .FirstOrDefaultAsync(ct);
+        if (!string.IsNullOrEmpty(pat))
+            vars["AZURE_DEVOPS_PAT"] = pat;
     }
 
     private static string BuildContainerName(string repoName, string branch)

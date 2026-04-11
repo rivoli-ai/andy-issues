@@ -71,6 +71,15 @@ When a sandbox is created on a repository that has an Azure service principal co
 
 The env vars are passed to `IContainersClient.CreateContainerAsync` via the `environmentVariables` dictionary, which the andy-containers adapter forwards on the POST to `api/containers`. Nightly end-to-end runs use `verify-azure-identity` (Story 2.6) against a real container to confirm `az login` succeeds inside the sandbox.
 
+## Artifact feed injection
+
+Sandboxes inherit the organization's enabled artifact feeds so package managers inside the container (`nuget`, `pip`, `npm`) can restore from private Azure Artifacts without per-container configuration.
+
+- Every enabled `ArtifactFeedConfig` is serialized into a single `ARTIFACT_FEEDS_JSON` environment variable — an array of `{ name, type, organization, project?, feedName }` objects — and passed to andy-containers on sandbox create. The sandbox entrypoint parses this and writes the appropriate `nuget.config`, `pip.conf`, and `.npmrc` files.
+- Disabled feeds are filtered out at query time and never reach the container.
+- If the caller has a linked Azure DevOps provider (`LinkedProvider` row for `AzureDevOps`), their PAT is attached as `AZURE_DEVOPS_PAT` so those config files can reference it. When no PAT is linked, `ARTIFACT_FEEDS_JSON` is still emitted but `AZURE_DEVOPS_PAT` is omitted — individual package managers will fail with clear "authentication required" messages, which is surfaced to the developer.
+- The feed query is implemented behind `IArtifactFeedService.GetEnabledAsync`, which Story 5.3 will extend with CRUD admin endpoints.
+
 ## Pull request from a sandbox
 
 Once work is complete inside a sandbox, a single call can push the feature branch to the upstream and open a pull request. The flow is:
