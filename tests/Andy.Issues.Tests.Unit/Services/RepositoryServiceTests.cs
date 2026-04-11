@@ -38,7 +38,8 @@ public class RepositoryServiceTests : IDisposable
     private RepositoryService NewService(AppDbContext ctx)
     {
         var guard = new RepositoryAccessGuard(ctx);
-        return new RepositoryService(ctx, guard);
+        var dir = new UserDirectoryService(ctx);
+        return new RepositoryService(ctx, guard, dir);
     }
 
     private async Task SeedAsync()

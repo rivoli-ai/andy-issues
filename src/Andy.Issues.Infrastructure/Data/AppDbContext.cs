@@ -37,6 +37,7 @@ public class AppDbContext : DbContext
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
     public DbSet<Sandbox> Sandboxes => Set<Sandbox>();
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
+    public DbSet<UserDirectoryEntry> UserDirectory => Set<UserDirectoryEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -173,6 +174,16 @@ public class AppDbContext : DbContext
             e.Property(x => x.ApiKey).HasMaxLength(2048);
             e.Property(x => x.Model).IsRequired().HasMaxLength(256);
             e.Property(x => x.BaseUrl).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<UserDirectoryEntry>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Email).IsRequired().HasMaxLength(256);
+            e.Property(x => x.DisplayName).HasMaxLength(256);
+            e.HasIndex(x => x.UserId).IsUnique();
+            e.HasIndex(x => x.Email).IsUnique();
         });
     }
 }

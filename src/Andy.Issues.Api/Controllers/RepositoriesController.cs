@@ -4,6 +4,7 @@
 using System.Security.Claims;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.Requests;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -52,6 +53,46 @@ public class RepositoriesController : ControllerBase
         var deleted = await _repositoryService.DeleteAsync(id, userId, ct);
         if (!deleted) return NotFound();
         return NoContent();
+    }
+
+    [HttpPost("{id:guid}/share")]
+    public async Task<ActionResult<RepositoryShareDto>> Share(
+        Guid id,
+        [FromBody] ShareRepositoryRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var (result, dto) = await _repositoryService.ShareAsync(id, request.Email, userId, ct);
+        return result switch
+        {
+            ShareResult.Created => Created($"/api/repositories/{id}/shares/{dto!.SharedWithUserId}", dto),
+            ShareResult.AlreadyShared => Ok(dto),
+            ShareResult.SelfShareRejected => BadRequest(new { error = "Cannot share a repository with yourself." }),
+            ShareResult.EmailNotFound => NotFound(new { error = $"No user found for email '{request.Email}'." }),
+            ShareResult.NotOwner => Forbid(),
+            ShareResult.NotFound => NotFound(),
+            _ => StatusCode(500)
+        };
+    }
+
+    [HttpDelete("{id:guid}/share/{targetUserId}")]
+    public async Task<IActionResult> Unshare(Guid id, string targetUserId, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var ok = await _repositoryService.UnshareAsync(id, targetUserId, userId, ct);
+        if (!ok) return NotFound();
+        return NoContent();
+    }
+
+    [HttpGet("{id:guid}/shares")]
+    public async Task<ActionResult<IReadOnlyList<RepositoryShareDto>>> ListShares(
+        Guid id,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var shares = await _repositoryService.ListSharesAsync(id, userId, ct);
+        if (shares is null) return NotFound();
+        return Ok(shares);
     }
 
     private string GetUserId()

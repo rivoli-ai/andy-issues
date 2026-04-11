@@ -79,6 +79,7 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
 }
 
 // --- Services ---
+builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddDataProtection();
