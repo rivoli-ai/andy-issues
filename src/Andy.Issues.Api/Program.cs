@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Api.Hubs;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.External;
@@ -85,6 +86,8 @@ builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
+builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();
+builder.Services.AddSignalR();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 builder.Services.AddHostedService<AzureDevOpsBacklogPullJob>();
@@ -201,6 +204,9 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+// --- SignalR hubs ---
+app.MapHub<BoardHub>(BoardHub.Path);
 
 // --- gRPC endpoint ---
 // gRPC services will be registered in Epic 9.

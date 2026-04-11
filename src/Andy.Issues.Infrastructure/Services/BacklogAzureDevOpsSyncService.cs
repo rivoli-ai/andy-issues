@@ -3,6 +3,7 @@
 
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.Mapping;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
@@ -16,18 +17,21 @@ public class BacklogAzureDevOpsSyncService : IBacklogAzureDevOpsSyncService
     private readonly AppDbContext _db;
     private readonly IAzureDevOpsClient _client;
     private readonly IRepositoryAccessGuard _guard;
+    private readonly IBoardNotifier _notifier;
     private readonly ILogger<BacklogAzureDevOpsSyncService> _logger;
 
     public BacklogAzureDevOpsSyncService(
         AppDbContext db,
         IAzureDevOpsClient client,
         IRepositoryAccessGuard guard,
-        ILogger<BacklogAzureDevOpsSyncService> logger)
+        ILogger<BacklogAzureDevOpsSyncService> logger,
+        IBoardNotifier? notifier = null)
     {
         _db = db;
         _client = client;
         _guard = guard;
         _logger = logger;
+        _notifier = notifier ?? new NullBoardNotifier();
     }
 
     public async Task<SyncResult?> PushAsync(Guid repositoryId, string userId, CancellationToken ct = default)
@@ -138,6 +142,7 @@ public class BacklogAzureDevOpsSyncService : IBacklogAzureDevOpsSyncService
         int updated = 0, skipped = 0;
         var errors = new List<string>();
 
+        var transitioned = new List<UserStory>();
         foreach (var story in stories)
         {
             if (!snapById.TryGetValue(story.AzureDevOpsWorkItemId!.Value, out var snap))
@@ -154,6 +159,7 @@ public class BacklogAzureDevOpsSyncService : IBacklogAzureDevOpsSyncService
                     try
                     {
                         story.SetStatus(UserStoryStatus.Done);
+                        transitioned.Add(story);
                         updated++;
                     }
                     catch (InvalidOperationException ex)
@@ -173,7 +179,11 @@ public class BacklogAzureDevOpsSyncService : IBacklogAzureDevOpsSyncService
         }
 
         if (updated > 0)
+        {
             await _db.SaveChangesAsync(ct);
+            foreach (var story in transitioned)
+                await _notifier.StoryUpdatedAsync(repo.Id, story.ToDto(), ct);
+        }
         return new SyncResult(0, updated, skipped, errors);
     }
 

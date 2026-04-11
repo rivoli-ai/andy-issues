@@ -45,6 +45,17 @@ AI assistant integration endpoint at `/mcp`. MCP tools share the same service la
 ### gRPC
 High-performance RPC defined in `src/Andy.Issues.Api/Protos/`. gRPC services share the same service layer as REST/MCP and are introduced per-domain in Epic 9 (repositories, backlog, sandboxes).
 
+### Real-time (SignalR)
+
+The API exposes a SignalR hub at `/hubs/board` that pushes live backlog updates to subscribed clients. The hub requires authentication — the SignalR JavaScript client must be built with `accessTokenFactory` returning the current bearer token.
+
+- **Hub methods** (client → server):
+  - `JoinRepository(repositoryId)` — subscribes the caller's connection to the `repo-{id}` group. The hub checks `IRepositoryAccessGuard.CanViewAsync` and throws `HubException` with "Access denied" if the caller cannot see the repository.
+  - `LeaveRepository(repositoryId)` — unsubscribes from the group.
+- **Events** (server → client): `EpicAdded`, `EpicUpdated`, `EpicDeleted`, `FeatureAdded`, `FeatureUpdated`, `FeatureDeleted`, `StoryAdded`, `StoryUpdated`, `StoryDeleted`. Add/update events carry the full DTO; delete events carry the deleted entity's id.
+- **Publication path**: `BacklogService` and the Azure DevOps pull loop depend on `IBoardNotifier` (defined in the Application layer) and publish events after every successful mutation. The API wires `IBoardNotifier` to `SignalRBoardNotifier`, a thin adapter over `IHubContext<BoardHub>`. Tests (and any future background consumers that should not broadcast) can inject `NullBoardNotifier` or a recording fake instead.
+- **Scope**: the notifier layer is infrastructure-agnostic, so a later epic can swap SignalR for a message bus without touching service code.
+
 ## Database Strategy
 
 - **PostgreSQL** (default): Used in standalone deployment

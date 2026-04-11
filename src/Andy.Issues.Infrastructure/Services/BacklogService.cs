@@ -16,11 +16,13 @@ public class BacklogService : IBacklogService
 {
     private readonly AppDbContext _db;
     private readonly IRepositoryAccessGuard _guard;
+    private readonly IBoardNotifier _notifier;
 
-    public BacklogService(AppDbContext db, IRepositoryAccessGuard guard)
+    public BacklogService(AppDbContext db, IRepositoryAccessGuard guard, IBoardNotifier? notifier = null)
     {
         _db = db;
         _guard = guard;
+        _notifier = notifier ?? new NullBoardNotifier();
     }
 
     public async Task<BacklogDto?> GetAsync(Guid repositoryId, string userId, CancellationToken ct = default)
@@ -57,7 +59,9 @@ public class BacklogService : IBacklogService
         };
         _db.Epics.Add(epic);
         await _db.SaveChangesAsync(ct);
-        return epic.ToDto();
+        var dto = epic.ToDto();
+        await _notifier.EpicAddedAsync(repositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<EpicDto?> UpdateEpicAsync(
@@ -77,7 +81,9 @@ public class BacklogService : IBacklogService
         if (request.Order is not null) epic.Order = request.Order.Value;
         epic.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return epic.ToDto();
+        var dto = epic.ToDto();
+        await _notifier.EpicUpdatedAsync(epic.RepositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<bool> DeleteEpicAsync(Guid epicId, string userId, CancellationToken ct = default)
@@ -86,8 +92,10 @@ public class BacklogService : IBacklogService
         if (epic is null) return false;
         if (!await _guard.CanViewAsync(epic.RepositoryId, userId, ct)) return false;
 
+        var repositoryId = epic.RepositoryId;
         _db.Epics.Remove(epic);
         await _db.SaveChangesAsync(ct);
+        await _notifier.EpicDeletedAsync(repositoryId, epicId, ct);
         return true;
     }
 
@@ -113,7 +121,9 @@ public class BacklogService : IBacklogService
         };
         _db.Features.Add(feature);
         await _db.SaveChangesAsync(ct);
-        return feature.ToDto();
+        var dto = feature.ToDto();
+        await _notifier.FeatureAddedAsync(epic.RepositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<FeatureDto?> UpdateFeatureAsync(
@@ -134,7 +144,9 @@ public class BacklogService : IBacklogService
         if (request.Order is not null) feature.Order = request.Order.Value;
         feature.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return feature.ToDto();
+        var dto = feature.ToDto();
+        await _notifier.FeatureUpdatedAsync(feature.Epic.RepositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<bool> DeleteFeatureAsync(Guid featureId, string userId, CancellationToken ct = default)
@@ -143,8 +155,10 @@ public class BacklogService : IBacklogService
         if (feature is null) return false;
         if (!await _guard.CanViewAsync(feature.Epic.RepositoryId, userId, ct)) return false;
 
+        var repositoryId = feature.Epic.RepositoryId;
         _db.Features.Remove(feature);
         await _db.SaveChangesAsync(ct);
+        await _notifier.FeatureDeletedAsync(repositoryId, featureId, ct);
         return true;
     }
 
@@ -175,7 +189,9 @@ public class BacklogService : IBacklogService
         };
         _db.UserStories.Add(story);
         await _db.SaveChangesAsync(ct);
-        return story.ToDto();
+        var dto = story.ToDto();
+        await _notifier.StoryAddedAsync(feature.Epic.RepositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<UserStoryDto?> UpdateStoryAsync(
@@ -197,7 +213,9 @@ public class BacklogService : IBacklogService
         if (request.Order is not null) story.Order = request.Order.Value;
         story.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
-        return story.ToDto();
+        var dto = story.ToDto();
+        await _notifier.StoryUpdatedAsync(story.Feature.Epic.RepositoryId, dto, ct);
+        return dto;
     }
 
     public async Task<UserStoryStatusUpdateResult> UpdateStoryStatusAsync(
@@ -229,7 +247,9 @@ public class BacklogService : IBacklogService
             story.PullRequestUrl = request.PullRequestUrl;
 
         await _db.SaveChangesAsync(ct);
-        return UserStoryStatusUpdateResult.Ok(story.ToDto());
+        var dto = story.ToDto();
+        await _notifier.StoryUpdatedAsync(story.Feature.Epic.RepositoryId, dto, ct);
+        return UserStoryStatusUpdateResult.Ok(dto);
     }
 
     public async Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default)
@@ -240,8 +260,10 @@ public class BacklogService : IBacklogService
         if (story is null) return false;
         if (!await _guard.CanViewAsync(story.Feature.Epic.RepositoryId, userId, ct)) return false;
 
+        var repositoryId = story.Feature.Epic.RepositoryId;
         _db.UserStories.Remove(story);
         await _db.SaveChangesAsync(ct);
+        await _notifier.StoryDeletedAsync(repositoryId, storyId, ct);
         return true;
     }
 
