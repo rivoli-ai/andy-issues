@@ -125,6 +125,41 @@ public class RepositoriesController : ControllerBase
         };
     }
 
+    [HttpPatch("{id:guid}/azure-identity")]
+    public async Task<IActionResult> SetAzureIdentity(
+        Guid id,
+        [FromBody] UpdateRepositoryAzureIdentityRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.SetAzureIdentityAsync(
+            id,
+            request.ClientId,
+            request.ClientSecret,
+            request.TenantId,
+            request.SubscriptionId,
+            userId,
+            ct);
+        return result switch
+        {
+            SetAzureIdentityResult.Updated => NoContent(),
+            SetAzureIdentityResult.NotFound => NotFound(),
+            SetAzureIdentityResult.NotOwner => Forbid(),
+            _ => StatusCode(500)
+        };
+    }
+
+    [HttpPost("{id:guid}/verify-azure-identity")]
+    public async Task<ActionResult<VerifyAzureIdentityResult>> VerifyAzureIdentity(
+        Guid id,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.VerifyAzureIdentityAsync(id, userId, ct);
+        if (result is null) return NotFound();
+        return Ok(result);
+    }
+
     [HttpPost("sync-azure")]
     public async Task<ActionResult<SyncResult>> SyncAzureDevOps(
         [FromBody] SyncAzureDevOpsRepositoriesRequest request,

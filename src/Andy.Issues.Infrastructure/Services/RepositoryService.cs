@@ -268,6 +268,52 @@ public class RepositoryService : IRepositoryService
         return new SyncResult(added, updated, skipped, errors);
     }
 
+    public async Task<SetAzureIdentityResult> SetAzureIdentityAsync(
+        Guid repositoryId,
+        string clientId,
+        string clientSecret,
+        string tenantId,
+        string? subscriptionId,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        var repo = await _db.Repositories
+            .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
+        if (repo is null) return SetAzureIdentityResult.NotFound;
+        if (repo.OwnerUserId != ownerUserId) return SetAzureIdentityResult.NotOwner;
+
+        repo.AzureClientId = clientId;
+        repo.AzureClientSecret = clientSecret;
+        repo.AzureTenantId = tenantId;
+        repo.AzureSubscriptionId = subscriptionId;
+        repo.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return SetAzureIdentityResult.Updated;
+    }
+
+    public async Task<VerifyAzureIdentityResult?> VerifyAzureIdentityAsync(
+        Guid repositoryId,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        var repo = await _db.Repositories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
+        if (repo is null) return null;
+        if (repo.OwnerUserId != ownerUserId) return null;
+
+        // TODO (Story 4.1): exec `az login --service-principal ...` inside an
+        // ephemeral helper container via ContainersClient and return the real
+        // result. For now this is a presence check so the endpoint shape is
+        // stable for frontend wiring.
+        if (!repo.HasAzureIdentity)
+            return new VerifyAzureIdentityResult(false, "No Azure identity configured.");
+
+        return new VerifyAzureIdentityResult(
+            true,
+            "Azure identity fields present. Live verification against the Azure REST API is pending Story 4.1.");
+    }
+
     public async Task<SetLlmResult> SetLlmSettingAsync(
         Guid repositoryId,
         Guid? llmSettingId,

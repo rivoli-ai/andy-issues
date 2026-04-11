@@ -69,6 +69,20 @@ public interface IRepositoryService
         Guid? llmSettingId,
         string ownerUserId,
         CancellationToken ct = default);
+
+    Task<SetAzureIdentityResult> SetAzureIdentityAsync(
+        Guid repositoryId,
+        string clientId,
+        string clientSecret,
+        string tenantId,
+        string? subscriptionId,
+        string ownerUserId,
+        CancellationToken ct = default);
+
+    Task<VerifyAzureIdentityResult?> VerifyAzureIdentityAsync(
+        Guid repositoryId,
+        string ownerUserId,
+        CancellationToken ct = default);
 }
 
 public enum SetLlmResult
@@ -78,3 +92,12 @@ public enum SetLlmResult
     LlmSettingNotFound = 2,
     NotOwner = 3
 }
+
+public enum SetAzureIdentityResult
+{
+    Updated = 0,
+    NotFound = 1,
+    NotOwner = 2
+}
+
+public record VerifyAzureIdentityResult(bool Success, string Message);
