@@ -18,6 +18,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"andy-issues-tests-{Guid.NewGuid()}";
     public FakeGitHubClient FakeGitHubClient { get; } = new();
+    public FakeAzureDevOpsClient FakeAzureDevOpsClient { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -42,13 +43,19 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(_databaseName));
 
-            // Replace the real GitHub client with a fake whose responses
+            // Replace the real external clients with fakes whose responses
             // are seeded from individual tests.
             var ghDescriptor = services.FirstOrDefault(
                 d => d.ServiceType == typeof(IGitHubClient));
             if (ghDescriptor is not null)
                 services.Remove(ghDescriptor);
             services.AddSingleton<IGitHubClient>(FakeGitHubClient);
+
+            var azDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IAzureDevOpsClient));
+            if (azDescriptor is not null)
+                services.Remove(azDescriptor);
+            services.AddSingleton<IAzureDevOpsClient>(FakeAzureDevOpsClient);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the

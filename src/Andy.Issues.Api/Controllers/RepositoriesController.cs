@@ -107,6 +107,19 @@ public class RepositoriesController : ControllerBase
         return Ok(result);
     }
 
+    [HttpPost("sync-azure")]
+    public async Task<ActionResult<SyncResult>> SyncAzureDevOps(
+        [FromBody] SyncAzureDevOpsRepositoriesRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.SyncFromAzureDevOpsAsync(
+            userId, request.Organization, request.Project, request.RepoIds, ct);
+        if (result is null)
+            return Unauthorized(new { error = "No Azure DevOps access token linked for this user." });
+        return Ok(result);
+    }
+
     private string GetUserId()
     {
         return User.FindFirst("sub")?.Value

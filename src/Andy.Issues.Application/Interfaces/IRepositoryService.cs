@@ -56,4 +56,11 @@ public interface IRepositoryService
         string userId,
         IReadOnlyList<string> fullNames,
         CancellationToken ct = default);
+
+    Task<SyncResult?> SyncFromAzureDevOpsAsync(
+        string userId,
+        string organization,
+        string? project,
+        IReadOnlyList<string> repositoryIds,
+        CancellationToken ct = default);
 }

@@ -16,17 +16,20 @@ public class RepositoryService : IRepositoryService
     private readonly IRepositoryAccessGuard _guard;
     private readonly IUserDirectory _userDirectory;
     private readonly IGitHubClient _gitHubClient;
+    private readonly IAzureDevOpsClient _azureDevOpsClient;
 
     public RepositoryService(
         AppDbContext db,
         IRepositoryAccessGuard guard,
         IUserDirectory userDirectory,
-        IGitHubClient gitHubClient)
+        IGitHubClient gitHubClient,
+        IAzureDevOpsClient azureDevOpsClient)
     {
         _db = db;
         _guard = guard;
         _userDirectory = userDirectory;
         _gitHubClient = gitHubClient;
+        _azureDevOpsClient = azureDevOpsClient;
     }
 
     public async Task<PagedResult<RepositoryDto>> ListAsync(
@@ -236,6 +239,99 @@ public class RepositoryService : IRepositoryService
                     Name = info.Name,
                     Description = info.Description,
                     Provider = Andy.Issues.Domain.Enums.RepositoryProvider.GitHub,
+                    CloneUrl = info.CloneUrl,
+                    DefaultBranch = info.DefaultBranch,
+                    ExternalId = info.ExternalId
+                });
+                added++;
+            }
+            else
+            {
+                var changed = false;
+                if (existing.Name != info.Name) { existing.Name = info.Name; changed = true; }
+                if (existing.Description != info.Description) { existing.Description = info.Description; changed = true; }
+                if (existing.CloneUrl != info.CloneUrl) { existing.CloneUrl = info.CloneUrl; changed = true; }
+                if (existing.DefaultBranch != info.DefaultBranch) { existing.DefaultBranch = info.DefaultBranch; changed = true; }
+                if (changed)
+                {
+                    existing.UpdatedAt = DateTimeOffset.UtcNow;
+                    updated++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new SyncResult(added, updated, skipped, errors);
+    }
+
+    public async Task<SyncResult?> SyncFromAzureDevOpsAsync(
+        string userId,
+        string organization,
+        string? project,
+        IReadOnlyList<string> repositoryIds,
+        CancellationToken ct = default)
+    {
+        var provider = await _db.LinkedProviders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OwnerUserId == userId
+                && p.Provider == Andy.Issues.Domain.Enums.LinkedProviderKind.AzureDevOps, ct);
+        if (provider is null)
+            return null;
+
+        if (string.IsNullOrWhiteSpace(organization) || string.IsNullOrWhiteSpace(project))
+            return new SyncResult(0, 0, 0, new[] { "organization and project are required" });
+
+        var added = 0;
+        var updated = 0;
+        var skipped = 0;
+        var errors = new List<string>();
+
+        foreach (var repoId in repositoryIds.Distinct())
+        {
+            if (string.IsNullOrWhiteSpace(repoId))
+            {
+                skipped++;
+                continue;
+            }
+
+            AzureDevOpsRepositoryInfo? info;
+            try
+            {
+                info = await _azureDevOpsClient.GetRepositoryAsync(
+                    organization, project, repoId, provider.AccessToken, ct);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{repoId}: {ex.Message}");
+                continue;
+            }
+
+            if (info is null)
+            {
+                errors.Add($"{repoId}: not found");
+                continue;
+            }
+
+            var existing = await _db.Repositories
+                .FirstOrDefaultAsync(
+                    r => r.OwnerUserId == userId
+                        && r.Provider == Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps
+                        && r.ExternalId == info.ExternalId,
+                    ct);
+
+            if (existing is null)
+            {
+                _db.Repositories.Add(new Repository
+                {
+                    Id = Guid.NewGuid(),
+                    OwnerUserId = userId,
+                    Name = info.Name,
+                    Description = info.Description,
+                    Provider = Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps,
                     CloneUrl = info.CloneUrl,
                     DefaultBranch = info.DefaultBranch,
                     ExternalId = info.ExternalId

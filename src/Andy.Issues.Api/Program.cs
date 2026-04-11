@@ -84,6 +84,7 @@ builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
+builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 builder.Services.AddDataProtection();
 
 // --- OpenTelemetry ---
