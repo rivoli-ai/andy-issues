@@ -2,7 +2,9 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
@@ -72,6 +74,184 @@ public class RepositoryServiceTests : IDisposable
         ctx.Repositories.AddRange(mine, sharedWithMe, unrelated);
         await ctx.SaveChangesAsync();
     }
+
+    // MARK: - CreateAsync
+
+    [Fact]
+    public async Task Create_PersistsRepositoryAndReturnsDto()
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "rivoli-ai/andy-issues",
+                Description: "Issues service",
+                Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/andy-issues.git",
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.Created, result);
+        Assert.NotNull(dto);
+        Assert.Equal("rivoli-ai/andy-issues", dto!.Name);
+        Assert.Equal("github", dto.Provider, ignoreCase: true);
+        Assert.Equal("main", dto.DefaultBranch);
+
+        await using var verify = NewContext();
+        var persisted = await verify.Repositories.SingleAsync();
+        Assert.Equal("alice", persisted.OwnerUserId);
+        Assert.Equal(RepositoryProvider.GitHub, persisted.Provider);
+        Assert.Equal("https://github.com/rivoli-ai/andy-issues.git", persisted.CloneUrl);
+    }
+
+    [Fact]
+    public async Task Create_DefaultsBranchToMainWhenOmitted()
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: null,
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.Created, result);
+        Assert.Equal("main", dto!.DefaultBranch);
+    }
+
+    [Fact]
+    public async Task Create_AcceptsAzureDevOpsProviderCaseInsensitive()
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var (result, _) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "AzureDevOps",
+                CloneUrl: "https://dev.azure.com/org/project/_git/x",
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.Created, result);
+    }
+
+    [Fact]
+    public async Task Create_RejectsUnknownProvider()
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "gitlab",
+                CloneUrl: "https://gitlab.com/x.git",
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.InvalidProvider, result);
+        Assert.Null(dto);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("not a url")]
+    [InlineData("ftp://example.com/x.git")]
+    [InlineData("git@github.com:rivoli-ai/x.git")] // SSH form is rejected — http(s) only
+    public async Task Create_RejectsInvalidCloneUrl(string cloneUrl)
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "github",
+                CloneUrl: cloneUrl,
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.InvalidCloneUrl, result);
+        Assert.Null(dto);
+    }
+
+    [Fact]
+    public async Task Create_DuplicateForSameOwnerReturnsAlreadyExistsWithExistingDto()
+    {
+        // Conductor's "Add repository" sheet treats AlreadyExists as a
+        // benign no-op so resubmitting the same clone URL must surface
+        // the existing row, not a 500.
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var first = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+        Assert.Equal(CreateRepositoryResult.Created, first.Result);
+
+        var second = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x",
+                Description: null,
+                Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main",
+                ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.AlreadyExists, second.Result);
+        Assert.NotNull(second.Dto);
+        Assert.Equal(first.Dto!.Id, second.Dto!.Id);
+    }
+
+    [Fact]
+    public async Task Create_SameCloneUrlForDifferentOwnersBothSucceed()
+    {
+        // Two users may legitimately track the same upstream repo.
+        // Idempotency is per-owner, not global.
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var alice = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x", Description: null, Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main", ExternalId: null),
+            ownerUserId: "alice");
+        var bob = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x", Description: null, Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main", ExternalId: null),
+            ownerUserId: "bob");
+
+        Assert.Equal(CreateRepositoryResult.Created, alice.Result);
+        Assert.Equal(CreateRepositoryResult.Created, bob.Result);
+        Assert.NotEqual(alice.Dto!.Id, bob.Dto!.Id);
+    }
+
+    // MARK: - Existing list/share tests
 
     [Fact]
     public async Task List_ScopeMine_ReturnsOnlyOwnedRepos()

@@ -45,6 +45,30 @@ public class RepositoriesController : ControllerBase
         };
     }
 
+    [HttpPost]
+    public async Task<ActionResult<RepositoryDto>> Create(
+        [FromBody] CreateRepositoryRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var (result, dto) = await _repositoryService.CreateAsync(request, userId, ct);
+        return result switch
+        {
+            CreateRepositoryResult.Created =>
+                CreatedAtAction(nameof(Get), new { id = dto!.Id }, dto),
+            CreateRepositoryResult.AlreadyExists =>
+                // Idempotent: return 200 with the existing dto so the
+                // Conductor "Add repository" sheet can treat repeat
+                // submissions as a no-op without surfacing an error.
+                Ok(dto),
+            CreateRepositoryResult.InvalidProvider =>
+                BadRequest(new { error = $"Unknown provider '{request.Provider}'. Use 'github' or 'azuredevops'." }),
+            CreateRepositoryResult.InvalidCloneUrl =>
+                BadRequest(new { error = "CloneUrl is required and must be an absolute http(s) URL." }),
+            _ => StatusCode(500)
+        };
+    }
+
     [HttpGet]
     public async Task<ActionResult<PagedResult<RepositoryDto>>> List(
         [FromQuery] string scope = "mine",

@@ -4,7 +4,9 @@
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
+using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 
@@ -30,6 +32,58 @@ public class RepositoryService : IRepositoryService
         _userDirectory = userDirectory;
         _gitHubClient = gitHubClient;
         _azureDevOpsClient = azureDevOpsClient;
+    }
+
+    public async Task<(CreateRepositoryResult Result, RepositoryDto? Dto)> CreateAsync(
+        CreateRepositoryRequest request,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        // Provider parsing is case-insensitive so callers can pass
+        // "github" / "GitHub" / "GITHUB" interchangeably. The legacy
+        // sync-github / sync-azure endpoints take the provider
+        // implicitly via the route name; here it has to be explicit
+        // because both providers go through the same endpoint.
+        if (!Enum.TryParse<RepositoryProvider>(request.Provider, ignoreCase: true, out var provider))
+            return (CreateRepositoryResult.InvalidProvider, null);
+
+        // Reject empty/whitespace clone URLs and anything that isn't an
+        // absolute http(s) URL. We do not try to be exhaustive — the
+        // git client at sandbox/sync time will catch deeper issues.
+        if (string.IsNullOrWhiteSpace(request.CloneUrl)
+            || !Uri.TryCreate(request.CloneUrl, UriKind.Absolute, out var parsedUrl)
+            || (parsedUrl.Scheme != Uri.UriSchemeHttp && parsedUrl.Scheme != Uri.UriSchemeHttps))
+        {
+            return (CreateRepositoryResult.InvalidCloneUrl, null);
+        }
+
+        // Idempotency: if the same owner already has a repo at the
+        // same clone URL, surface a conflict instead of creating a
+        // duplicate row. The Conductor sheet treats this as a benign
+        // outcome ("already added").
+        var existing = await _db.Repositories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                r => r.OwnerUserId == ownerUserId && r.CloneUrl == request.CloneUrl,
+                ct);
+        if (existing is not null)
+            return (CreateRepositoryResult.AlreadyExists, existing.ToDto());
+
+        var entity = new Repository
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = ownerUserId,
+            Name = request.Name,
+            Description = request.Description,
+            Provider = provider,
+            CloneUrl = request.CloneUrl,
+            DefaultBranch = string.IsNullOrWhiteSpace(request.DefaultBranch) ? "main" : request.DefaultBranch,
+            ExternalId = request.ExternalId,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        _db.Repositories.Add(entity);
+        await _db.SaveChangesAsync(ct);
+        return (CreateRepositoryResult.Created, entity.ToDto());
     }
 
     public async Task<PagedResult<RepositoryDto>> ListAsync(

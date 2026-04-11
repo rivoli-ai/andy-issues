@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Dtos;
+using Andy.Issues.Application.Requests;
 
 namespace Andy.Issues.Application.Interfaces;
 
@@ -10,6 +11,14 @@ public enum RepositoryScope
     Mine = 0,
     Shared = 1,
     All = 2
+}
+
+public enum CreateRepositoryResult
+{
+    Created = 0,
+    InvalidProvider = 1,
+    InvalidCloneUrl = 2,
+    AlreadyExists = 3
 }
 
 public enum ShareResult
@@ -24,6 +33,21 @@ public enum ShareResult
 
 public interface IRepositoryService
 {
+    /// <summary>
+    /// Creates a new repository owned by the supplied user. Used by the
+    /// Conductor "Add repository" flow which knows the clone URL but
+    /// has not gone through the GitHub/Azure DevOps OAuth dance — the
+    /// `sync-github` / `sync-azure` endpoints both require a linked
+    /// access token, so they cannot be used to seed the very first
+    /// repo. Returns `Conflict` when the same owner already has a
+    /// repository at the same clone URL so the call is naturally
+    /// idempotent.
+    /// </summary>
+    Task<(CreateRepositoryResult Result, RepositoryDto? Dto)> CreateAsync(
+        CreateRepositoryRequest request,
+        string ownerUserId,
+        CancellationToken ct = default);
+
     Task<PagedResult<RepositoryDto>> ListAsync(
         string userId,
         RepositoryScope scope,
