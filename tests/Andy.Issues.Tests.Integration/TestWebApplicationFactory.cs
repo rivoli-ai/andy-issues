@@ -1,7 +1,9 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Tests.Integration.Fakes;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -15,6 +17,7 @@ namespace Andy.Issues.Tests.Integration;
 public class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
     private readonly string _databaseName = $"andy-issues-tests-{Guid.NewGuid()}";
+    public FakeGitHubClient FakeGitHubClient { get; } = new();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -38,6 +41,14 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
 
             services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(_databaseName));
+
+            // Replace the real GitHub client with a fake whose responses
+            // are seeded from individual tests.
+            var ghDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IGitHubClient));
+            if (ghDescriptor is not null)
+                services.Remove(ghDescriptor);
+            services.AddSingleton<IGitHubClient>(FakeGitHubClient);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the

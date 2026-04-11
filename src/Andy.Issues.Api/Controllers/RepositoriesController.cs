@@ -95,6 +95,18 @@ public class RepositoriesController : ControllerBase
         return Ok(shares);
     }
 
+    [HttpPost("sync-github")]
+    public async Task<ActionResult<SyncResult>> SyncGitHub(
+        [FromBody] SyncGitHubRepositoriesRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.SyncFromGitHubAsync(userId, request.RepoIds, ct);
+        if (result is null)
+            return Unauthorized(new { error = "No GitHub access token linked for this user." });
+        return Ok(result);
+    }
+
     private string GetUserId()
     {
         return User.FindFirst("sub")?.Value

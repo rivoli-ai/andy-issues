@@ -3,6 +3,7 @@
 
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -82,6 +83,7 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
 builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
+builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddDataProtection();
 
 // --- OpenTelemetry ---

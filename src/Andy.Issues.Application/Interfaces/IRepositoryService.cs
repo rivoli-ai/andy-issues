@@ -51,4 +51,9 @@ public interface IRepositoryService
         Guid repositoryId,
         string ownerUserId,
         CancellationToken ct = default);
+
+    Task<SyncResult?> SyncFromGitHubAsync(
+        string userId,
+        IReadOnlyList<string> fullNames,
+        CancellationToken ct = default);
 }

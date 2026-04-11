@@ -15,15 +15,18 @@ public class RepositoryService : IRepositoryService
     private readonly AppDbContext _db;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IUserDirectory _userDirectory;
+    private readonly IGitHubClient _gitHubClient;
 
     public RepositoryService(
         AppDbContext db,
         IRepositoryAccessGuard guard,
-        IUserDirectory userDirectory)
+        IUserDirectory userDirectory,
+        IGitHubClient gitHubClient)
     {
         _db = db;
         _guard = guard;
         _userDirectory = userDirectory;
+        _gitHubClient = gitHubClient;
     }
 
     public async Task<PagedResult<RepositoryDto>> ListAsync(
@@ -173,5 +176,92 @@ public class RepositoryService : IRepositoryService
             .ToListAsync(ct);
 
         return shares.Select(s => s.ToDto()).ToList();
+    }
+
+    public async Task<SyncResult?> SyncFromGitHubAsync(
+        string userId,
+        IReadOnlyList<string> fullNames,
+        CancellationToken ct = default)
+    {
+        var provider = await _db.LinkedProviders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OwnerUserId == userId
+                && p.Provider == Andy.Issues.Domain.Enums.LinkedProviderKind.GitHub, ct);
+        if (provider is null)
+            return null;
+
+        var added = 0;
+        var updated = 0;
+        var skipped = 0;
+        var errors = new List<string>();
+
+        foreach (var fullName in fullNames.Distinct())
+        {
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                skipped++;
+                continue;
+            }
+
+            GitHubRepositoryInfo? info;
+            try
+            {
+                info = await _gitHubClient.GetRepositoryAsync(fullName, provider.AccessToken, ct);
+            }
+            catch (Exception ex)
+            {
+                errors.Add($"{fullName}: {ex.Message}");
+                continue;
+            }
+
+            if (info is null)
+            {
+                errors.Add($"{fullName}: not found");
+                continue;
+            }
+
+            var existing = await _db.Repositories
+                .FirstOrDefaultAsync(
+                    r => r.OwnerUserId == userId
+                        && r.Provider == Andy.Issues.Domain.Enums.RepositoryProvider.GitHub
+                        && r.ExternalId == info.ExternalId,
+                    ct);
+
+            if (existing is null)
+            {
+                _db.Repositories.Add(new Repository
+                {
+                    Id = Guid.NewGuid(),
+                    OwnerUserId = userId,
+                    Name = info.Name,
+                    Description = info.Description,
+                    Provider = Andy.Issues.Domain.Enums.RepositoryProvider.GitHub,
+                    CloneUrl = info.CloneUrl,
+                    DefaultBranch = info.DefaultBranch,
+                    ExternalId = info.ExternalId
+                });
+                added++;
+            }
+            else
+            {
+                var changed = false;
+                if (existing.Name != info.Name) { existing.Name = info.Name; changed = true; }
+                if (existing.Description != info.Description) { existing.Description = info.Description; changed = true; }
+                if (existing.CloneUrl != info.CloneUrl) { existing.CloneUrl = info.CloneUrl; changed = true; }
+                if (existing.DefaultBranch != info.DefaultBranch) { existing.DefaultBranch = info.DefaultBranch; changed = true; }
+                if (changed)
+                {
+                    existing.UpdatedAt = DateTimeOffset.UtcNow;
+                    updated++;
+                }
+                else
+                {
+                    skipped++;
+                }
+            }
+        }
+
+        await _db.SaveChangesAsync(ct);
+        return new SyncResult(added, updated, skipped, errors);
     }
 }

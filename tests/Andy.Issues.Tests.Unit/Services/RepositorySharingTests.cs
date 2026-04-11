@@ -39,7 +39,8 @@ public class RepositorySharingTests : IDisposable
     {
         var guard = new RepositoryAccessGuard(ctx);
         var dir = new UserDirectoryService(ctx);
-        return new RepositoryService(ctx, guard, dir);
+        var gh = new StubGitHubClient();
+        return new RepositoryService(ctx, guard, dir, gh);
     }
 
     private async Task<Guid> SeedAsync()
