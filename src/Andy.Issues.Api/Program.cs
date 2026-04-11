@@ -84,8 +84,10 @@ builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
+builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
+builder.Services.AddHostedService<AzureDevOpsBacklogPullJob>();
 builder.Services.AddDataProtection();
 
 // --- OpenTelemetry ---

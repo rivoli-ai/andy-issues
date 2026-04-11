@@ -18,6 +18,7 @@ public class UserStory
     public string? PullRequestUrl { get; set; }
     public int Order { get; set; }
     public string? ExternalId { get; set; }
+    public int? AzureDevOpsWorkItemId { get; set; }
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; set; }
 

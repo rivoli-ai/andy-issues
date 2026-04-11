@@ -110,6 +110,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.PullRequestUrl).HasMaxLength(1024);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.HasIndex(x => x.AzureDevOpsWorkItemId);
             e.HasOne(x => x.Feature)
                 .WithMany(f => f.Stories)
                 .HasForeignKey(x => x.FeatureId)

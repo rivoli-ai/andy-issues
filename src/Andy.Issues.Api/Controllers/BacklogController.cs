@@ -15,10 +15,20 @@ namespace Andy.Issues.Api.Controllers;
 public class BacklogController : ControllerBase
 {
     private readonly IBacklogService _backlog;
+    private readonly IBacklogAzureDevOpsSyncService _azureSync;
 
-    public BacklogController(IBacklogService backlog)
+    public BacklogController(IBacklogService backlog, IBacklogAzureDevOpsSyncService azureSync)
     {
         _backlog = backlog;
+        _azureSync = azureSync;
+    }
+
+    [HttpPost("api/repositories/{repositoryId:guid}/sync-azure-devops")]
+    public async Task<ActionResult<SyncResult>> SyncAzureDevOps(Guid repositoryId, CancellationToken ct)
+    {
+        var push = await _azureSync.PushAsync(repositoryId, GetUserId(), ct);
+        if (push is null) return NotFound();
+        return Ok(push);
     }
 
     [HttpGet("api/repositories/{repositoryId:guid}/backlog")]

@@ -40,5 +40,6 @@ public record UserStoryDto(
     string? PullRequestUrl,
     int Order,
     string? ExternalId,
+    int? AzureDevOpsWorkItemId,
     DateTimeOffset CreatedAt,
     DateTimeOffset? UpdatedAt);

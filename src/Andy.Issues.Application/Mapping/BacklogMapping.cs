@@ -19,6 +19,7 @@ public static class BacklogMapping
         entity.PullRequestUrl,
         entity.Order,
         entity.ExternalId,
+        entity.AzureDevOpsWorkItemId,
         entity.CreatedAt,
         entity.UpdatedAt);
 

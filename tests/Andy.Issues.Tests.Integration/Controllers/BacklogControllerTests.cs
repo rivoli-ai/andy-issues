@@ -7,6 +7,7 @@ using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -135,6 +136,63 @@ public class BacklogControllerTests : IClassFixture<TestWebApplicationFactory>
             $"/api/stories/{story.Id}/status",
             new UpdateUserStoryStatusRequest("Bogus", null));
         Assert.Equal(HttpStatusCode.BadRequest, badResp.StatusCode);
+    }
+
+    [Fact]
+    public async Task SyncAzureDevOps_PushesWorkItemsAndPersistsIds()
+    {
+        Guid repoId;
+        Guid storyId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var repo = new Repository
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "dev-user",
+                Name = "azdo-repo",
+                Provider = RepositoryProvider.AzureDevOps,
+                CloneUrl = "https://dev.azure.com/myorg/myproject/_git/myrepo"
+            };
+            db.Repositories.Add(repo);
+            db.LinkedProviders.Add(new LinkedProvider
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "dev-user",
+                Provider = LinkedProviderKind.AzureDevOps,
+                AccessToken = "pat-token"
+            });
+            var epic = new Epic { Id = Guid.NewGuid(), RepositoryId = repo.Id, Title = "E", Order = 1 };
+            db.Epics.Add(epic);
+            var feature = new Feature { Id = Guid.NewGuid(), EpicId = epic.Id, Title = "F", Order = 1 };
+            db.Features.Add(feature);
+            var story = new UserStory
+            {
+                Id = Guid.NewGuid(),
+                FeatureId = feature.Id,
+                Title = "sync-me",
+                Order = 1
+            };
+            db.UserStories.Add(story);
+            await db.SaveChangesAsync();
+            repoId = repo.Id;
+            storyId = story.Id;
+        }
+
+        _factory.FakeAzureDevOpsClient.Reset();
+
+        var resp = await _client.PostAsync($"/api/repositories/{repoId}/sync-azure-devops", content: null);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var result = await resp.Content.ReadFromJsonAsync<SyncResult>(JsonOptions);
+        Assert.NotNull(result);
+        Assert.Equal(1, result!.Added);
+
+        Assert.Single(_factory.FakeAzureDevOpsClient.WorkItems);
+
+        using var scope2 = _factory.Services.CreateScope();
+        var db2 = scope2.ServiceProvider.GetRequiredService<AppDbContext>();
+        var persisted = await db2.UserStories.FindAsync(storyId);
+        Assert.NotNull(persisted!.AzureDevOpsWorkItemId);
     }
 
     [Fact]

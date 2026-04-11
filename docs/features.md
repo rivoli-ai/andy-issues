@@ -55,3 +55,14 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `409 Conflict` if the transition is forbidden (currently only `Done → Draft`).
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
+
+## Azure DevOps sync
+
+User stories attached to Azure-DevOps-backed repositories can be mirrored to Work Items in the linked AzDO project.
+
+- `POST /api/repositories/{id}/sync-azure-devops` walks every story under the repo and either creates or updates a Work Item (type *User Story*) in the target project. New items have their id persisted in `UserStory.AzureDevOpsWorkItemId`; subsequent pushes update the existing item. Org/project are derived from the repository's clone URL (both `dev.azure.com/{org}/{project}/_git/...` and `{org}.visualstudio.com/{project}/_git/...` are supported). The caller's AzDO linked provider supplies the PAT.
+- A hosted `AzureDevOpsBacklogPullJob` polls remote state on a timer configured by `Andy:Issues:AzureDevops:PullIntervalSeconds`. A value ≤ 0 disables the job entirely (the default in test and dev environments). Each tick reads every AzDO-linked repository and calls the sync service's pull path.
+- Conflict resolution:
+  - **Azure DevOps is authoritative for done/closed state.** When the remote Work Item is in `Closed`, `Done`, or `Removed`, the local story is forced to `Done`. Other remote states (`New`, `Active`, `Resolved`, ...) are ignored on pull so local progress is never rolled back.
+  - **Andy Issues is authoritative for title and description.** Pulled snapshots never overwrite local text fields; push is the only direction in which title/description flow.
+- Local status → AzDO state mapping used on push: `Draft → New`, `Ready/InProgress → Active`, `InReview → Resolved`, `Done → Closed`.

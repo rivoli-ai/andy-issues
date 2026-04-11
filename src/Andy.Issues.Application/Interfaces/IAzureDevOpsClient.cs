@@ -12,12 +12,37 @@ public record AzureDevOpsRepositoryInfo(
     string Project,
     string Organization);
 
+public record AzureDevOpsWorkItemUpsert(
+    int? ExistingId,
+    string Title,
+    string? Description,
+    string State);
+
+public record AzureDevOpsWorkItemSnapshot(
+    int Id,
+    string Title,
+    string State);
+
 public interface IAzureDevOpsClient
 {
     Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
         string organization,
         string project,
         string repositoryId,
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    Task<AzureDevOpsWorkItemSnapshot?> UpsertWorkItemAsync(
+        string organization,
+        string project,
+        AzureDevOpsWorkItemUpsert item,
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<AzureDevOpsWorkItemSnapshot>> GetWorkItemsAsync(
+        string organization,
+        string project,
+        IReadOnlyList<int> ids,
         string personalAccessToken,
         CancellationToken ct = default);
 }
