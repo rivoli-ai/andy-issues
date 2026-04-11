@@ -48,8 +48,8 @@ public class SandboxServiceTests : IDisposable
     private AppDbContext NewContext() => new(_options);
     private SandboxService NewService(AppDbContext ctx) =>
         new(ctx, _containers, new RepositoryAccessGuard(ctx),
-            new ArtifactFeedService(ctx), _config,
-            NullLogger<SandboxService>.Instance);
+            new ArtifactFeedService(ctx), new McpConfigService(ctx),
+            _config, NullLogger<SandboxService>.Instance);
 
     private async Task<Guid> SeedRepoAsync(string owner = "alice", bool shareWith = false)
     {
@@ -426,6 +426,108 @@ public class SandboxServiceTests : IDisposable
         var env = _containers.CreateCalls[0].environmentVariables!;
         Assert.True(env.ContainsKey("ARTIFACT_FEEDS_JSON"));
         Assert.False(env.ContainsKey("AZURE_DEVOPS_PAT"));
+    }
+
+    [Fact]
+    public async Task Create_WithEnabledMcpConfigs_SerializesFullConfigsWithSecrets()
+    {
+        var repoId = await SeedRepoAsync();
+        await using (var ctx = NewContext())
+        {
+            ctx.McpServerConfigs.AddRange(
+                new McpServerConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "personal-stdio",
+                    OwnerUserId = "alice",
+                    IsShared = false,
+                    Type = McpServerType.Stdio,
+                    Enabled = true,
+                    Command = "python",
+                    ArgumentsJson = "[\"-m\",\"my_mcp\"]",
+                    EnvironmentJson = "{\"API_KEY\":\"secret-alice\"}"
+                },
+                new McpServerConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "shared-remote",
+                    OwnerUserId = null,
+                    IsShared = true,
+                    Type = McpServerType.Remote,
+                    Enabled = true,
+                    Url = "https://mcp.example.com",
+                    HeadersJson = "{\"Authorization\":\"Bearer shared-token\"}"
+                },
+                new McpServerConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "bob-personal",
+                    OwnerUserId = "bob",
+                    IsShared = false,
+                    Type = McpServerType.Stdio,
+                    Enabled = true,
+                    Command = "node"
+                },
+                new McpServerConfig
+                {
+                    Id = Guid.NewGuid(),
+                    Name = "disabled-shared",
+                    OwnerUserId = null,
+                    IsShared = true,
+                    Type = McpServerType.Remote,
+                    Enabled = false,
+                    Url = "https://off.example.com"
+                });
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        await NewService(ctx2).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+
+        var env = _containers.CreateCalls[0].environmentVariables!;
+        Assert.True(env.ContainsKey("MCP_SERVERS_JSON"));
+
+        using var doc = System.Text.Json.JsonDocument.Parse(env["MCP_SERVERS_JSON"]);
+        var items = doc.RootElement.EnumerateArray().ToList();
+        Assert.Equal(2, items.Count);
+
+        // Ordered by name: personal-stdio, shared-remote (bob-personal excluded, disabled-shared excluded).
+        Assert.Equal("personal-stdio", items[0].GetProperty("name").GetString());
+        Assert.Equal("{\"API_KEY\":\"secret-alice\"}",
+            items[0].GetProperty("environmentJson").GetString());
+
+        Assert.Equal("shared-remote", items[1].GetProperty("name").GetString());
+        Assert.Equal("{\"Authorization\":\"Bearer shared-token\"}",
+            items[1].GetProperty("headersJson").GetString());
+    }
+
+    [Fact]
+    public async Task McpConfigDto_StillMasksSecretsOnOutboundPath()
+    {
+        // Sanity check that mapping to the public DTO never surfaces the JSON columns.
+        var entity = new McpServerConfig
+        {
+            Id = Guid.NewGuid(),
+            Name = "n",
+            OwnerUserId = "alice",
+            Type = McpServerType.Stdio,
+            EnvironmentJson = "{\"SECRET\":\"v\"}",
+            HeadersJson = "{\"X\":\"Y\"}"
+        };
+        var dto = Andy.Issues.Application.Mapping.McpServerConfigMapping.ToDto(entity);
+        Assert.True(dto.HasEnvironment);
+        Assert.True(dto.HasHeaders);
+        Assert.DoesNotContain("SECRET", System.Text.Json.JsonSerializer.Serialize(dto));
+        await Task.CompletedTask;
+    }
+
+    [Fact]
+    public async Task Create_NoMcpConfigs_OmitsMcpEnvVar()
+    {
+        var repoId = await SeedRepoAsync();
+        await using var ctx = NewContext();
+        await NewService(ctx).CreateAsync(new CreateSandboxRequest(repoId, "main", null), "alice");
+        Assert.Null(_containers.CreateCalls[0].environmentVariables);
     }
 
     [Fact]

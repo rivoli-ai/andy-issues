@@ -56,6 +56,15 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## MCP server injection into sandboxes
+
+Developers register MCP (Model Context Protocol) servers through the Andy Issues admin surface — some personal, some shared across the org — and sandboxes need to see them so in-container tooling (Zed, Claude) can call into them.
+
+- `IMcpConfigService.GetEnabledForUserAsync(userId)` returns every enabled `McpServerConfig` that the user can see: personal configs owned by them, plus every shared config. Disabled rows are filtered out at query time.
+- `SandboxService.CreateAsync` serializes the result into a single `MCP_SERVERS_JSON` environment variable on the container create call. Each entry carries `{ id, name, description, type, command, argumentsJson, environmentJson, url, headersJson }` — including the full stdio env block and the full HTTP headers block. The sandbox entrypoint parses this and writes the appropriate config file so the in-container agents see the servers on first run.
+- The sandbox channel is a **server→server** path. Secrets are intentionally shipped in the clear on the env var because the container is owned by the same user and lives behind andy-containers' auth boundary. The outbound `McpServerConfigDto` used by the REST API deliberately drops `EnvironmentJson` and `HeadersJson` and exposes `HasEnvironment`/`HasHeaders` booleans instead — the browser never sees the unmasked data even if the user is an admin.
+- `McpServerConfigFull` (defined in the Application layer) is the server-side-only record that carries unmasked fields and must never be returned through an HTTP/gRPC/MCP response. The type has an explicit comment to that effect and only one consumer (`SandboxService`).
+
 ## Zed IDE access
 
 Every sandbox container started through `POST /api/sandboxes` exposes an in-browser Zed IDE plus a VNC display — andy-containers brings them up as part of the template image and publishes their URLs on the container object. andy-issues never runs a dedicated IDE gateway; it just forwards the live connection details on demand.

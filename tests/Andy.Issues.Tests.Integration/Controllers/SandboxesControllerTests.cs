@@ -92,6 +92,42 @@ public class SandboxesControllerTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Create_EnabledMcpConfig_FlowsSecretsIntoMcpServersJson()
+    {
+        var repoId = await SeedRepoAsync();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.McpServerConfigs.Add(new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "live-test-stdio",
+                OwnerUserId = "dev-user",
+                IsShared = false,
+                Type = McpServerType.Stdio,
+                Enabled = true,
+                Command = "python",
+                EnvironmentJson = "{\"API_KEY\":\"http-secret\"}"
+            });
+            await db.SaveChangesAsync();
+        }
+
+        var resp = await _client.PostAsJsonAsync("/api/sandboxes",
+            new CreateSandboxRequest(repoId, "main", null));
+        resp.EnsureSuccessStatusCode();
+
+        var env = _factory.FakeContainersClient.CreateCalls
+            .Single(c => c.environmentVariables is not null && c.environmentVariables.ContainsKey("MCP_SERVERS_JSON"))
+            .environmentVariables!;
+        using var doc = JsonDocument.Parse(env["MCP_SERVERS_JSON"]);
+        var items = doc.RootElement.EnumerateArray().ToList();
+        Assert.Contains(items, el => el.GetProperty("name").GetString() == "live-test-stdio");
+        Assert.Contains(items,
+            el => el.TryGetProperty("environmentJson", out var e)
+                && (e.GetString() ?? "").Contains("http-secret"));
+    }
+
+    [Fact]
     public async Task Create_RepoWithAzureIdentity_ForwardsEnvVarsToContainer()
     {
         Guid repoId;

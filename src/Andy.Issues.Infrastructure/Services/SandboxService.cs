@@ -30,6 +30,7 @@ public class SandboxService : ISandboxService
     private readonly IContainersClient _containers;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IArtifactFeedService _artifactFeeds;
+    private readonly IMcpConfigService _mcpConfigs;
     private readonly IConfiguration _config;
     private readonly ILogger<SandboxService> _logger;
 
@@ -38,6 +39,7 @@ public class SandboxService : ISandboxService
         IContainersClient containers,
         IRepositoryAccessGuard guard,
         IArtifactFeedService artifactFeeds,
+        IMcpConfigService mcpConfigs,
         IConfiguration config,
         ILogger<SandboxService> logger)
     {
@@ -45,6 +47,7 @@ public class SandboxService : ISandboxService
         _containers = containers;
         _guard = guard;
         _artifactFeeds = artifactFeeds;
+        _mcpConfigs = mcpConfigs;
         _config = config;
         _logger = logger;
     }
@@ -192,6 +195,31 @@ public class SandboxService : ISandboxService
         if (changed) sandbox.UpdatedAt = DateTimeOffset.UtcNow;
     }
 
+    private async Task AppendMcpServersAsync(
+        Dictionary<string, string> vars,
+        string userId,
+        CancellationToken ct)
+    {
+        var configs = await _mcpConfigs.GetEnabledForUserAsync(userId, ct);
+        if (configs.Count == 0) return;
+
+        var serialized = configs
+            .Select(c => new
+            {
+                id = c.Id,
+                name = c.Name,
+                description = c.Description,
+                type = c.Type,
+                command = c.Command,
+                argumentsJson = c.ArgumentsJson,
+                environmentJson = c.EnvironmentJson,
+                url = c.Url,
+                headersJson = c.HeadersJson
+            })
+            .ToList();
+        vars["MCP_SERVERS_JSON"] = JsonSerializer.Serialize(serialized);
+    }
+
     private static SandboxStatus ParseStatus(string status)
     {
         if (string.IsNullOrWhiteSpace(status))
@@ -225,6 +253,7 @@ public class SandboxService : ISandboxService
         var vars = new Dictionary<string, string>();
         AppendAzureIdentity(vars, repo);
         await AppendArtifactFeedsAsync(vars, userId, ct);
+        await AppendMcpServersAsync(vars, userId, ct);
         return vars.Count == 0 ? null : vars;
     }
 

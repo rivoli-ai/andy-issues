@@ -107,6 +107,7 @@ builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(c
 
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IArtifactFeedService, ArtifactFeedService>();
+builder.Services.AddScoped<IMcpConfigService, McpConfigService>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
