@@ -56,6 +56,15 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Zed IDE access
+
+Every sandbox container started through `POST /api/sandboxes` exposes an in-browser Zed IDE plus a VNC display — andy-containers brings them up as part of the template image and publishes their URLs on the container object. andy-issues never runs a dedicated IDE gateway; it just forwards the live connection details on demand.
+
+- `GET /api/sandboxes/{id}/connection` returns `{ ideEndpoint, vncEndpoint, sshEndpoint }`. The call always goes through `IContainersClient.GetConnectionInfoAsync` so the response reflects the current state of the container rather than whatever was cached when the sandbox was created (IDE ports can change between runs, e.g. after a stop/start cycle).
+- The endpoint is owner-only; anyone other than `Sandbox.OwnerUserId` sees `404`. There is no shared-user access to another developer's IDE session.
+- Front-end integration (see Story 12.3) is expected to iframe `ideEndpoint` for the editor surface and, when VNC is needed for non-Zed apps, iframe `vncEndpoint` using the noVNC JS client. SSH is surfaced for developers who prefer their local terminal.
+- There is no `ZedSessionService` shim carried over from devpilot. The entire IDE session plumbing lives in andy-containers and is reached through the thin `IContainersClient` seam; removing devpilot's custom VPS gateway was the point of the migration.
+
 ## Azure profile injection
 
 When a sandbox is created on a repository that has an Azure service principal configured (via Story 2.5 / 2.6), the credentials flow into the container as `AZURE_*` environment variables so the sandbox entrypoint can `az login` without any additional plumbing:
