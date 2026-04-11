@@ -68,8 +68,19 @@ public class FakeContainersClient : IContainersClient
             PortMappings: null));
     }
 
+    private Func<string, string, ContainerExecResult>? _execOverride;
+    public List<(string containerId, string command)> ExecCalls { get; } = new();
+
+    public void SetExec(Func<string, string, ContainerExecResult> handler)
+    {
+        _execOverride = handler;
+    }
+
     public Task<ContainerExecResult> ExecAsync(string containerId, string command, CancellationToken ct = default)
     {
-        return Task.FromResult(new ContainerExecResult(0, $"stdout: {command}", null));
+        ExecCalls.Add((containerId, command));
+        var result = _execOverride?.Invoke(containerId, command)
+            ?? new ContainerExecResult(0, $"stdout: {command}", null);
+        return Task.FromResult(result);
     }
 }

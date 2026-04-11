@@ -23,6 +23,8 @@ public record AzureDevOpsWorkItemSnapshot(
     string Title,
     string State);
 
+public record AzureDevOpsPullRequestInfo(int Id, string Url);
+
 public interface IAzureDevOpsClient
 {
     Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
@@ -43,6 +45,17 @@ public interface IAzureDevOpsClient
         string organization,
         string project,
         IReadOnlyList<int> ids,
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    Task<AzureDevOpsPullRequestInfo?> CreatePullRequestAsync(
+        string organization,
+        string project,
+        string repositoryId,
+        string title,
+        string? description,
+        string sourceBranch,
+        string targetBranch,
         string personalAccessToken,
         CancellationToken ct = default);
 }

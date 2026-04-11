@@ -23,4 +23,21 @@ public class StubGitHubClient : IGitHubClient
         _responses.TryGetValue(fullName, out var info);
         return Task.FromResult(info);
     }
+
+    public List<(string owner, string repo, string title, string? description, string head, string baseBranch)> PullRequestCalls { get; } = new();
+    public GitHubPullRequestInfo? PullRequestResult { get; set; }
+
+    public Task<GitHubPullRequestInfo?> CreatePullRequestAsync(
+        string owner,
+        string repo,
+        string title,
+        string? description,
+        string head,
+        string baseBranch,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        PullRequestCalls.Add((owner, repo, title, description, head, baseBranch));
+        return Task.FromResult(PullRequestResult);
+    }
 }

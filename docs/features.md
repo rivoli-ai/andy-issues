@@ -56,6 +56,21 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Pull request from a sandbox
+
+Once work is complete inside a sandbox, a single call can push the feature branch to the upstream and open a pull request. The flow is:
+
+1. `POST /api/repositories/{id}/pull-request` body `{ sandboxId, title, description?, sourceBranch, targetBranch, storyId? }`.
+2. The server validates that the caller owns the repository *and* the sandbox — shared users can't open PRs on repositories they don't own.
+3. The server execs `git -C /workspace push -u origin {sourceBranch}` **inside the sandbox container** via `andy-containers`. andy-issues never runs git locally; the push always happens from the sandbox where the branch actually lives. Branch names are validated first (letters, digits, `/`, `-`, `_`, `.`, `+` only) so they can't inject shell metacharacters into the remote exec.
+4. If the push exits non-zero, the response is `502` with the captured stderr and no PR is opened.
+5. On a successful push, the server dispatches to the correct provider client based on `Repository.Provider`:
+   - **GitHub** — owner and repo are parsed from the clone URL (`https://github.com/{owner}/{repo}.git`); the caller's linked GitHub provider supplies the token.
+   - **Azure DevOps** — org/project are parsed from the clone URL, `Repository.ExternalId` supplies the AzDO repo GUID, and the caller's linked Azure DevOps PAT authenticates the call.
+6. The response is `{ pullRequestUrl }`. If `storyId` is provided and refers to an existing story, `UserStory.PullRequestUrl` is updated to the new URL so the backlog reflects the link.
+
+Outcome → HTTP mapping: `Created → 200`, `NotFound → 404`, `Forbidden → 403`, `PushFailed → 502`, `ProviderFailed → 502`.
+
 ## Sandboxes
 
 A sandbox is a working container managed by the sibling `andy-containers` service. andy-issues keeps only a thin local projection (container id, repo, branch, owner, cached status) and delegates every lifecycle operation.

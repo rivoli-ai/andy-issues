@@ -155,6 +155,53 @@ public class AzureDevOpsClient : IAzureDevOpsClient
         return results;
     }
 
+    public async Task<AzureDevOpsPullRequestInfo?> CreatePullRequestAsync(
+        string organization,
+        string project,
+        string repositoryId,
+        string title,
+        string? description,
+        string sourceBranch,
+        string targetBranch,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        var url = $"https://dev.azure.com/{Uri.EscapeDataString(organization)}/{Uri.EscapeDataString(project)}/_apis/git/repositories/{Uri.EscapeDataString(repositoryId)}/pullrequests?api-version={ApiVersion}";
+
+        var payload = new
+        {
+            sourceRefName = $"refs/heads/{sourceBranch}",
+            targetRefName = $"refs/heads/{targetBranch}",
+            title,
+            description = description ?? ""
+        };
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, url);
+        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($":{personalAccessToken}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        request.Content = new StringContent(JsonSerializer.Serialize(payload), Encoding.UTF8, "application/json");
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(ct);
+            _logger.LogWarning(
+                "Azure DevOps POST pullrequests {Organization}/{Project}/{RepoId} failed: {Status} {Body}",
+                organization, project, repositoryId, response.StatusCode, body);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = doc.RootElement;
+        var id = root.TryGetProperty("pullRequestId", out var idEl) && idEl.ValueKind == JsonValueKind.Number
+            ? idEl.GetInt32() : 0;
+        // Azure DevOps returns an API URL in `url`; construct a user-facing web URL instead.
+        var webUrl = $"https://dev.azure.com/{organization}/{project}/_git/{repositoryId}/pullrequest/{id}";
+        return new AzureDevOpsPullRequestInfo(id, webUrl);
+    }
+
     private static AzureDevOpsWorkItemSnapshot? ReadSnapshot(JsonElement root)
     {
         if (!root.TryGetProperty("id", out var idEl))

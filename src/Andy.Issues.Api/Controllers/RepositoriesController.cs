@@ -16,10 +16,33 @@ namespace Andy.Issues.Api.Controllers;
 public class RepositoriesController : ControllerBase
 {
     private readonly IRepositoryService _repositoryService;
+    private readonly IPullRequestService _pullRequestService;
 
-    public RepositoriesController(IRepositoryService repositoryService)
+    public RepositoriesController(
+        IRepositoryService repositoryService,
+        IPullRequestService pullRequestService)
     {
         _repositoryService = repositoryService;
+        _pullRequestService = pullRequestService;
+    }
+
+    [HttpPost("{id:guid}/pull-request")]
+    public async Task<ActionResult<object>> CreatePullRequest(
+        Guid id,
+        [FromBody] CreatePullRequestFromSandboxRequest request,
+        CancellationToken ct)
+    {
+        var result = await _pullRequestService.CreateFromSandboxAsync(id, request, GetUserId(), ct);
+        return result.Outcome switch
+        {
+            PullRequestOutcome.Created => Ok(new { pullRequestUrl = result.PullRequestUrl }),
+            PullRequestOutcome.NotFound => NotFound(),
+            PullRequestOutcome.Forbidden => Forbid(),
+            PullRequestOutcome.PushFailed => StatusCode(502, new { error = result.Error ?? "git push failed" }),
+            PullRequestOutcome.ProviderFailed => StatusCode(502, new { error = result.Error ?? "provider rejected the pull request" }),
+            PullRequestOutcome.UnsupportedProvider => BadRequest(new { error = result.Error }),
+            _ => StatusCode(500)
+        };
     }
 
     [HttpGet]

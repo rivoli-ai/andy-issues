@@ -71,6 +71,24 @@ public class StubAzureDevOpsClient : IAzureDevOpsClient
         return Task.FromResult<IReadOnlyList<AzureDevOpsWorkItemSnapshot>>(list);
     }
 
+    public List<(string org, string project, string repoId, string title, string? description, string source, string target)> PullRequestCalls { get; } = new();
+    public AzureDevOpsPullRequestInfo? PullRequestResult { get; set; }
+
+    public Task<AzureDevOpsPullRequestInfo?> CreatePullRequestAsync(
+        string organization,
+        string project,
+        string repositoryId,
+        string title,
+        string? description,
+        string sourceBranch,
+        string targetBranch,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        PullRequestCalls.Add((organization, project, repositoryId, title, description, sourceBranch, targetBranch));
+        return Task.FromResult(PullRequestResult);
+    }
+
     private static string Key(string org, string project, string repoId) =>
         $"{org}|{project}|{repoId}";
 }

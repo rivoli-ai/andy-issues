@@ -14,3 +14,11 @@ public record CreateSandboxPullRequestRequest(
     [Required] string Title,
     string? Description,
     Guid? StoryId);
+
+public record CreatePullRequestFromSandboxRequest(
+    [Required] Guid SandboxId,
+    [Required] string Title,
+    string? Description,
+    [Required] string SourceBranch,
+    [Required] string TargetBranch,
+    Guid? StoryId);

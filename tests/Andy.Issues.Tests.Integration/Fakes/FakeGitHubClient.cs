@@ -9,13 +9,22 @@ namespace Andy.Issues.Tests.Integration.Fakes;
 public class FakeGitHubClient : IGitHubClient
 {
     private readonly ConcurrentDictionary<string, GitHubRepositoryInfo> _responses = new();
+    private readonly ConcurrentBag<(string owner, string repo, string title, string? description, string head, string baseBranch)> _prCalls = new();
+
+    public GitHubPullRequestInfo? PullRequestResult { get; set; }
+    public IReadOnlyCollection<(string owner, string repo, string title, string? description, string head, string baseBranch)> PullRequestCalls => _prCalls;
 
     public void AddResponse(string fullName, GitHubRepositoryInfo info)
     {
         _responses[fullName] = info;
     }
 
-    public void Reset() => _responses.Clear();
+    public void Reset()
+    {
+        _responses.Clear();
+        _prCalls.Clear();
+        PullRequestResult = null;
+    }
 
     public Task<GitHubRepositoryInfo?> GetRepositoryAsync(
         string fullName,
@@ -24,5 +33,19 @@ public class FakeGitHubClient : IGitHubClient
     {
         _responses.TryGetValue(fullName, out var info);
         return Task.FromResult<GitHubRepositoryInfo?>(info);
+    }
+
+    public Task<GitHubPullRequestInfo?> CreatePullRequestAsync(
+        string owner,
+        string repo,
+        string title,
+        string? description,
+        string head,
+        string baseBranch,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _prCalls.Add((owner, repo, title, description, head, baseBranch));
+        return Task.FromResult(PullRequestResult);
     }
 }

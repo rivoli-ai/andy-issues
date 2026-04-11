@@ -126,6 +126,7 @@ else
 
 builder.Services.AddScoped<IContainersClient, AndyContainersClientAdapter>();
 builder.Services.AddScoped<ISandboxService, SandboxService>();
+builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 builder.Services.AddHostedService<AzureDevOpsBacklogPullJob>();

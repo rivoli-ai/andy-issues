@@ -30,6 +30,8 @@ public class FakeAzureDevOpsClient : IAzureDevOpsClient
         _responses.Clear();
         _workItems.Clear();
         _nextId = 1000;
+        _prCalls.Clear();
+        PullRequestResult = null;
     }
 
     public Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
@@ -68,6 +70,26 @@ public class FakeAzureDevOpsClient : IAzureDevOpsClient
             .Select(id => _workItems[id])
             .ToList();
         return Task.FromResult<IReadOnlyList<AzureDevOpsWorkItemSnapshot>>(list);
+    }
+
+    private readonly ConcurrentBag<(string org, string project, string repoId, string title, string? description, string source, string target)> _prCalls = new();
+
+    public AzureDevOpsPullRequestInfo? PullRequestResult { get; set; }
+    public IReadOnlyCollection<(string org, string project, string repoId, string title, string? description, string source, string target)> PullRequestCalls => _prCalls;
+
+    public Task<AzureDevOpsPullRequestInfo?> CreatePullRequestAsync(
+        string organization,
+        string project,
+        string repositoryId,
+        string title,
+        string? description,
+        string sourceBranch,
+        string targetBranch,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        _prCalls.Add((organization, project, repositoryId, title, description, sourceBranch, targetBranch));
+        return Task.FromResult(PullRequestResult);
     }
 
     private static string Key(string org, string project, string repoId) =>
