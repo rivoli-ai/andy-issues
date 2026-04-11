@@ -21,6 +21,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeAzureDevOpsClient FakeAzureDevOpsClient { get; } = new();
     public FakeContainersClient FakeContainersClient { get; } = new();
     public FakePermissionChecker PermissionCheckerFake { get; } = new();
+    public FakeMcpToolDiscoveryClient FakeMcpToolDiscoveryClient { get; } = new();
 
     public void ResetPermissions() => PermissionCheckerFake.Reset();
 
@@ -72,6 +73,12 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (permissionDescriptor is not null)
                 services.Remove(permissionDescriptor);
             services.AddSingleton<IPermissionChecker>(PermissionCheckerFake);
+
+            var discoveryDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IMcpToolDiscoveryClient));
+            if (discoveryDescriptor is not null)
+                services.Remove(discoveryDescriptor);
+            services.AddSingleton<IMcpToolDiscoveryClient>(FakeMcpToolDiscoveryClient);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the

@@ -15,10 +15,12 @@ namespace Andy.Issues.Infrastructure.Services;
 public class McpConfigService : IMcpConfigService
 {
     private readonly AppDbContext _db;
+    private readonly IMcpToolDiscoveryClient? _toolDiscovery;
 
-    public McpConfigService(AppDbContext db)
+    public McpConfigService(AppDbContext db, IMcpToolDiscoveryClient? toolDiscovery = null)
     {
         _db = db;
+        _toolDiscovery = toolDiscovery;
     }
 
     public async Task<IReadOnlyList<McpServerConfigFull>> GetEnabledForUserAsync(
@@ -159,6 +161,48 @@ public class McpConfigService : IMcpConfigService
         _db.McpServerConfigs.Remove(row);
         await _db.SaveChangesAsync(ct);
         return McpConfigOutcome.Ok;
+    }
+
+    public async Task<McpToolDiscoveryEndpointResult> DiscoverToolsAsync(
+        Guid id,
+        string userId,
+        bool isAdmin,
+        CancellationToken ct = default)
+    {
+        if (_toolDiscovery is null)
+            throw new InvalidOperationException(
+                "McpConfigService was constructed without an IMcpToolDiscoveryClient — DiscoverToolsAsync is not available.");
+
+        var row = await _db.McpServerConfigs.AsNoTracking().FirstOrDefaultAsync(c => c.Id == id, ct);
+        if (row is null)
+            return new McpToolDiscoveryEndpointResult(McpToolDiscoveryEndpointOutcome.NotFound, null, null, null);
+        // Mutation-style authorization: the tools list can include sensitive descriptions,
+        // so we require the same permissions as a mutation rather than just view.
+        if (!CanMutate(row, userId, isAdmin))
+            return new McpToolDiscoveryEndpointResult(McpToolDiscoveryEndpointOutcome.Forbidden, null, null, null);
+
+        if (row.Type != McpServerType.Remote || string.IsNullOrWhiteSpace(row.Url))
+            return new McpToolDiscoveryEndpointResult(
+                McpToolDiscoveryEndpointOutcome.NotRemote,
+                null,
+                null,
+                "Tool discovery is only supported for remote MCP configs.");
+
+        var result = await _toolDiscovery.DiscoverAsync(row.Url, row.HeadersJson, ct);
+        if (result.Outcome == McpToolDiscoveryOutcome.Ok)
+        {
+            return new McpToolDiscoveryEndpointResult(
+                McpToolDiscoveryEndpointOutcome.Ok,
+                result.Tools,
+                result.Outcome,
+                null);
+        }
+
+        return new McpToolDiscoveryEndpointResult(
+            McpToolDiscoveryEndpointOutcome.DiscoveryFailed,
+            null,
+            result.Outcome,
+            result.Error);
     }
 
     private static bool CanView(McpServerConfig row, string userId, bool isAdmin) =>

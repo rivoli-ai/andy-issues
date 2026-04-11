@@ -108,6 +108,7 @@ builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(c
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IArtifactFeedService, ArtifactFeedService>();
 builder.Services.AddScoped<IMcpConfigService, McpConfigService>();
+builder.Services.AddHttpClient<IMcpToolDiscoveryClient, McpToolDiscoveryClient>();
 builder.Services.AddScoped<IPermissionChecker, ClaimsPermissionChecker>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();

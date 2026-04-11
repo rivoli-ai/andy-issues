@@ -75,6 +75,25 @@ public class McpController : ControllerBase
         return MapResult(result, dto => Ok(dto));
     }
 
+    [HttpPost("{id:guid}/tools")]
+    public async Task<ActionResult<object>> DiscoverTools(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var isAdmin = await IsAdminAsync(userId, ct);
+        var result = await _service.DiscoverToolsAsync(id, userId, isAdmin, ct);
+        return result.Outcome switch
+        {
+            McpToolDiscoveryEndpointOutcome.Ok => Ok(new { tools = result.Tools }),
+            McpToolDiscoveryEndpointOutcome.NotFound => NotFound(),
+            McpToolDiscoveryEndpointOutcome.Forbidden => Forbid(),
+            McpToolDiscoveryEndpointOutcome.NotRemote => BadRequest(new { error = result.Error }),
+            McpToolDiscoveryEndpointOutcome.DiscoveryFailed => StatusCode(
+                502,
+                new { error = result.Error, discoveryOutcome = result.DiscoveryOutcome?.ToString() }),
+            _ => StatusCode(500)
+        };
+    }
+
     [HttpDelete("{id:guid}")]
     public async Task<IActionResult> Delete(Guid id, CancellationToken ct)
     {

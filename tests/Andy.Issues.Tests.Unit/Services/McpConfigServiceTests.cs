@@ -38,6 +38,8 @@ public class McpConfigServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
     private McpConfigService NewService(AppDbContext ctx) => new(ctx);
+    private McpConfigService NewServiceWithDiscovery(AppDbContext ctx, IMcpToolDiscoveryClient discovery) =>
+        new(ctx, discovery);
 
     [Fact]
     public async Task Create_Stdio_Personal_Succeeds()
@@ -247,6 +249,147 @@ public class McpConfigServiceTests : IDisposable
 
         await using var ctx3 = NewContext();
         Assert.NotNull(await ctx3.McpServerConfigs.FindAsync(id));
+    }
+
+    [Fact]
+    public async Task DiscoverTools_RemoteOwner_DelegatesToDiscoveryClient()
+    {
+        Guid id;
+        await using (var ctx = NewContext())
+        {
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "remote",
+                OwnerUserId = "alice",
+                Type = McpServerType.Remote,
+                Url = "https://mcp.example.com",
+                HeadersJson = "{\"A\":\"B\"}"
+            };
+            ctx.McpServerConfigs.Add(entity);
+            await ctx.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        var stub = new StubDiscoveryClient
+        {
+            Result = new McpToolDiscoveryResult(
+                McpToolDiscoveryOutcome.Ok,
+                new[] { new McpToolDescriptor("search", "desc", null) },
+                null)
+        };
+        await using var ctx2 = NewContext();
+        var result = await NewServiceWithDiscovery(ctx2, stub)
+            .DiscoverToolsAsync(id, "alice", isAdmin: false);
+
+        Assert.Equal(McpToolDiscoveryEndpointOutcome.Ok, result.Outcome);
+        Assert.Single(result.Tools!);
+        Assert.Equal("https://mcp.example.com", stub.LastUrl);
+        Assert.Equal("{\"A\":\"B\"}", stub.LastHeadersJson);
+    }
+
+    [Fact]
+    public async Task DiscoverTools_StdioConfig_ReturnsNotRemote()
+    {
+        Guid id;
+        await using (var ctx = NewContext())
+        {
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "stdio",
+                OwnerUserId = "alice",
+                Type = McpServerType.Stdio,
+                Command = "py"
+            };
+            ctx.McpServerConfigs.Add(entity);
+            await ctx.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        var stub = new StubDiscoveryClient();
+        await using var ctx2 = NewContext();
+        var result = await NewServiceWithDiscovery(ctx2, stub)
+            .DiscoverToolsAsync(id, "alice", isAdmin: false);
+        Assert.Equal(McpToolDiscoveryEndpointOutcome.NotRemote, result.Outcome);
+        Assert.Null(stub.LastUrl);
+    }
+
+    [Fact]
+    public async Task DiscoverTools_NonOwnerPersonal_ReturnsForbidden()
+    {
+        Guid id;
+        await using (var ctx = NewContext())
+        {
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "private",
+                OwnerUserId = "alice",
+                Type = McpServerType.Remote,
+                Url = "https://x"
+            };
+            ctx.McpServerConfigs.Add(entity);
+            await ctx.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        var stub = new StubDiscoveryClient();
+        await using var ctx2 = NewContext();
+        var result = await NewServiceWithDiscovery(ctx2, stub)
+            .DiscoverToolsAsync(id, "mallory", isAdmin: false);
+        Assert.Equal(McpToolDiscoveryEndpointOutcome.Forbidden, result.Outcome);
+        Assert.Null(stub.LastUrl);
+    }
+
+    [Fact]
+    public async Task DiscoverTools_DiscoveryFails_ReturnsDiscoveryFailedWithInnerOutcome()
+    {
+        Guid id;
+        await using (var ctx = NewContext())
+        {
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = "r",
+                OwnerUserId = "alice",
+                Type = McpServerType.Remote,
+                Url = "https://mcp.example.com"
+            };
+            ctx.McpServerConfigs.Add(entity);
+            await ctx.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        var stub = new StubDiscoveryClient
+        {
+            Result = new McpToolDiscoveryResult(
+                McpToolDiscoveryOutcome.Timeout, null, "timed out after 15s")
+        };
+        await using var ctx2 = NewContext();
+        var result = await NewServiceWithDiscovery(ctx2, stub)
+            .DiscoverToolsAsync(id, "alice", isAdmin: false);
+        Assert.Equal(McpToolDiscoveryEndpointOutcome.DiscoveryFailed, result.Outcome);
+        Assert.Equal(McpToolDiscoveryOutcome.Timeout, result.DiscoveryOutcome);
+        Assert.Contains("timed out", result.Error);
+    }
+
+    private sealed class StubDiscoveryClient : IMcpToolDiscoveryClient
+    {
+        public McpToolDiscoveryResult Result { get; set; } =
+            new(McpToolDiscoveryOutcome.Ok, Array.Empty<McpToolDescriptor>(), null);
+        public string? LastUrl { get; private set; }
+        public string? LastHeadersJson { get; private set; }
+
+        public Task<McpToolDiscoveryResult> DiscoverAsync(
+            string url,
+            string? headersJson,
+            CancellationToken ct = default)
+        {
+            LastUrl = url;
+            LastHeadersJson = headersJson;
+            return Task.FromResult(Result);
+        }
     }
 
     [Fact]

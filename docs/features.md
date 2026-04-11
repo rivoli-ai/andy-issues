@@ -85,6 +85,27 @@ Developers can manage MCP (Model Context Protocol) servers through `/api/mcp`. T
 
 The `mcp:admin` check goes through `IPermissionChecker`, a tiny seam that Epic 8 will back with Andy RBAC. Today it reads a `permission` claim off the current principal; in auth-bypass mode (dev / Conductor) it returns `true` so local flows keep working. Tests swap in a toggleable fake so both the allow and deny paths are exercised end-to-end.
 
+## MCP tool discovery
+
+For a remote MCP server, `POST /api/mcp/{id}/tools` runs a JSON-RPC handshake against the configured URL and returns its live tool list. The call is a one-shot probe — the server state is not cached, so the UI can refresh whenever the user hits a "refresh" button.
+
+- The handshake is two POSTs to the configured URL carrying any stored headers verbatim:
+  1. `initialize` with andy-issues client metadata (`protocolVersion: 2024-11-05`, empty capabilities).
+  2. `tools/list`, whose `result.tools` array is mapped into `[{ name, description, inputSchema }]`.
+- The underlying HTTP call has a 15-second timeout. The implementation lives behind `IMcpToolDiscoveryClient` so tests (and future transports) can substitute a fake without standing up a real MCP process.
+- Authorization matches the mutation endpoints — personal configs require the owner, shared configs require `mcp:admin` — because tool names and schemas can reveal sensitive capabilities.
+- `type=stdio` configs are rejected with `400 Bad Request` (tool discovery is only meaningful against a remote transport).
+
+**Outcome → HTTP mapping**
+
+| Outcome | HTTP |
+|---|---|
+| `Ok` | `200` with `{ tools: [...] }` |
+| `NotFound` (config missing or not visible) | `404` |
+| `Forbidden` (non-owner personal; non-admin shared) | `403` |
+| `NotRemote` (stdio config) | `400` |
+| `DiscoveryFailed` (`Timeout`, `HttpError`, `MalformedResponse`) | `502` with `{ error, discoveryOutcome }` |
+
 ## MCP server injection into sandboxes
 
 Developers register MCP (Model Context Protocol) servers through the Andy Issues admin surface — some personal, some shared across the org — and sandboxes need to see them so in-container tooling (Zed, Claude) can call into them.

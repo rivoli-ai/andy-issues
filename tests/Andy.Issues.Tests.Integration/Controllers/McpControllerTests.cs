@@ -150,6 +150,95 @@ public class McpControllerTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task DiscoverTools_Remote_HappyPath_Returns200()
+    {
+        Guid id;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = $"remote-{Guid.NewGuid():N}",
+                OwnerUserId = "dev-user",
+                Type = McpServerType.Remote,
+                Url = "https://mcp.example.com"
+            };
+            db.McpServerConfigs.Add(entity);
+            await db.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        _factory.FakeMcpToolDiscoveryClient.Reset();
+        _factory.FakeMcpToolDiscoveryClient.Result = new McpToolDiscoveryResult(
+            McpToolDiscoveryOutcome.Ok,
+            new[] { new McpToolDescriptor("search", "search the repo", null) },
+            null);
+
+        var resp = await _client.PostAsync($"/api/mcp/{id}/tools", null);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        var tools = doc.RootElement.GetProperty("tools").EnumerateArray().ToList();
+        Assert.Single(tools);
+        Assert.Equal("search", tools[0].GetProperty("name").GetString());
+        Assert.Single(_factory.FakeMcpToolDiscoveryClient.Calls);
+    }
+
+    [Fact]
+    public async Task DiscoverTools_Stdio_Returns400()
+    {
+        Guid id;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = $"stdio-{Guid.NewGuid():N}",
+                OwnerUserId = "dev-user",
+                Type = McpServerType.Stdio,
+                Command = "py"
+            };
+            db.McpServerConfigs.Add(entity);
+            await db.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        var resp = await _client.PostAsync($"/api/mcp/{id}/tools", null);
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task DiscoverTools_DiscoveryFailure_Returns502WithOutcome()
+    {
+        Guid id;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var entity = new McpServerConfig
+            {
+                Id = Guid.NewGuid(),
+                Name = $"fail-{Guid.NewGuid():N}",
+                OwnerUserId = "dev-user",
+                Type = McpServerType.Remote,
+                Url = "https://mcp.example.com"
+            };
+            db.McpServerConfigs.Add(entity);
+            await db.SaveChangesAsync();
+            id = entity.Id;
+        }
+
+        _factory.FakeMcpToolDiscoveryClient.Result = new McpToolDiscoveryResult(
+            McpToolDiscoveryOutcome.Timeout, null, "Discovery timed out.");
+
+        var resp = await _client.PostAsync($"/api/mcp/{id}/tools", null);
+        Assert.Equal(HttpStatusCode.BadGateway, resp.StatusCode);
+        using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal("Timeout", doc.RootElement.GetProperty("discoveryOutcome").GetString());
+    }
+
+    [Fact]
     public async Task Delete_Admin_SharedConfig_Returns204()
     {
         _factory.PermissionCheckerFake.SetAdmin(true);

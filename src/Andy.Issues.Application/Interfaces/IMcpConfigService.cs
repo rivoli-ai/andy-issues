@@ -77,4 +77,30 @@ public interface IMcpConfigService
     Task<McpConfigResult> ToggleAsync(Guid id, string userId, bool isAdmin, CancellationToken ct = default);
 
     Task<McpConfigOutcome> DeleteAsync(Guid id, string userId, bool isAdmin, CancellationToken ct = default);
+
+    /// <summary>
+    /// Runs the MCP JSON-RPC tool-discovery handshake against the configured remote URL
+    /// for the given config. Stdio configs are rejected with <see cref="McpToolDiscoveryEndpointOutcome.NotRemote"/>;
+    /// auth is checked exactly like the other mutation endpoints.
+    /// </summary>
+    Task<McpToolDiscoveryEndpointResult> DiscoverToolsAsync(
+        Guid id,
+        string userId,
+        bool isAdmin,
+        CancellationToken ct = default);
 }
+
+public enum McpToolDiscoveryEndpointOutcome
+{
+    Ok = 0,
+    NotFound = 1,
+    Forbidden = 2,
+    NotRemote = 3,
+    DiscoveryFailed = 4
+}
+
+public record McpToolDiscoveryEndpointResult(
+    McpToolDiscoveryEndpointOutcome Outcome,
+    IReadOnlyList<McpToolDescriptor>? Tools,
+    McpToolDiscoveryOutcome? DiscoveryOutcome,
+    string? Error);
