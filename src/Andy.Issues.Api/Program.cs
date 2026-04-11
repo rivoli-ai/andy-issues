@@ -43,7 +43,41 @@ if (!string.IsNullOrEmpty(andyAuthAuthority))
                 };
             }
         });
-    builder.Services.AddAuthorization();
+    // In Development mode, swap both the default and fallback
+    // authorization policies for an "allow anything" policy. This is
+    // the dev-mode equivalent of the policy provider hack other
+    // embedded Andy services use, but applied directly to
+    // `AddAuthorization()` so it actually short-circuits plain
+    // `[Authorize]` (the policy provider override has a `new` vs
+    // `override` bug in code-index that means `GetDefaultPolicyAsync`
+    // does not actually replace the base `RequireAuthenticatedUser`
+    // policy).
+    //
+    // Why we need this: Conductor's embedded desktop app currently
+    // ships a placeholder bearer token from `AuthService.signIn` until
+    // OAuth2 PKCE lands in the macOS client. The token is literally
+    // 32 zeros and would never validate as a JWT, so without this
+    // bypass `[Authorize]` returns 401 on every request and the user
+    // sees "your session has expired, please sign in again" the first
+    // time they try to add a repository in the Issues view.
+    //
+    // Production builds (where `IsDevelopment()` is false) keep the
+    // strict policy — real audience + issuer + signature validation.
+    if (builder.Environment.IsDevelopment())
+    {
+        builder.Services.AddAuthorization(options =>
+        {
+            var allowAll = new AuthorizationPolicyBuilder()
+                .RequireAssertion(_ => true)
+                .Build();
+            options.DefaultPolicy = allowAll;
+            options.FallbackPolicy = allowAll;
+        });
+    }
+    else
+    {
+        builder.Services.AddAuthorization();
+    }
 }
 else
 {
