@@ -56,6 +56,35 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## MCP server configuration
+
+Developers can manage MCP (Model Context Protocol) servers through `/api/mcp`. Two scopes exist:
+
+- **Personal** — owned by the caller, visible only to them. Any authenticated user can create personal configs.
+- **Shared** — visible to everyone; mutations require the `mcp:admin` permission. Admin callers also use the same routes (`POST /api/mcp` with `isShared = true`, `PATCH /api/mcp/{id}`, etc.) — there is no separate `/api/mcp/shared` path. The admin check happens at the service layer based on the `IPermissionChecker` contract.
+
+| Method | Route | Who |
+|---|---|---|
+| `GET` | `/api/mcp` | Any caller — lists personal + shared. Secrets masked. |
+| `GET` | `/api/mcp/{id}` | Any caller who can see the config. |
+| `POST` | `/api/mcp` | Any caller (personal). `isShared=true` requires `mcp:admin`. |
+| `PATCH` | `/api/mcp/{id}` | Owner of personal; `mcp:admin` for shared. |
+| `POST` | `/api/mcp/{id}/toggle` | Owner of personal; `mcp:admin` for shared. Flips `enabled`. |
+| `DELETE` | `/api/mcp/{id}` | Owner of personal; `mcp:admin` for shared. |
+
+**Validation**
+
+- `type = stdio` requires a `command`. `type = remote` requires a `url`. Other combinations return `400`.
+- `(OwnerUserId, Name)` is unique per scope — duplicate personal names or duplicate shared names return `409`.
+
+**Secret handling**
+
+`environmentJson` and `headersJson` are write-only from the API's perspective. The outbound DTO exposes `hasEnvironment` and `hasHeaders` booleans and never serializes the raw JSON, so browsers and non-admin tools never see secrets. The unmasked fields only leave the service layer through `IMcpConfigService.GetEnabledForUserAsync`, which is exclusively consumed by `SandboxService` for the `MCP_SERVERS_JSON` injection path (Story 4.8).
+
+**Admin permissions**
+
+The `mcp:admin` check goes through `IPermissionChecker`, a tiny seam that Epic 8 will back with Andy RBAC. Today it reads a `permission` claim off the current principal; in auth-bypass mode (dev / Conductor) it returns `true` so local flows keep working. Tests swap in a toggleable fake so both the allow and deny paths are exercised end-to-end.
+
 ## MCP server injection into sandboxes
 
 Developers register MCP (Model Context Protocol) servers through the Andy Issues admin surface — some personal, some shared across the org — and sandboxes need to see them so in-container tooling (Zed, Claude) can call into them.

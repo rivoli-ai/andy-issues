@@ -20,6 +20,9 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeGitHubClient FakeGitHubClient { get; } = new();
     public FakeAzureDevOpsClient FakeAzureDevOpsClient { get; } = new();
     public FakeContainersClient FakeContainersClient { get; } = new();
+    public FakePermissionChecker PermissionCheckerFake { get; } = new();
+
+    public void ResetPermissions() => PermissionCheckerFake.Reset();
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
@@ -63,6 +66,12 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (containersDescriptor is not null)
                 services.Remove(containersDescriptor);
             services.AddSingleton<IContainersClient>(FakeContainersClient);
+
+            var permissionDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IPermissionChecker));
+            if (permissionDescriptor is not null)
+                services.Remove(permissionDescriptor);
+            services.AddSingleton<IPermissionChecker>(PermissionCheckerFake);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the
