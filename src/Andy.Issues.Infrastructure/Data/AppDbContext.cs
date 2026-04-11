@@ -10,21 +10,150 @@ public class AppDbContext : DbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
 
-    public DbSet<Item> Items => Set<Item>();
+    public DbSet<Repository> Repositories => Set<Repository>();
+    public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
+    public DbSet<Epic> Epics => Set<Epic>();
+    public DbSet<Feature> Features => Set<Feature>();
+    public DbSet<UserStory> UserStories => Set<UserStory>();
+    public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
+    public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
+    public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
+    public DbSet<Sandbox> Sandboxes => Set<Sandbox>();
+    public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
 
-        modelBuilder.Entity<Item>(entity =>
+        modelBuilder.Entity<Repository>(e =>
         {
-            entity.HasKey(e => e.Id);
-            entity.Property(e => e.Name).IsRequired().HasMaxLength(256);
-            entity.Property(e => e.Description).HasMaxLength(2048);
-            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(32);
-            entity.Property(e => e.CreatedBy).IsRequired().HasMaxLength(256);
-            entity.HasIndex(e => e.Name);
-            entity.HasIndex(e => e.Status);
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Description).HasMaxLength(2048);
+            e.Property(x => x.CloneUrl).IsRequired().HasMaxLength(1024);
+            e.Property(x => x.DefaultBranch).IsRequired().HasMaxLength(256);
+            e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.CodeIndexStatus).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.AzureClientId).HasMaxLength(256);
+            e.Property(x => x.AzureClientSecret).HasMaxLength(1024);
+            e.Property(x => x.AzureTenantId).HasMaxLength(256);
+            e.Property(x => x.AzureSubscriptionId).HasMaxLength(256);
+            e.HasIndex(x => x.OwnerUserId);
+            e.HasOne(x => x.LlmSetting)
+                .WithMany()
+                .HasForeignKey(x => x.LlmSettingId)
+                .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<RepositoryShare>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.SharedWithUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.GrantedByUserId).IsRequired().HasMaxLength(256);
+            e.HasOne(x => x.Repository)
+                .WithMany(r => r.Shares)
+                .HasForeignKey(x => x.RepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Epic>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(512);
+            e.Property(x => x.Description).HasMaxLength(4096);
+            e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.HasOne(x => x.Repository)
+                .WithMany(r => r.Epics)
+                .HasForeignKey(x => x.RepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Feature>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(512);
+            e.Property(x => x.Description).HasMaxLength(4096);
+            e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.HasOne(x => x.Epic)
+                .WithMany(r => r.Features)
+                .HasForeignKey(x => x.EpicId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserStory>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(512);
+            e.Property(x => x.Description).HasMaxLength(4096);
+            e.Property(x => x.AcceptanceCriteria).HasMaxLength(8192);
+            e.Property(x => x.PullRequestUrl).HasMaxLength(1024);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.HasOne(x => x.Feature)
+                .WithMany(f => f.Stories)
+                .HasForeignKey(x => x.FeatureId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LinkedProvider>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.AccessToken).IsRequired().HasMaxLength(2048);
+            e.Property(x => x.RefreshToken).HasMaxLength(2048);
+            e.Property(x => x.AccountLogin).HasMaxLength(256);
+            e.HasIndex(x => new { x.OwnerUserId, x.Provider }).IsUnique();
+        });
+
+        modelBuilder.Entity<McpServerConfig>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Description).HasMaxLength(1024);
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.OwnerUserId).HasMaxLength(256);
+            e.Property(x => x.Command).HasMaxLength(1024);
+            e.Property(x => x.Url).HasMaxLength(1024);
+        });
+
+        modelBuilder.Entity<ArtifactFeedConfig>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Organization).IsRequired().HasMaxLength(256);
+            e.Property(x => x.FeedName).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Project).HasMaxLength(256);
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(32);
+        });
+
+        modelBuilder.Entity<Sandbox>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Branch).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.IdeEndpoint).HasMaxLength(1024);
+            e.Property(x => x.VncEndpoint).HasMaxLength(1024);
+            e.HasIndex(x => x.ContainerId).IsUnique();
+            e.HasIndex(x => x.OwnerUserId);
+            e.HasOne(x => x.Repository)
+                .WithMany()
+                .HasForeignKey(x => x.RepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LlmSetting>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.ApiKey).HasMaxLength(2048);
+            e.Property(x => x.Model).IsRequired().HasMaxLength(256);
+            e.Property(x => x.BaseUrl).HasMaxLength(1024);
         });
     }
 }

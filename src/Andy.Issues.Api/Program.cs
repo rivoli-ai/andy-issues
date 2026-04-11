@@ -1,9 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
-using Andy.Issues.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using OpenTelemetry.Metrics;
@@ -79,7 +77,7 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
 }
 
 // --- Services ---
-builder.Services.AddScoped<IItemService, ItemService>();
+// Service registrations will be added per-epic as the new domain is built out.
 builder.Services.AddDataProtection();
 
 // --- OpenTelemetry ---
@@ -195,7 +193,7 @@ app.UseAuthorization();
 app.MapControllers();
 
 // --- gRPC endpoint ---
-app.MapGrpcService<Andy.Issues.Api.GrpcServices.ItemsGrpcService>();
+// gRPC services will be registered in Epic 9.
 
 // --- MCP endpoint ---
 app.MapMcp("/mcp")
