@@ -2,7 +2,6 @@
 // Example: Using the Andy Issues API from C#
 
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 
 var apiUrl = "https://localhost:5410";
 var token = "YOUR_BEARER_TOKEN"; // Obtain from Andy Auth
@@ -14,12 +13,7 @@ using var handler = new HttpClientHandler
 using var client = new HttpClient(handler) { BaseAddress = new Uri(apiUrl) };
 client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
-// List items
-var items = await client.GetFromJsonAsync<object[]>("/api/items");
-Console.WriteLine($"Found {items?.Length ?? 0} items");
-
-// Create item
-var response = await client.PostAsJsonAsync("/api/items", new { Name = "Example Item", Description = "Created from C#" });
-response.EnsureSuccessStatusCode();
-var created = await response.Content.ReadFromJsonAsync<dynamic>();
-Console.WriteLine($"Created: {created}");
+// Example: check service health. Feature endpoints will be added per-epic as the
+// andy-issues domain is built out (repositories, backlog, sandboxes, ...).
+var health = await client.GetStringAsync("/health");
+Console.WriteLine(health);

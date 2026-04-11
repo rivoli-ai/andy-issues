@@ -28,8 +28,6 @@
     <PackageReference Include="Swashbuckle.AspNetCore" Version="6.8.1" />
   </ItemGroup>
 
-  <ItemGroup>
-    <Protobuf Include="Protos\items.proto" GrpcServices="Server" />
-  </ItemGroup>
+  <!-- gRPC proto files will be added per-service in Epic 9. -->
 
 </Project>

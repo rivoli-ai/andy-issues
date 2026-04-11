@@ -43,7 +43,7 @@ Standard HTTP API with OpenAPI documentation available at `/swagger`.
 AI assistant integration endpoint at `/mcp`. MCP tools share the same service layer as REST controllers.
 
 ### gRPC
-High-performance RPC defined in `Protos/items.proto`. Uses the same service layer.
+High-performance RPC defined in `src/Andy.Issues.Api/Protos/`. gRPC services share the same service layer as REST/MCP and are introduced per-domain in Epic 9 (repositories, backlog, sandboxes).
 
 ## Database Strategy
 
