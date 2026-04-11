@@ -202,6 +202,54 @@ public class AzureDevOpsClient : IAzureDevOpsClient
         return new AzureDevOpsPullRequestInfo(id, webUrl);
     }
 
+    public async Task<IReadOnlyList<AzureDevOpsFeedInfo>> ListFeedsAsync(
+        string organization,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        var url = $"https://feeds.dev.azure.com/{Uri.EscapeDataString(organization)}/_apis/packaging/feeds?api-version={ApiVersion}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        var credentials = Convert.ToBase64String(Encoding.ASCII.GetBytes($":{personalAccessToken}"));
+        request.Headers.Authorization = new AuthenticationHeaderValue("Basic", credentials);
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "Azure DevOps ListFeeds {Organization} failed: {Status}",
+                organization, response.StatusCode);
+            return Array.Empty<AzureDevOpsFeedInfo>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = doc.RootElement;
+        if (!root.TryGetProperty("value", out var items) || items.ValueKind != JsonValueKind.Array)
+            return Array.Empty<AzureDevOpsFeedInfo>();
+
+        var results = new List<AzureDevOpsFeedInfo>(items.GetArrayLength());
+        foreach (var el in items.EnumerateArray())
+        {
+            var id = el.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+                ? idEl.GetString() ?? ""
+                : "";
+            var name = el.TryGetProperty("name", out var nameEl) && nameEl.ValueKind == JsonValueKind.String
+                ? nameEl.GetString() ?? ""
+                : "";
+            if (string.IsNullOrEmpty(id) || string.IsNullOrEmpty(name)) continue;
+
+            var description = el.TryGetProperty("description", out var descEl) && descEl.ValueKind == JsonValueKind.String
+                ? descEl.GetString() : null;
+            var feedUrl = el.TryGetProperty("url", out var urlEl) && urlEl.ValueKind == JsonValueKind.String
+                ? urlEl.GetString() : null;
+
+            results.Add(new AzureDevOpsFeedInfo(id, name, description, feedUrl));
+        }
+        return results;
+    }
+
     private static AzureDevOpsWorkItemSnapshot? ReadSnapshot(JsonElement root)
     {
         if (!root.TryGetProperty("id", out var idEl))

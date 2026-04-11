@@ -25,6 +25,8 @@ public record AzureDevOpsWorkItemSnapshot(
 
 public record AzureDevOpsPullRequestInfo(int Id, string Url);
 
+public record AzureDevOpsFeedInfo(string Id, string Name, string? Description, string? Url);
+
 public interface IAzureDevOpsClient
 {
     Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
@@ -56,6 +58,11 @@ public interface IAzureDevOpsClient
         string? description,
         string sourceBranch,
         string targetBranch,
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    Task<IReadOnlyList<AzureDevOpsFeedInfo>> ListFeedsAsync(
+        string organization,
         string personalAccessToken,
         CancellationToken ct = default);
 }

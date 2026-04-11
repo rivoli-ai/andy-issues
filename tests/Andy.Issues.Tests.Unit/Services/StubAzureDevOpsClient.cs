@@ -89,6 +89,18 @@ public class StubAzureDevOpsClient : IAzureDevOpsClient
         return Task.FromResult(PullRequestResult);
     }
 
+    public Dictionary<string, IReadOnlyList<AzureDevOpsFeedInfo>> FeedResponses { get; } = new();
+
+    public Task<IReadOnlyList<AzureDevOpsFeedInfo>> ListFeedsAsync(
+        string organization,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        FeedResponses.TryGetValue(organization, out var feeds);
+        return Task.FromResult<IReadOnlyList<AzureDevOpsFeedInfo>>(
+            feeds ?? Array.Empty<AzureDevOpsFeedInfo>());
+    }
+
     private static string Key(string org, string project, string repoId) =>
         $"{org}|{project}|{repoId}";
 }

@@ -56,6 +56,31 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Artifact feeds
+
+Administrators manage the shared list of Azure DevOps artifact feeds (NuGet/NPM/Pip) that every sandbox will import. All endpoints live under `/api/artifact`:
+
+| Method | Route | Who |
+|---|---|---|
+| `GET` | `/api/artifact/enabled` | Any authenticated user. Used by sandbox creation; returns enabled feeds only. |
+| `GET` | `/api/artifact` | `artifact:admin` — lists all configs including disabled ones. |
+| `GET` | `/api/artifact/feeds?organization={org}` | `artifact:admin` — live-browses Azure DevOps feeds for the org using the caller's linked AzDO PAT, so the admin UI can pick a feed to register. |
+| `POST` | `/api/artifact` | `artifact:admin` — creates a feed config (`type = nuget\|npm\|pip`). Duplicate names return `409`. |
+| `PATCH` | `/api/artifact/{id}` | `artifact:admin` — partial update: `name`, `project`, `enabled`. |
+| `DELETE` | `/api/artifact/{id}` | `artifact:admin`. |
+
+**Browse flow**
+
+`GET /api/artifact/feeds` goes through `IArtifactFeedService.BrowseAzureDevOpsFeedsAsync`, which reads the caller's linked Azure DevOps provider to get the PAT and then hits the AzDO feeds endpoint. Outcomes map to HTTP as:
+
+- `Ok` → `200 { feeds: [...] }`
+- `NoLinkedProvider` → `400` (the caller has no Azure DevOps provider on their account)
+- `ProviderError` → `502` (AzDO rejected the call, org is blank, or client threw)
+
+**Permission seam**
+
+The `artifact:admin` check uses the same `IPermissionChecker` introduced for `mcp:admin` (Story 5.1). In auth-bypass / dev / Conductor mode it short-circuits to `true`; in production mode Epic 8 will back it with Andy RBAC. Integration tests toggle a fake checker to exercise both the allow and deny paths end-to-end.
+
 ## MCP server configuration
 
 Developers can manage MCP (Model Context Protocol) servers through `/api/mcp`. Two scopes exist:
