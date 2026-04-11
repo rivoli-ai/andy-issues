@@ -113,6 +113,10 @@ Once work is complete inside a sandbox, a single call can push the feature branc
 
 Outcome → HTTP mapping: `Created → 200`, `NotFound → 404`, `Forbidden → 403`, `PushFailed → 502`, `ProviderFailed → 502`.
 
+### One-click variant from a sandbox
+
+For UI flows where the user already has a specific sandbox selected there is a thinner wrapper: `POST /api/sandboxes/{id}/pull-request` body `{ title, description?, storyId? }`. The server loads the sandbox, derives `sourceBranch` from `Sandbox.Branch` and `targetBranch` from `Repository.DefaultBranch`, then delegates to the same `IPullRequestService.CreateFromSandboxAsync` path so the push + provider dispatch logic lives in exactly one place. Ownership is checked on the sandbox and repository, and the outcome mapping is identical.
+
 ## Sandboxes
 
 A sandbox is a working container managed by the sibling `andy-containers` service. andy-issues keeps only a thin local projection (container id, repo, branch, owner, cached status) and delegates every lifecycle operation.
