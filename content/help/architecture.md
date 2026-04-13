@@ -50,6 +50,31 @@ This service follows Clean Architecture with strict dependency rules.
 | Andy RBAC | 5003 | Access control |
 | Andy Settings | 5300 | Configuration |
 
+## Domain Model
+
+```
+Repository
+ ├── Epic
+ │    └── Feature
+ │         └── UserStory (Draft → Ready → InProgress → Done)
+ ├── RepositoryShare
+ └── Azure Identity (optional)
+
+Sandbox (backed by andy-containers)
+McpServerConfig (personal + shared)
+ArtifactFeedConfig (NuGet / npm)
+LinkedProvider (GitHub / Azure DevOps)
+LlmSetting (per-user AI config)
+```
+
+## External Service Integrations
+
+| Service | Purpose |
+|---------|---------|
+| **andy-containers** | Sandbox lifecycle (create, destroy, connect) |
+| **andy-code-index** | Code analysis, repo registration, backlog AI context |
+| **andy-settings** | Centralized configuration + secret storage |
+
 ## Database Strategy
 
 - **PostgreSQL**: Default for standalone deployment

@@ -45,6 +45,17 @@ Role-based access control is managed by Andy RBAC.
 
 `read`, `write`, `delete`, `share`, `admin`, `execute`, `export`, `import`
 
+## Linked Providers
+
+Andy Issues supports linking external provider accounts for repository sync:
+
+| Provider | Purpose |
+|----------|---------|
+| **GitHub** | Sync repositories, create PRs |
+| **Azure DevOps** | Sync repositories, bidirectional work item sync |
+
+Link providers via the `/api/linked-providers` endpoint or the Angular settings page. Personal Access Tokens (PATs) can also be entered via the `/api/linked-providers/pat` helper endpoint.
+
 ## Swagger Authentication
 
 1. Open `/swagger` in your browser

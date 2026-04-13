@@ -23,6 +23,18 @@ Authorization: Bearer <your-jwt-token>
 - Development: `https://localhost:5410`
 - Docker: `https://localhost:5410`
 
+### REST Controllers
+
+| Controller | Prefix | Purpose |
+|-----------|--------|---------|
+| Repositories | `/api/repositories` | CRUD, sharing, GitHub/Azure DevOps sync |
+| Backlog | `/api/repositories/{id}/backlog` | Epics, features, stories, AI generation |
+| Sandboxes | `/api/sandboxes` | Create, list, connect, destroy dev environments |
+| MCP Configs | `/api/mcp-configs` | Personal + shared MCP server configurations |
+| Artifact Feeds | `/api/artifact-feeds` | NuGet/npm registry management |
+| Linked Providers | `/api/linked-providers` | GitHub & Azure DevOps OAuth tokens |
+| Users | `/api/users` | User directory, suggest users for sharing |
+
 ## MCP (Model Context Protocol)
 
 Connect AI assistants to this service via the `/mcp` endpoint.
@@ -33,26 +45,42 @@ Connect AI assistants to this service via the `/mcp` endpoint.
 - ChatGPT
 - VS Code extensions (Cline, Roo, Continue)
 
-### Available Tools
+### Available Tools (17)
 
-- **ListItems** — List all items
-- **GetItem** — Get details of a specific item
-- **CreateItem** — Create a new item
-- **DeleteItem** — Delete an item
+**Repositories**: ListRepositories, GetRepository, SyncGitHubRepositories, SyncAzureDevOpsRepositories, DeleteRepository
+
+**Backlog**: ListBacklog, CreateEpic, CreateFeature, CreateStory, UpdateStoryStatus, GenerateDraftBacklog
+
+**Sandboxes**: CreateSandbox, ListSandboxes, GetSandboxConnection, DestroySandbox
+
+**Configuration**: ListMcpConfigs, ListEnabledArtifactFeeds
+
+### Help Tools
+
+ListHelpTopics, GetHelpTopic, SearchHelp — browse this help content via MCP.
 
 ## gRPC
 
 For service-to-service communication. Proto definitions are in `src/Api/Protos/`.
 
+| Service | Proto | Operations |
+|---------|-------|------------|
+| Repositories | `repositories.proto` | List, Get |
+| Backlog | `backlog.proto` | GetBacklog, CreateEpic, CreateFeature, CreateStory |
+| Sandboxes | `sandboxes.proto` | Create, List, Destroy |
+
 ## CLI
 
 ```bash
-# List items
-dotnet run --project tools/*.Cli -- items list --api-url https://localhost:5410
+# List repositories
+dotnet run --project tools/*.Cli -- repos list --api-url https://localhost:5410
 
-# Create item
-dotnet run --project tools/*.Cli -- items create --name "My Item" --description "Details"
+# View backlog
+dotnet run --project tools/*.Cli -- backlog list --repo-id <guid>
+
+# List sandboxes
+dotnet run --project tools/*.Cli -- sandboxes list
 
 # With authentication
-dotnet run --project tools/*.Cli -- items list --token <bearer-token>
+dotnet run --project tools/*.Cli -- repos list --token <bearer-token>
 ```
