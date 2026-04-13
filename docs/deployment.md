@@ -78,6 +78,26 @@ export ConnectionStrings__DefaultConnection="Data Source=andy_issues.db"
 dotnet run --project src/Andy.Issues.Api
 ```
 
+### Conductor Environment Overrides
+
+When embedded in Conductor, these environment variables are injected by
+`IssuesServiceConfig.swift`:
+
+| Variable | Source | Default | Purpose |
+|----------|--------|---------|---------|
+| `Database__Provider` | Conductor | `Sqlite` | Use SQLite for embedded mode |
+| `ConnectionStrings__DefaultConnection` | Conductor | `Data Source=<conductor-data>/andy_issues.db` | SQLite DB path |
+| `AndyAuth__Authority` | Conductor | `https://localhost:<auth-port>` | Andy Auth IdP URL |
+| `AndyAuth__Audience` | Conductor | `urn:andy-issues-api` | JWT audience |
+| `AndySettings__ApiBaseUrl` | Conductor | `https://localhost:<settings-port>` | Andy Settings URL |
+| `AndyContainers__BaseUrl` | Conductor | `https://localhost:<containers-port>` | andy-containers URL |
+| `AndyCodeIndex__BaseUrl` | Conductor | `https://localhost:<code-index-port>` | andy-code-index URL |
+| `Rbac__ApiBaseUrl` | Conductor | `https://localhost:<rbac-port>` | Andy RBAC URL |
+| `Rbac__ApplicationCode` | Conductor | `andy-issues` | RBAC app code |
+| `OpenTelemetry__OtlpEndpoint` | Conductor | `http://localhost:4317` | OTLP collector |
+| `ASPNETCORE_ENVIRONMENT` | Conductor | `Production` | Runtime environment |
+| `ASPNETCORE_URLS` | Conductor | `https://+:<assigned-port>` | Listen URL |
+
 ## Database schema
 
 Schema evolution uses two complementary paths:

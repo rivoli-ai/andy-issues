@@ -77,8 +77,55 @@ jobs:
       - name: Build
         run: npm run build -- --configuration production
 
+  quality-gates:
+    needs: [secrets-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Check formatting
+        run: dotnet format --verify-no-changes
+
+      - name: Guard removed code patterns
+        run: |
+          if grep -rn 'CodeAnalysis\|FileAnalysis\|VPSAnalysisService' --include='*.cs' src/ client/; then
+            echo "::error::Removed code patterns detected — see migration-stories.md"
+            exit 1
+          fi
+          if [ -d "client/src/app/features/code" ]; then
+            echo "::error::features/code directory must not exist"
+            exit 1
+          fi
+
+  test-sqlite:
+    needs: [secrets-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Restore
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --no-restore
+
+      - name: Test with SQLite provider
+        run: dotnet test --no-build --verbosity normal
+        env:
+          Database__Provider: Sqlite
+
   docker:
-    needs: [build-backend, build-frontend]
+    needs: [build-backend, build-frontend, quality-gates, test-sqlite]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
