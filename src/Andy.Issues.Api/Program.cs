@@ -290,8 +290,10 @@ app.MapControllers();
 // --- SignalR hubs ---
 app.MapHub<BoardHub>(BoardHub.Path);
 
-// --- gRPC endpoint ---
-// gRPC services will be registered in Epic 9.
+// --- gRPC endpoints ---
+app.MapGrpcService<Andy.Issues.Api.GrpcServices.RepositoriesGrpcService>();
+app.MapGrpcService<Andy.Issues.Api.GrpcServices.BacklogGrpcService>();
+app.MapGrpcService<Andy.Issues.Api.GrpcServices.SandboxesGrpcService>();
 
 // --- MCP endpoint ---
 app.MapMcp("/mcp")

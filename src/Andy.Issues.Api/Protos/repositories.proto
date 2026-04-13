@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+option csharp_namespace = "Andy.Issues.Api.Protos";
+
+package andy.issues;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+service RepositoriesService {
+  rpc List (ListRepositoriesRequest) returns (ListRepositoriesResponse);
+  rpc Get (GetRepositoryRequest) returns (RepositoryResponse);
+  rpc Delete (DeleteRepositoryRequest) returns (DeleteRepositoryResponse);
+  rpc Share (ShareRepositoryRequest) returns (ShareRepositoryResponse);
+  rpc SyncGitHub (SyncGitHubRequest) returns (SyncResponse);
+  rpc SyncAzureDevOps (SyncAzureDevOpsRequest) returns (SyncResponse);
+}
+
+message ListRepositoriesRequest {
+  string scope = 1;   // mine | shared | all
+  int32 page = 2;
+  int32 page_size = 3;
+}
+
+message ListRepositoriesResponse {
+  repeated RepositoryMessage items = 1;
+  int32 page = 2;
+  int32 page_size = 3;
+  int32 total_count = 4;
+}
+
+message GetRepositoryRequest {
+  string id = 1;
+}
+
+message DeleteRepositoryRequest {
+  string id = 1;
+}
+
+message DeleteRepositoryResponse {
+  bool deleted = 1;
+}
+
+message ShareRepositoryRequest {
+  string repository_id = 1;
+  string email = 2;
+}
+
+message ShareRepositoryResponse {
+  string outcome = 1;  // created | already_shared | self_share | email_not_found | not_owner | not_found
+  RepositoryShareMessage share = 2;
+}
+
+message SyncGitHubRequest {
+  repeated string repo_ids = 1;
+}
+
+message SyncAzureDevOpsRequest {
+  string organization = 1;
+  string project = 2;
+  repeated string repo_ids = 3;
+}
+
+message SyncResponse {
+  int32 added = 1;
+  int32 updated = 2;
+  int32 skipped = 3;
+  repeated string errors = 4;
+}
+
+message RepositoryResponse {
+  RepositoryMessage repository = 1;
+}
+
+message RepositoryMessage {
+  string id = 1;
+  string owner_user_id = 2;
+  string name = 3;
+  google.protobuf.StringValue description = 4;
+  string provider = 5;
+  string clone_url = 6;
+  string default_branch = 7;
+  google.protobuf.StringValue external_id = 8;
+  string code_index_status = 9;
+  google.protobuf.Timestamp created_at = 10;
+  google.protobuf.Timestamp updated_at = 11;
+}
+
+message RepositoryShareMessage {
+  string id = 1;
+  string repository_id = 2;
+  string shared_with_user_id = 3;
+  string granted_by_user_id = 4;
+  google.protobuf.Timestamp granted_at = 5;
+}
