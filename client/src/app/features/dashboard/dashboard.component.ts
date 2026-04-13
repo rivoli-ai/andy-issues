@@ -3,7 +3,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
-import { ApiService, Item } from '../../shared/services/api.service';
+import { ApiService, Repository, Sandbox } from '../../shared/services/api.service';
 
 @Component({
   selector: 'app-dashboard',
@@ -13,19 +13,23 @@ import { ApiService, Item } from '../../shared/services/api.service';
     <h1>Dashboard</h1>
     <div class="stats">
       <div class="stat-card">
-        <div class="stat-value">{{ items.length }}</div>
-        <div class="stat-label">Total Items</div>
+        <div class="stat-value">{{ repoCount }}</div>
+        <div class="stat-label">Repositories</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">{{ activeCount }}</div>
-        <div class="stat-label">Active</div>
+        <div class="stat-value">{{ sandboxCount }}</div>
+        <div class="stat-label">Sandboxes</div>
       </div>
       <div class="stat-card">
-        <div class="stat-value">{{ draftCount }}</div>
-        <div class="stat-label">Draft</div>
+        <div class="stat-value">{{ runningSandboxes }}</div>
+        <div class="stat-label">Running</div>
       </div>
     </div>
-    <p class="quick-link"><a routerLink="/items">Manage Items &rarr;</a></p>
+    <div class="quick-links">
+      <a routerLink="/repositories">Manage Repositories &rarr;</a>
+      <a routerLink="/sandboxes">View Sandboxes &rarr;</a>
+      <a routerLink="/settings">Settings &rarr;</a>
+    </div>
   `,
   styles: [`
     h1 { margin-bottom: 24px; }
@@ -40,23 +44,25 @@ import { ApiService, Item } from '../../shared/services/api.service';
     }
     .stat-value { font-size: 32px; font-weight: 600; color: var(--primary); }
     .stat-label { font-size: 14px; color: var(--text-secondary); margin-top: 4px; }
-    .quick-link { font-size: 14px; }
+    .quick-links { display: flex; gap: 24px; font-size: 14px; }
   `],
 })
 export class DashboardComponent implements OnInit {
-  items: Item[] = [];
-
-  get activeCount(): number {
-    return this.items.filter((i) => i.status === 'Active').length;
-  }
-
-  get draftCount(): number {
-    return this.items.filter((i) => i.status === 'Draft').length;
-  }
+  repoCount = 0;
+  sandboxCount = 0;
+  runningSandboxes = 0;
 
   constructor(private api: ApiService) {}
 
   ngOnInit(): void {
-    this.api.getItems().subscribe((items) => (this.items = items));
+    this.api.listRepositories('mine', 1, 1).subscribe({
+      next: (r) => { this.repoCount = r.totalCount; },
+    });
+    this.api.listSandboxes().subscribe({
+      next: (list) => {
+        this.sandboxCount = list.length;
+        this.runningSandboxes = list.filter(s => s.status === 'Running').length;
+      },
+    });
   }
 }

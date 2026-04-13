@@ -18,10 +18,34 @@ export const routes: Routes = [
     canActivate: [authGuard],
   },
   {
-    path: 'items',
+    path: 'repositories',
     loadComponent: () =>
-      import('./features/items/items.component').then(
-        (m) => m.ItemsComponent
+      import('./features/repositories/repositories.component').then(
+        (m) => m.RepositoriesComponent
+      ),
+    canActivate: [authGuard],
+  },
+  {
+    path: 'backlog/:repoId',
+    loadComponent: () =>
+      import('./features/backlog/backlog.component').then(
+        (m) => m.BacklogComponent
+      ),
+    canActivate: [authGuard],
+  },
+  {
+    path: 'sandboxes',
+    loadComponent: () =>
+      import('./features/sandboxes/sandboxes.component').then(
+        (m) => m.SandboxesComponent
+      ),
+    canActivate: [authGuard],
+  },
+  {
+    path: 'settings',
+    loadComponent: () =>
+      import('./features/settings/settings.component').then(
+        (m) => m.SettingsComponent
       ),
     canActivate: [authGuard],
   },
