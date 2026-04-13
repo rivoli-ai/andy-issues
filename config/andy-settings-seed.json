@@ -1,0 +1,62 @@
+{
+  "_comment": "Andy Settings seed data for Andy Issues. Import via: andy-settings seed --file config/andy-settings-seed.json",
+  "applicationCode": "andy-issues",
+  "settings": [
+    {
+      "key": "andy.issues.azureDevops.defaultOrg",
+      "displayName": "Azure DevOps Default Organization",
+      "description": "Default Azure DevOps organization used when syncing repositories.",
+      "scope": "user",
+      "type": "string",
+      "defaultValue": null
+    },
+    {
+      "key": "andy.issues.azureDevops.pullIntervalSeconds",
+      "displayName": "Azure DevOps Sync Interval",
+      "description": "Interval in seconds for the background Azure DevOps backlog sync job. Set to 0 to disable.",
+      "scope": "app",
+      "type": "int",
+      "defaultValue": "300"
+    },
+    {
+      "key": "andy.issues.codeIndex.baseUrl",
+      "displayName": "Code Index Base URL",
+      "description": "Base URL of the andy-code-index service (e.g. http://andy-code-index:5500).",
+      "scope": "app",
+      "type": "uri",
+      "defaultValue": null
+    },
+    {
+      "key": "andy.issues.containers.baseUrl",
+      "displayName": "Containers Service Base URL",
+      "description": "Base URL of the andy-containers service for sandbox lifecycle management.",
+      "scope": "app",
+      "type": "uri",
+      "defaultValue": null
+    },
+    {
+      "key": "andy.issues.containers.templateCode",
+      "displayName": "Container Template Code",
+      "description": "andy-containers template code used when creating sandboxes.",
+      "scope": "app",
+      "type": "string",
+      "defaultValue": "devpilot-desktop"
+    },
+    {
+      "key": "andy.issues.containers.providerCode",
+      "displayName": "Container Provider Code",
+      "description": "andy-containers provider code (e.g. 'docker', 'azure').",
+      "scope": "app",
+      "type": "string",
+      "defaultValue": null
+    },
+    {
+      "key": "andy.issues.draftBacklog.defaultLlmSettingId",
+      "displayName": "Default LLM Setting ID",
+      "description": "GUID of the default LlmSetting used for draft backlog generation when a repository has none configured.",
+      "scope": "user",
+      "type": "string",
+      "defaultValue": null
+    }
+  ]
+}
