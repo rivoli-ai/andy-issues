@@ -145,8 +145,23 @@ builder.Services.AddScoped<IMcpConfigService, McpConfigService>();
 builder.Services.AddHttpClient<IMcpToolDiscoveryClient, McpToolDiscoveryClient>();
 builder.Services.AddScoped<IPermissionChecker, ClaimsPermissionChecker>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
+builder.Services.AddScoped<IDraftBacklogGenerator, DraftBacklogGenerator>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
+
+// --- andy-code-index client ---
+var codeIndexBaseUrl = builder.Configuration["AndyCodeIndex:ApiBaseUrl"];
+if (!string.IsNullOrEmpty(codeIndexBaseUrl))
+{
+    builder.Services.AddHttpClient<ICodeIndexClient, CodeIndexClient>(client =>
+    {
+        client.BaseAddress = new Uri(codeIndexBaseUrl);
+    });
+}
+else
+{
+    builder.Services.AddSingleton<ICodeIndexClient, NullCodeIndexClient>();
+}
 builder.Services.AddHostedService<AzureDevOpsBacklogPullJob>();
 builder.Services.AddDataProtection();
 
