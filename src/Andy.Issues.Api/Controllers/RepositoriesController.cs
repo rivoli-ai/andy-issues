@@ -17,13 +17,37 @@ public class RepositoriesController : ControllerBase
 {
     private readonly IRepositoryService _repositoryService;
     private readonly IPullRequestService _pullRequestService;
+    private readonly IDraftBacklogGenerator _draftBacklogGenerator;
 
     public RepositoriesController(
         IRepositoryService repositoryService,
-        IPullRequestService pullRequestService)
+        IPullRequestService pullRequestService,
+        IDraftBacklogGenerator draftBacklogGenerator)
     {
         _repositoryService = repositoryService;
         _pullRequestService = pullRequestService;
+        _draftBacklogGenerator = draftBacklogGenerator;
+    }
+
+    [HttpPost("{id:guid}/generate-backlog")]
+    public async Task<ActionResult<BacklogDto>> GenerateBacklog(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _draftBacklogGenerator.GenerateAsync(id, userId, ct);
+        return result.Outcome switch
+        {
+            DraftBacklogOutcome.Generated => Ok(result.Backlog),
+            DraftBacklogOutcome.RepositoryNotFound => NotFound(),
+            DraftBacklogOutcome.NotOwner => Forbid(),
+            DraftBacklogOutcome.NoLlmSetting => BadRequest(new { error = result.Error }),
+            DraftBacklogOutcome.CodeIndexNotReady => StatusCode(
+                502, new { error = result.Error, reason = "codeIndexNotReady" }),
+            DraftBacklogOutcome.LlmCallFailed => StatusCode(
+                502, new { error = result.Error, reason = "llmCallFailed" }),
+            DraftBacklogOutcome.ParseFailed => StatusCode(
+                502, new { error = result.Error, reason = "parseFailed" }),
+            _ => StatusCode(500)
+        };
     }
 
     [HttpPost("{id:guid}/pull-request")]
