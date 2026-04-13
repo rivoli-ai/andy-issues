@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.CommandLine;
+using Andy.Issues.Cli;
+using Andy.Issues.Cli.Commands;
 
 var rootCommand = new RootCommand("Andy Issues CLI - Manage andy-issues resources");
 
@@ -16,6 +18,10 @@ var tokenOption = new Option<string?>(
     description: "Bearer token for authentication");
 rootCommand.AddGlobalOption(tokenOption);
 
-// Commands will be registered in Epic 11 (repos, backlog, sandbox, mcp, artifact-feeds).
+rootCommand.AddCommand(ReposCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(BacklogCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(SandboxCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(McpCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(ArtifactFeedsCommand.Build(apiUrlOption, tokenOption));
 
 return await rootCommand.InvokeAsync(args);
