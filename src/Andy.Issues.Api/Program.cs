@@ -105,6 +105,10 @@ if (!string.IsNullOrEmpty(rbacBaseUrl) && builder.Environment.IsDevelopment())
     });
 }
 
+// --- HTTP infrastructure ---
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<BearerForwardingHandler>();
+
 // --- Andy Settings (centralized configuration) ---
 var settingsBaseUrl = builder.Configuration["AndySettings:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(settingsBaseUrl))
@@ -112,7 +116,13 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
     builder.Services.AddHttpClient("AndySettings", client =>
     {
         client.BaseAddress = new Uri(settingsBaseUrl);
-    });
+    })
+    .AddHttpMessageHandler<BearerForwardingHandler>();
+    builder.Services.AddScoped<IAndySettingsClient, AndySettingsClient>();
+}
+else
+{
+    builder.Services.AddScoped<IAndySettingsClient, LocalSettingsClient>();
 }
 
 // --- Services ---
@@ -129,10 +139,8 @@ builder.Services.AddSignalR();
 // Cloud deployments set AndyContainers:BaseUrl explicitly and the BearerForwardingHandler
 // propagates the caller's JWT from the ambient HttpContext. Conductor-embedded mode can
 // override IContainersClient directly, so tests and Conductor need no HTTP stack at all.
-builder.Services.AddHttpContextAccessor();
 var andyContainersBaseUrl = builder.Configuration["AndyContainers:BaseUrl"]
     ?? "http://andy-containers.local/";
-builder.Services.AddTransient<BearerForwardingHandler>();
 builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(client =>
     {
         client.BaseAddress = new Uri(andyContainersBaseUrl);
@@ -146,6 +154,7 @@ builder.Services.AddHttpClient<IMcpToolDiscoveryClient, McpToolDiscoveryClient>(
 builder.Services.AddScoped<IPermissionChecker, ClaimsPermissionChecker>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddScoped<IDraftBacklogGenerator, DraftBacklogGenerator>();
+builder.Services.AddScoped<ISecretStore, SecretStore>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 

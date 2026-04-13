@@ -23,6 +23,8 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakePermissionChecker PermissionCheckerFake { get; } = new();
     public FakeMcpToolDiscoveryClient FakeMcpToolDiscoveryClient { get; } = new();
     public FakeCodeIndexClient FakeCodeIndexClient { get; } = new();
+    public FakeAndySettingsClient FakeAndySettingsClient { get; } = new();
+    public FakeSecretStore FakeSecretStore { get; } = new();
 
     public void ResetPermissions() => PermissionCheckerFake.Reset();
 
@@ -86,6 +88,18 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (codeIndexDescriptor is not null)
                 services.Remove(codeIndexDescriptor);
             services.AddSingleton<ICodeIndexClient>(FakeCodeIndexClient);
+
+            var settingsDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IAndySettingsClient));
+            if (settingsDescriptor is not null)
+                services.Remove(settingsDescriptor);
+            services.AddSingleton<IAndySettingsClient>(FakeAndySettingsClient);
+
+            var secretStoreDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(ISecretStore));
+            if (secretStoreDescriptor is not null)
+                services.Remove(secretStoreDescriptor);
+            services.AddSingleton<ISecretStore>(FakeSecretStore);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the
