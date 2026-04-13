@@ -41,7 +41,9 @@ public class RepositoryGitHubSyncTests : IDisposable
         var guard = new RepositoryAccessGuard(ctx);
         var dir = new UserDirectoryService(ctx);
         var az = new StubAzureDevOpsClient();
-        return new RepositoryService(ctx, guard, dir, gh, az);
+        var ci = new StubCodeIndexClient();
+        return new RepositoryService(ctx, guard, dir, gh, az, ci,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
     }
 
     private async Task SeedLinkedProviderAsync(string userId, string token = "ghp_token")

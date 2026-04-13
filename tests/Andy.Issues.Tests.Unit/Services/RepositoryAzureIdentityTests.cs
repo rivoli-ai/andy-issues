@@ -41,7 +41,9 @@ public class RepositoryAzureIdentityTests : IDisposable
             new RepositoryAccessGuard(ctx),
             new UserDirectoryService(ctx),
             new StubGitHubClient(),
-            new StubAzureDevOpsClient());
+            new StubAzureDevOpsClient(),
+            new StubCodeIndexClient(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
 
     private async Task<Guid> SeedAsync()
     {

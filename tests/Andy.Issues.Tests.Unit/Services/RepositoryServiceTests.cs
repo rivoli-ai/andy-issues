@@ -37,13 +37,15 @@ public class RepositoryServiceTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    private RepositoryService NewService(AppDbContext ctx)
+    private RepositoryService NewService(AppDbContext ctx, ICodeIndexClient? codeIndex = null)
     {
         var guard = new RepositoryAccessGuard(ctx);
         var dir = new UserDirectoryService(ctx);
         var gh = new StubGitHubClient();
         var az = new StubAzureDevOpsClient();
-        return new RepositoryService(ctx, guard, dir, gh, az);
+        var ci = codeIndex ?? new StubCodeIndexClient();
+        return new RepositoryService(ctx, guard, dir, gh, az, ci,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
     }
 
     private async Task SeedAsync()
@@ -249,6 +251,55 @@ public class RepositoryServiceTests : IDisposable
         Assert.Equal(CreateRepositoryResult.Created, alice.Result);
         Assert.Equal(CreateRepositoryResult.Created, bob.Result);
         Assert.NotEqual(alice.Dto!.Id, bob.Dto!.Id);
+    }
+
+    // MARK: - Code index auto-registration
+
+    [Fact]
+    public async Task Create_RegistersWithCodeIndexAndSetsStatusToIndexing()
+    {
+        var stub = new StubCodeIndexClient();
+        await using var ctx = NewContext();
+        var service = NewService(ctx, stub);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x", Description: null, Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main", ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.Created, result);
+        Assert.Single(stub.RegisterCalls);
+        Assert.Equal("https://github.com/rivoli-ai/x.git", stub.RegisterCalls[0].cloneUrl);
+        Assert.Equal("main", stub.RegisterCalls[0].defaultBranch);
+
+        // Status should now be Indexing
+        Assert.Equal("Indexing", dto!.CodeIndexStatus);
+    }
+
+    [Fact]
+    public async Task Create_CodeIndexFailureDoesNotFailRepoCreation()
+    {
+        var stub = new StubCodeIndexClient
+        {
+            RegistrationResult = new CodeIndexRegistrationResult(
+                CodeIndexRegistrationOutcome.ServiceUnavailable, null, "down")
+        };
+        await using var ctx = NewContext();
+        var service = NewService(ctx, stub);
+
+        var (result, dto) = await service.CreateAsync(
+            new CreateRepositoryRequest(
+                Name: "x", Description: null, Provider: "github",
+                CloneUrl: "https://github.com/rivoli-ai/x.git",
+                DefaultBranch: "main", ExternalId: null),
+            ownerUserId: "alice");
+
+        Assert.Equal(CreateRepositoryResult.Created, result);
+        Assert.NotNull(dto);
+        // Status stays NotIndexed when registration fails
+        Assert.Equal("NotIndexed", dto!.CodeIndexStatus);
     }
 
     // MARK: - Existing list/share tests

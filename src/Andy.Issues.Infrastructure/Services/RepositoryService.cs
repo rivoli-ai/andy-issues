@@ -9,6 +9,7 @@ using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Andy.Issues.Infrastructure.Services;
 
@@ -19,19 +20,25 @@ public class RepositoryService : IRepositoryService
     private readonly IUserDirectory _userDirectory;
     private readonly IGitHubClient _gitHubClient;
     private readonly IAzureDevOpsClient _azureDevOpsClient;
+    private readonly ICodeIndexClient _codeIndexClient;
+    private readonly ILogger<RepositoryService> _logger;
 
     public RepositoryService(
         AppDbContext db,
         IRepositoryAccessGuard guard,
         IUserDirectory userDirectory,
         IGitHubClient gitHubClient,
-        IAzureDevOpsClient azureDevOpsClient)
+        IAzureDevOpsClient azureDevOpsClient,
+        ICodeIndexClient codeIndexClient,
+        ILogger<RepositoryService> logger)
     {
         _db = db;
         _guard = guard;
         _userDirectory = userDirectory;
         _gitHubClient = gitHubClient;
         _azureDevOpsClient = azureDevOpsClient;
+        _codeIndexClient = codeIndexClient;
+        _logger = logger;
     }
 
     public async Task<(CreateRepositoryResult Result, RepositoryDto? Dto)> CreateAsync(
@@ -83,6 +90,24 @@ public class RepositoryService : IRepositoryService
         };
         _db.Repositories.Add(entity);
         await _db.SaveChangesAsync(ct);
+
+        // Best-effort code index registration — don't fail repo creation
+        // if andy-code-index is down or not configured.
+        try
+        {
+            var regResult = await _codeIndexClient.RegisterAsync(entity.CloneUrl, entity.DefaultBranch, ct);
+            if (regResult.Outcome is CodeIndexRegistrationOutcome.Registered
+                or CodeIndexRegistrationOutcome.AlreadyRegistered)
+            {
+                entity.CodeIndexStatus = CodeIndexStatus.Indexing;
+                await _db.SaveChangesAsync(ct);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Code index registration failed for {CloneUrl}; repo creation succeeded.", entity.CloneUrl);
+        }
+
         return (CreateRepositoryResult.Created, entity.ToDto());
     }
 
