@@ -155,6 +155,7 @@ builder.Services.AddScoped<IPermissionChecker, ClaimsPermissionChecker>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddScoped<IDraftBacklogGenerator, DraftBacklogGenerator>();
 builder.Services.AddScoped<ISecretStore, SecretStore>();
+builder.Services.AddScoped<ILinkedProviderService, LinkedProviderService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 
