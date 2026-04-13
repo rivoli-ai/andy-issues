@@ -1,0 +1,248 @@
+// Copyright (c) Rivoli AI 2026. All rights reserved.
+// Licensed under the Apache License, Version 2.0.
+
+using System.ComponentModel;
+using System.Security.Claims;
+using System.Text.Json;
+using Andy.Issues.Application.Dtos;
+using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.Requests;
+using ModelContextProtocol.Server;
+
+namespace Andy.Issues.Api.Mcp;
+
+[McpServerToolType]
+public static class ServiceTools
+{
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    // ── Repositories ────────────────────────────────────────────────
+
+    [McpServerTool, Description("List repositories accessible to the current user. Scope: mine (default), shared, or all.")]
+    public static async Task<string> ListRepositories(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Filter scope: mine, shared, or all")] string? scope,
+        [Description("Page number (default 1)")] int? page,
+        [Description("Page size (default 50)")] int? pageSize)
+    {
+        var userId = GetUserId(ctx);
+        var parsed = scope?.ToLowerInvariant() switch
+        {
+            "shared" => RepositoryScope.Shared,
+            "all" => RepositoryScope.All,
+            _ => RepositoryScope.Mine
+        };
+        var result = await svc.ListAsync(userId, parsed, page ?? 1, pageSize ?? 50);
+        return Serialize(result);
+    }
+
+    [McpServerTool, Description("Get details of a repository by its ID.")]
+    public static async Task<string> GetRepository(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Repository ID (GUID)")] string repositoryId)
+    {
+        var dto = await svc.GetAsync(Guid.Parse(repositoryId), GetUserId(ctx));
+        return dto is null ? "Repository not found." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Sync repositories from GitHub. Provide a comma-separated list of full repo names (e.g. owner/repo).")]
+    public static async Task<string> SyncGitHubRepositories(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Comma-separated GitHub repo full names (owner/repo)")] string repoNames)
+    {
+        var names = repoNames.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var result = await svc.SyncFromGitHubAsync(GetUserId(ctx), names);
+        return result is null ? "No linked GitHub provider found." : Serialize(result);
+    }
+
+    [McpServerTool, Description("Sync repositories from Azure DevOps for a given organization.")]
+    public static async Task<string> SyncAzureDevOpsRepositories(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Azure DevOps organization name")] string organization,
+        [Description("Comma-separated Azure DevOps repository IDs")] string repoIds,
+        [Description("Optional Azure DevOps project name")] string? project)
+    {
+        var ids = repoIds.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        var result = await svc.SyncFromAzureDevOpsAsync(GetUserId(ctx), organization, project, ids);
+        return result is null ? "No linked Azure DevOps provider found." : Serialize(result);
+    }
+
+    [McpServerTool, Description("Delete a repository by its ID.")]
+    public static async Task<string> DeleteRepository(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Repository ID (GUID)")] string repositoryId)
+    {
+        var ok = await svc.DeleteAsync(Guid.Parse(repositoryId), GetUserId(ctx));
+        return ok ? "Repository deleted." : "Repository not found or not owned by you.";
+    }
+
+    // ── Backlog ─────────────────────────────────────────────────────
+
+    [McpServerTool, Description("Get the full backlog (epics, features, stories) for a repository.")]
+    public static async Task<string> ListBacklog(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Repository ID (GUID)")] string repositoryId)
+    {
+        var dto = await svc.GetAsync(Guid.Parse(repositoryId), GetUserId(ctx));
+        return dto is null ? "Repository not found or not accessible." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Create a new epic in a repository's backlog.")]
+    public static async Task<string> CreateEpic(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Repository ID (GUID)")] string repositoryId,
+        [Description("Epic title")] string title,
+        [Description("Optional epic description")] string? description)
+    {
+        var request = new CreateEpicRequest(title, description, null, null);
+        var dto = await svc.AddEpicAsync(Guid.Parse(repositoryId), request, GetUserId(ctx));
+        return dto is null ? "Repository not found or not accessible." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Create a new feature under an epic.")]
+    public static async Task<string> CreateFeature(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Epic ID (GUID)")] string epicId,
+        [Description("Feature title")] string title,
+        [Description("Optional feature description")] string? description)
+    {
+        var request = new CreateFeatureRequest(title, description, null, null);
+        var dto = await svc.AddFeatureAsync(Guid.Parse(epicId), request, GetUserId(ctx));
+        return dto is null ? "Epic not found or not accessible." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Create a new user story under a feature.")]
+    public static async Task<string> CreateStory(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Feature ID (GUID)")] string featureId,
+        [Description("Story title")] string title,
+        [Description("Optional story description (user story format recommended)")] string? description,
+        [Description("Optional acceptance criteria")] string? acceptanceCriteria,
+        [Description("Optional story points estimate")] int? storyPoints)
+    {
+        var request = new CreateUserStoryRequest(title, description, acceptanceCriteria, storyPoints, null, null);
+        var dto = await svc.AddStoryAsync(Guid.Parse(featureId), request, GetUserId(ctx));
+        return dto is null ? "Feature not found or not accessible." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Update the status of a user story (e.g. Draft, Ready, InProgress, Done).")]
+    public static async Task<string> UpdateStoryStatus(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Story ID (GUID)")] string storyId,
+        [Description("New status (Draft, Ready, InProgress, Done)")] string status)
+    {
+        var request = new UpdateUserStoryStatusRequest(status, null);
+        var result = await svc.UpdateStoryStatusAsync(Guid.Parse(storyId), request, GetUserId(ctx));
+        return result.Outcome switch
+        {
+            UserStoryStatusUpdateOutcome.Updated => Serialize(result.Story!),
+            _ => result.Error ?? result.Outcome.ToString()
+        };
+    }
+
+    [McpServerTool, Description("Generate a draft backlog (epics, features, stories) for a repository using AI. Requires a linked LLM setting and code index.")]
+    public static async Task<string> GenerateDraftBacklog(
+        IHttpContextAccessor ctx,
+        IDraftBacklogGenerator gen,
+        [Description("Repository ID (GUID)")] string repositoryId)
+    {
+        var result = await gen.GenerateAsync(Guid.Parse(repositoryId), GetUserId(ctx));
+        return result.Outcome switch
+        {
+            DraftBacklogOutcome.Generated => Serialize(result.Backlog!),
+            _ => result.Error ?? result.Outcome.ToString()
+        };
+    }
+
+    // ── Sandboxes ───────────────────────────────────────────────────
+
+    [McpServerTool, Description("Create a new sandbox (container-based dev environment) for a repository branch.")]
+    public static async Task<string> CreateSandbox(
+        IHttpContextAccessor ctx,
+        ISandboxService svc,
+        [Description("Repository ID (GUID)")] string repositoryId,
+        [Description("Branch name to check out in the sandbox")] string branch)
+    {
+        var request = new CreateSandboxRequest(Guid.Parse(repositoryId), branch, null);
+        var dto = await svc.CreateAsync(request, GetUserId(ctx));
+        return dto is null ? "Repository not found or not accessible." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("List all sandboxes owned by the current user.")]
+    public static async Task<string> ListSandboxes(
+        IHttpContextAccessor ctx,
+        ISandboxService svc)
+    {
+        var list = await svc.ListAsync(GetUserId(ctx));
+        return Serialize(list);
+    }
+
+    [McpServerTool, Description("Get connection info (IDE, VNC, SSH endpoints) for a sandbox.")]
+    public static async Task<string> GetSandboxConnection(
+        IHttpContextAccessor ctx,
+        ISandboxService svc,
+        [Description("Sandbox ID (GUID)")] string sandboxId)
+    {
+        var dto = await svc.GetConnectionInfoAsync(Guid.Parse(sandboxId), GetUserId(ctx));
+        return dto is null ? "Sandbox not found." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("Destroy a sandbox by its ID.")]
+    public static async Task<string> DestroySandbox(
+        IHttpContextAccessor ctx,
+        ISandboxService svc,
+        [Description("Sandbox ID (GUID)")] string sandboxId)
+    {
+        var ok = await svc.DestroyAsync(Guid.Parse(sandboxId), GetUserId(ctx));
+        return ok ? "Sandbox destroyed." : "Sandbox not found.";
+    }
+
+    // ── MCP configs ─────────────────────────────────────────────────
+
+    [McpServerTool, Description("List MCP server configurations visible to the current user (personal + shared).")]
+    public static async Task<string> ListMcpConfigs(
+        IHttpContextAccessor ctx,
+        IMcpConfigService svc)
+    {
+        var list = await svc.ListForUserAsync(GetUserId(ctx));
+        return Serialize(list);
+    }
+
+    // ── Artifact feeds ──────────────────────────────────────────────
+
+    [McpServerTool, Description("List enabled artifact feeds (NuGet/npm registries) configured for this service.")]
+    public static async Task<string> ListEnabledArtifactFeeds(
+        IArtifactFeedService svc)
+    {
+        var list = await svc.GetEnabledAsync();
+        return Serialize(list);
+    }
+
+    // ── Helpers ──────────────────────────────────────────────────────
+
+    private static string GetUserId(IHttpContextAccessor ctx)
+    {
+        var user = ctx.HttpContext?.User;
+        return user?.FindFirst("sub")?.Value
+            ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? user?.Identity?.Name
+            ?? "dev-user";
+    }
+
+    private static string Serialize<T>(T value) =>
+        JsonSerializer.Serialize(value, JsonOptions);
+}
