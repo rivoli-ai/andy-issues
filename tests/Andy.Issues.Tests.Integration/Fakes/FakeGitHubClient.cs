@@ -19,12 +19,19 @@ public class FakeGitHubClient : IGitHubClient
         _responses[fullName] = info;
     }
 
+    public GitHubUserInfo? CurrentUserResult { get; set; } = new("fake-gh-user");
+
     public void Reset()
     {
         _responses.Clear();
         _prCalls.Clear();
         PullRequestResult = null;
+        CurrentUserResult = new("fake-gh-user");
     }
+
+    public Task<GitHubUserInfo?> GetCurrentUserAsync(
+        string accessToken, CancellationToken ct = default) =>
+        Task.FromResult(CurrentUserResult);
 
     public Task<GitHubRepositoryInfo?> GetRepositoryAsync(
         string fullName,

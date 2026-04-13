@@ -25,6 +25,29 @@ public class GitHubClient : IGitHubClient
         _logger = logger;
     }
 
+    public async Task<GitHubUserInfo?> GetCurrentUserAsync(
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, $"{BaseUrl}/user");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("GitHub GET /user failed with {Status}", response.StatusCode);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var login = doc.RootElement.GetProperty("login").GetString() ?? "";
+        return new GitHubUserInfo(login);
+    }
+
     public async Task<GitHubRepositoryInfo?> GetRepositoryAsync(
         string fullName,
         string accessToken,

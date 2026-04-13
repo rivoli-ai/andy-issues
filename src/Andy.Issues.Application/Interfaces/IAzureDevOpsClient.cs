@@ -27,8 +27,18 @@ public record AzureDevOpsPullRequestInfo(int Id, string Url);
 
 public record AzureDevOpsFeedInfo(string Id, string Name, string? Description, string? Url);
 
+public record AzureDevOpsUserInfo(string DisplayName);
+
 public interface IAzureDevOpsClient
 {
+    /// <summary>
+    /// Validates an Azure DevOps PAT by calling the connection data API.
+    /// Returns user info on success or null if the token is invalid.
+    /// </summary>
+    Task<AzureDevOpsUserInfo?> GetCurrentUserAsync(
+        string personalAccessToken,
+        CancellationToken ct = default);
+
     Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
         string organization,
         string project,

@@ -8,6 +8,12 @@ namespace Andy.Issues.Tests.Integration.Fakes;
 
 public class FakeAzureDevOpsClient : IAzureDevOpsClient
 {
+    public AzureDevOpsUserInfo? CurrentUserResult { get; set; } = new("fake-azdo-user");
+
+    public Task<AzureDevOpsUserInfo?> GetCurrentUserAsync(
+        string personalAccessToken, CancellationToken ct = default) =>
+        Task.FromResult(CurrentUserResult);
+
     private readonly ConcurrentDictionary<string, AzureDevOpsRepositoryInfo> _responses = new();
     private readonly ConcurrentDictionary<int, AzureDevOpsWorkItemSnapshot> _workItems = new();
     private int _nextId = 1000;

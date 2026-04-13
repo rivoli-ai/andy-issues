@@ -7,6 +7,12 @@ namespace Andy.Issues.Tests.Unit.Services;
 
 public class StubAzureDevOpsClient : IAzureDevOpsClient
 {
+    public AzureDevOpsUserInfo? CurrentUserResult { get; set; } = new("stub-azdo-user");
+
+    public Task<AzureDevOpsUserInfo?> GetCurrentUserAsync(
+        string personalAccessToken, CancellationToken ct = default) =>
+        Task.FromResult(CurrentUserResult);
+
     private readonly Dictionary<string, AzureDevOpsRepositoryInfo?> _responses = new();
     private readonly Dictionary<int, AzureDevOpsWorkItemSnapshot> _workItems = new();
     private int _nextId = 1000;

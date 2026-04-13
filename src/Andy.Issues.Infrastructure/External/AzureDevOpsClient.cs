@@ -23,6 +23,35 @@ public class AzureDevOpsClient : IAzureDevOpsClient
         _logger = logger;
     }
 
+    public async Task<AzureDevOpsUserInfo?> GetCurrentUserAsync(
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        // The connection data API at https://dev.azure.com/_apis/connectionData
+        // returns the authenticated user's display name without needing an org.
+        var url = $"https://dev.azure.com/_apis/connectionData?api-version={ApiVersion}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($":{personalAccessToken}")));
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Azure DevOps GET /_apis/connectionData failed with {Status}", response.StatusCode);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var displayName = doc.RootElement.TryGetProperty("authenticatedUser", out var user)
+            && user.TryGetProperty("providerDisplayName", out var name)
+            && name.ValueKind == JsonValueKind.String
+            ? name.GetString() ?? ""
+            : "";
+        return new AzureDevOpsUserInfo(displayName);
+    }
+
     public async Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
         string organization,
         string project,

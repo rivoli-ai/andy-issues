@@ -15,6 +15,12 @@ public class StubGitHubClient : IGitHubClient
         return this;
     }
 
+    public GitHubUserInfo? CurrentUserResult { get; set; } = new("stub-user");
+
+    public Task<GitHubUserInfo?> GetCurrentUserAsync(
+        string accessToken, CancellationToken ct = default) =>
+        Task.FromResult(CurrentUserResult);
+
     public Task<GitHubRepositoryInfo?> GetRepositoryAsync(
         string fullName,
         string accessToken,
