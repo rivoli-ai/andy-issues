@@ -43,6 +43,7 @@ public class RepositoryAzureIdentityTests : IDisposable
             new StubGitHubClient(),
             new StubAzureDevOpsClient(),
             new StubCodeIndexClient(),
+            new StubSecretStore(),
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
 
     private async Task<Guid> SeedAsync()

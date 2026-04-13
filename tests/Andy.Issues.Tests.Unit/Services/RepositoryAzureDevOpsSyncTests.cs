@@ -42,7 +42,8 @@ public class RepositoryAzureDevOpsSyncTests : IDisposable
         var dir = new UserDirectoryService(ctx);
         var gh = new StubGitHubClient();
         var ci = new StubCodeIndexClient();
-        return new RepositoryService(ctx, guard, dir, gh, az, ci,
+        var ss = new StubSecretStore();
+        return new RepositoryService(ctx, guard, dir, gh, az, ci, ss,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
     }
 

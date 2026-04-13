@@ -21,6 +21,7 @@ public class RepositoryService : IRepositoryService
     private readonly IGitHubClient _gitHubClient;
     private readonly IAzureDevOpsClient _azureDevOpsClient;
     private readonly ICodeIndexClient _codeIndexClient;
+    private readonly ISecretStore _secretStore;
     private readonly ILogger<RepositoryService> _logger;
 
     public RepositoryService(
@@ -30,6 +31,7 @@ public class RepositoryService : IRepositoryService
         IGitHubClient gitHubClient,
         IAzureDevOpsClient azureDevOpsClient,
         ICodeIndexClient codeIndexClient,
+        ISecretStore secretStore,
         ILogger<RepositoryService> logger)
     {
         _db = db;
@@ -38,6 +40,7 @@ public class RepositoryService : IRepositoryService
         _gitHubClient = gitHubClient;
         _azureDevOpsClient = azureDevOpsClient;
         _codeIndexClient = codeIndexClient;
+        _secretStore = secretStore;
         _logger = logger;
     }
 
@@ -272,6 +275,8 @@ public class RepositoryService : IRepositoryService
         if (provider is null)
             return null;
 
+        var accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+
         var added = 0;
         var updated = 0;
         var skipped = 0;
@@ -288,7 +293,7 @@ public class RepositoryService : IRepositoryService
             GitHubRepositoryInfo? info;
             try
             {
-                info = await _gitHubClient.GetRepositoryAsync(fullName, provider.AccessToken, ct);
+                info = await _gitHubClient.GetRepositoryAsync(fullName, accessToken, ct);
             }
             catch (Exception ex)
             {
@@ -362,7 +367,8 @@ public class RepositoryService : IRepositoryService
         if (repo.OwnerUserId != ownerUserId) return SetAzureIdentityResult.NotOwner;
 
         repo.AzureClientId = clientId;
-        repo.AzureClientSecret = clientSecret;
+        repo.AzureClientSecret = await _secretStore.StoreAsync(
+            $"andy.issues.repo.{repositoryId}.azureClientSecret", clientSecret, ct);
         repo.AzureTenantId = tenantId;
         repo.AzureSubscriptionId = subscriptionId;
         repo.UpdatedAt = DateTimeOffset.UtcNow;
@@ -435,6 +441,8 @@ public class RepositoryService : IRepositoryService
         if (string.IsNullOrWhiteSpace(organization) || string.IsNullOrWhiteSpace(project))
             return new SyncResult(0, 0, 0, new[] { "organization and project are required" });
 
+        var azAccessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+
         var added = 0;
         var updated = 0;
         var skipped = 0;
@@ -452,7 +460,7 @@ public class RepositoryService : IRepositoryService
             try
             {
                 info = await _azureDevOpsClient.GetRepositoryAsync(
-                    organization, project, repoId, provider.AccessToken, ct);
+                    organization, project, repoId, azAccessToken, ct);
             }
             catch (Exception ex)
             {

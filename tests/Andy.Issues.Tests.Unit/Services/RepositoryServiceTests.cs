@@ -44,7 +44,8 @@ public class RepositoryServiceTests : IDisposable
         var gh = new StubGitHubClient();
         var az = new StubAzureDevOpsClient();
         var ci = codeIndex ?? new StubCodeIndexClient();
-        return new RepositoryService(ctx, guard, dir, gh, az, ci,
+        var ss = new StubSecretStore();
+        return new RepositoryService(ctx, guard, dir, gh, az, ci, ss,
             Microsoft.Extensions.Logging.Abstractions.NullLogger<RepositoryService>.Instance);
     }
 
