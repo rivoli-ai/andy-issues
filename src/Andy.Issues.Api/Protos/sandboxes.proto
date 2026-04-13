@@ -1,0 +1,63 @@
+syntax = "proto3";
+
+option csharp_namespace = "Andy.Issues.Api.Protos";
+
+package andy.issues;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+service SandboxesService {
+  rpc Create (CreateSandboxGrpcRequest) returns (SandboxMessage);
+  rpc List (ListSandboxesRequest) returns (ListSandboxesResponse);
+  rpc Get (GetSandboxRequest) returns (SandboxMessage);
+  rpc Destroy (DestroySandboxRequest) returns (DestroySandboxResponse);
+  rpc GetConnectionInfo (GetSandboxConnectionRequest) returns (SandboxConnectionMessage);
+}
+
+message CreateSandboxGrpcRequest {
+  string repository_id = 1;
+  google.protobuf.StringValue branch = 2;
+}
+
+message ListSandboxesRequest {}
+
+message ListSandboxesResponse {
+  repeated SandboxMessage sandboxes = 1;
+}
+
+message GetSandboxRequest {
+  string id = 1;
+}
+
+message DestroySandboxRequest {
+  string id = 1;
+}
+
+message DestroySandboxResponse {
+  bool destroyed = 1;
+}
+
+message GetSandboxConnectionRequest {
+  string id = 1;
+}
+
+message SandboxMessage {
+  string id = 1;
+  string repository_id = 2;
+  string owner_user_id = 3;
+  string branch = 4;
+  string status = 5;
+  google.protobuf.StringValue ide_endpoint = 6;
+  google.protobuf.StringValue vnc_endpoint = 7;
+  google.protobuf.StringValue container_id = 8;
+  google.protobuf.Timestamp created_at = 9;
+  google.protobuf.Timestamp updated_at = 10;
+}
+
+message SandboxConnectionMessage {
+  google.protobuf.StringValue ip_address = 1;
+  google.protobuf.StringValue ssh_endpoint = 2;
+  google.protobuf.StringValue ide_endpoint = 3;
+  google.protobuf.StringValue vnc_endpoint = 4;
+}
