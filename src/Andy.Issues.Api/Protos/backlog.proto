@@ -1,0 +1,147 @@
+syntax = "proto3";
+
+option csharp_namespace = "Andy.Issues.Api.Protos";
+
+package andy.issues;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/wrappers.proto";
+
+service BacklogService {
+  rpc GetBacklog (GetBacklogRequest) returns (BacklogResponse);
+  rpc AddEpic (AddEpicRequest) returns (EpicMessage);
+  rpc UpdateEpic (UpdateEpicRequest) returns (EpicMessage);
+  rpc DeleteEpic (DeleteEpicRequest) returns (DeleteResponse);
+  rpc AddFeature (AddFeatureRequest) returns (FeatureMessage);
+  rpc UpdateFeature (UpdateFeatureRequest) returns (FeatureMessage);
+  rpc DeleteFeature (DeleteFeatureRequest) returns (DeleteResponse);
+  rpc AddStory (AddStoryRequest) returns (UserStoryMessage);
+  rpc UpdateStory (UpdateStoryRequest) returns (UserStoryMessage);
+  rpc UpdateStoryStatus (UpdateStoryStatusRequest) returns (UpdateStoryStatusResponse);
+  rpc DeleteStory (DeleteStoryRequest) returns (DeleteResponse);
+}
+
+message GetBacklogRequest {
+  string repository_id = 1;
+}
+
+message BacklogResponse {
+  string repository_id = 1;
+  repeated EpicMessage epics = 2;
+}
+
+message AddEpicRequest {
+  string repository_id = 1;
+  string title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.Int32Value order = 4;
+  google.protobuf.StringValue external_id = 5;
+}
+
+message UpdateEpicRequest {
+  string epic_id = 1;
+  google.protobuf.StringValue title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.Int32Value order = 4;
+}
+
+message DeleteEpicRequest {
+  string epic_id = 1;
+}
+
+message AddFeatureRequest {
+  string epic_id = 1;
+  string title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.Int32Value order = 4;
+  google.protobuf.StringValue external_id = 5;
+}
+
+message UpdateFeatureRequest {
+  string feature_id = 1;
+  google.protobuf.StringValue title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.Int32Value order = 4;
+}
+
+message DeleteFeatureRequest {
+  string feature_id = 1;
+}
+
+message AddStoryRequest {
+  string feature_id = 1;
+  string title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.StringValue acceptance_criteria = 4;
+  google.protobuf.Int32Value story_points = 5;
+  google.protobuf.Int32Value order = 6;
+  google.protobuf.StringValue external_id = 7;
+}
+
+message UpdateStoryRequest {
+  string story_id = 1;
+  google.protobuf.StringValue title = 2;
+  google.protobuf.StringValue description = 3;
+  google.protobuf.StringValue acceptance_criteria = 4;
+  google.protobuf.Int32Value story_points = 5;
+  google.protobuf.Int32Value order = 6;
+}
+
+message UpdateStoryStatusRequest {
+  string story_id = 1;
+  string status = 2;
+  google.protobuf.StringValue pull_request_url = 3;
+}
+
+message UpdateStoryStatusResponse {
+  string outcome = 1;  // updated | not_found | invalid_status | invalid_transition
+  UserStoryMessage story = 2;
+  google.protobuf.StringValue error = 3;
+}
+
+message DeleteStoryRequest {
+  string story_id = 1;
+}
+
+message DeleteResponse {
+  bool deleted = 1;
+}
+
+message EpicMessage {
+  string id = 1;
+  string repository_id = 2;
+  string title = 3;
+  google.protobuf.StringValue description = 4;
+  int32 order = 5;
+  google.protobuf.StringValue external_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  repeated FeatureMessage features = 9;
+}
+
+message FeatureMessage {
+  string id = 1;
+  string epic_id = 2;
+  string title = 3;
+  google.protobuf.StringValue description = 4;
+  int32 order = 5;
+  google.protobuf.StringValue external_id = 6;
+  google.protobuf.Timestamp created_at = 7;
+  google.protobuf.Timestamp updated_at = 8;
+  repeated UserStoryMessage stories = 9;
+}
+
+message UserStoryMessage {
+  string id = 1;
+  string feature_id = 2;
+  string title = 3;
+  google.protobuf.StringValue description = 4;
+  google.protobuf.StringValue acceptance_criteria = 5;
+  google.protobuf.Int32Value story_points = 6;
+  string status = 7;
+  google.protobuf.StringValue pull_request_url = 8;
+  int32 order = 9;
+  google.protobuf.StringValue external_id = 10;
+  google.protobuf.Timestamp created_at = 11;
+  google.protobuf.Timestamp updated_at = 12;
+}
