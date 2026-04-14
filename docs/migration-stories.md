@@ -898,6 +898,125 @@ issuer.
 
 ---
 
+## Epic 15 — Event messaging (NATS)
+
+Adopts the ecosystem messaging contract from [andy-tasks ADR 0001](https://github.com/rivoli-ai/andy-tasks/blob/main/docs/adr/0001-messaging.md) in andy-issues. Events on NATS (commands stay on HTTP), transactional outbox in our own database, idempotent consumers, strict subject ownership. The adoption reference is [`docs/adr/0001-messaging.md`](adr/0001-messaging.md).
+
+Rollout is incremental and landable one PR per story. Stories 15.2–15.5 and 15.7–15.8 are self-contained within andy-issues. Story 15.6 is **cross-repo** and remains gated until andy-containers begins publishing run events (andy-tasks ADR Phase 3).
+
+### Story 15.1 — ADR 0001 reference doc
+**Feature.** Thin adoption ADR at `docs/adr/0001-messaging.md` that enumerates andy-issues's subjects and consumers.
+**AC.**
+- File exists and links to the canonical andy-tasks ADR.
+- Lists publisher subjects: `andy.issues.events.story.*`, `andy.issues.events.repository.*`, `andy.issues.events.sandbox.*`, `andy.issues.events.system.health`.
+- Lists subscriber subjects: `andy.containers.events.run.*`.
+- Restates the outbox rule and the "no self-subscription" rule.
+
+**Tests.** MkDocs build still passes.
+
+**Docs.** This IS the docs change. Linked from `docs/architecture.md`.
+
+### Story 15.2 — `IMessageBus`, `OutboxEntry`, `OutboxDispatcher`
+**Feature.** Transactional outbox + dispatcher scaffolding, identical in shape to andy-tasks's Phase 1.
+**AC.**
+- `IMessageBus` interface in `Andy.Issues.Application/Messaging/`.
+- `InMemoryMessageBus` in `Andy.Issues.Infrastructure/Messaging/` for local dev and tests.
+- `OutboxEntry` entity (Id, Subject, PayloadType, PayloadJson, HeadersJson, CreatedAt, PublishedAt?, Attempts, LastError?).
+- EF config + migrations for Postgres and SQLite.
+- `OutboxDispatcher` hosted service with exponential backoff.
+- `services.AddIssuesMessaging()` DI extension.
+
+**Tests.**
+- Unit: dispatcher orders, marks `PublishedAt`, retries on transient failure.
+- Integration: outbox round-trips on SQLite and Postgres.
+
+**Docs.** `docs/architecture.md` new "Messaging" section.
+
+### Story 15.3 — Publish `andy.issues.events.story.*`
+**Feature.** Emit `UserStory` lifecycle events through the outbox.
+**AC.**
+- `created` on insert; `readied` on transition to `Ready`; `done` on transition to `Done`; `updated` on any other change.
+- Payload `{ storyId, featureId, epicId, repositoryId, title, status, schema_version: 1 }`.
+- Required headers per ADR 0001.
+
+**Tests.**
+- Unit: each transition produces exactly one event of the right kind.
+- Integration: InMemory subscriber observes the event end-to-end.
+
+**Docs.** Subject list in `docs/architecture.md`.
+
+### Story 15.4 — Publish `andy.issues.events.repository.*`
+**Feature.** Emit repository lifecycle (`registered`, `synced`).
+**AC.**
+- `registered` on `Repository` creation via REST/MCP/CLI/gRPC.
+- `synced` on successful GitHub or AzDo sync with `{ repositoryId, provider, added, updated, skipped, errorCount, schema_version: 1 }`.
+- Failed syncs do **not** publish `synced` (error metrics stay in the DTO).
+
+**Tests.**
+- Integration: sync endpoint emits exactly one event on the happy path.
+- Unit: failed sync emits none.
+
+**Docs.** Subject list update.
+
+### Story 15.5 — Publish `andy.issues.events.sandbox.*`
+**Feature.** Emit sandbox lifecycle events.
+**AC.**
+- `attached` when a `Sandbox` row is created against an andy-containers container.
+- `detached` on sandbox release.
+- `failed` when `SandboxService` records a provisioning error.
+- Payload `{ sandboxId, containerId, repositoryId, branch, status, schema_version: 1 }`.
+
+**Tests.**
+- Unit: transitions produce matching events.
+- Integration: attach/detach flow observed via InMemory subscriber.
+
+**Docs.** Subject list update.
+
+### Story 15.6 — Subscribe to `andy.containers.events.run.*` (cross-repo)
+**Feature.** Correlate run outcomes back to `UserStory` state.
+**AC.**
+- `ContainerRunEventConsumer` listens for `run.*.finished|failed|cancelled`.
+- Payload `{ runId, storyId, status, exitCode?, durationSeconds? }` (contract owned by andy-containers).
+- `finished` → story `InReview`; `failed`/`cancelled` → keep `InProgress`, append activity note.
+- Idempotent per `msg-id`.
+- Gated behind `Messaging:ConsumeRunEvents=true` (default off) until andy-containers publishes.
+
+**Tests.**
+- Unit: state transitions per event kind.
+- Integration (env-gated): publish a synthetic `run.finished` and observe the state flip.
+
+**Docs.** `docs/architecture.md` subscriber section.
+
+**Cross-repo.** Blocked on andy-containers outbox + publisher (andy-tasks ADR Phase 3).
+
+### Story 15.7 — NATS provider wire-up
+**Feature.** Select NATS vs InMemory via `Messaging:Provider`.
+**AC.**
+- `NatsMessageBus` implements `IMessageBus` with JetStream + header mapping + durable consumers + DLQ routing.
+- `NatsOptions` (`Url`, `StreamName`, `StreamSubjects`, `MaxAge`, `DlqPrefix`).
+- `NatsStreamProvisioner` hosted service auto-creates the stream on boot.
+- `docker-compose.yml` adds `nats:2-alpine` with JetStream.
+- `Program.cs` switches implementations on the config key.
+
+**Tests.**
+- Unit: option binding, DI selection.
+- Integration: covered by 15.8.
+
+**Docs.** `docs/deployment.md` Messaging section.
+
+### Story 15.8 — NATS integration tests + CI job
+**Feature.** Env-gated end-to-end tests against a real NATS broker.
+**AC.**
+- Env flag `ANDY_ISSUES_TEST_NATS=true` required (tests skipped otherwise).
+- Cases: round-trip, generation-limit enforcement, outbox → NATS E2E, DLQ routing.
+- CI `integration-nats` job starts NATS in a sidecar and sets the flag.
+
+**Tests.** This IS the test story.
+
+**Docs.** `docs/testing.md` Messaging tests.
+
+---
+
 ## Cross-cutting telemetry
 
 Every service method added in Epics 2–6 emits an OpenTelemetry span with attributes
