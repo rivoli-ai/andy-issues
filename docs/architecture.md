@@ -56,6 +56,28 @@ The API exposes a SignalR hub at `/hubs/board` that pushes live backlog updates 
 - **Publication path**: `BacklogService` and the Azure DevOps pull loop depend on `IBoardNotifier` (defined in the Application layer) and publish events after every successful mutation. The API wires `IBoardNotifier` to `SignalRBoardNotifier`, a thin adapter over `IHubContext<BoardHub>`. Tests (and any future background consumers that should not broadcast) can inject `NullBoardNotifier` or a recording fake instead.
 - **Scope**: the notifier layer is infrastructure-agnostic, so a later epic can swap SignalR for a message bus without touching service code.
 
+## Messaging (NATS)
+
+andy-issues participates in the Andy ecosystem event bus as both publisher and subscriber. The design is specified in [ADR 0001](adr/0001-messaging.md), which adopts the canonical [andy-tasks ADR 0001](https://github.com/rivoli-ai/andy-tasks/blob/main/docs/adr/0001-messaging.md) by reference. In short:
+
+- **Commands stay on HTTP.** REST/MCP/gRPC are the command path; NATS is strictly for past-tense events.
+- **Publishers write to an outbox.** Domain changes and outbox rows commit in the same EF transaction; the `OutboxDispatcher` drains rows to NATS. At-least-once delivery.
+- **Consumers are idempotent.** Dedupe is by the `msg-id` header.
+- **No self-subscription.** andy-issues does not listen on `andy.issues.events.*`.
+
+**Subjects andy-issues publishes** (see ADR for payloads):
+- `andy.issues.events.story.<id>.{created,readied,done,updated}`
+- `andy.issues.events.repository.<id>.{registered,synced}`
+- `andy.issues.events.sandbox.<id>.{attached,detached,failed}`
+- `andy.issues.events.system.health` (heartbeat)
+
+**Subjects andy-issues subscribes to:**
+- `andy.containers.events.run.*.{finished,failed,cancelled}` — correlates run outcomes back to `UserStory` state. Feature-gated behind `Messaging:ConsumeRunEvents=true` until andy-containers begins publishing.
+
+NATS vs SignalR: SignalR (`/hubs/board`) pushes backlog changes to **human clients** (the Angular app, IDE plugins). NATS carries **inter-service** domain events. They are complementary; neither replaces the other.
+
+Implementation is tracked in Epic 15 of [`migration-stories.md`](migration-stories.md) (issues #67–#74). Default provider is `InMemory` for local dev and tests; production switches to `Nats` via `Messaging:Provider`.
+
 ## Sandboxes and andy-containers
 
 andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.
