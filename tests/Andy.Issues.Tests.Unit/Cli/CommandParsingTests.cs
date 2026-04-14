@@ -44,6 +44,25 @@ public class CommandParsingTests
     }
 
     [Fact]
+    public void Repos_Add_RequiresCloneUrlNameAndProvider()
+    {
+        var cmd = ReposCommand.Build(ApiUrlOption, TokenOption);
+        var result = cmd.Parse("add");
+
+        Assert.NotEmpty(result.Errors);
+    }
+
+    [Fact]
+    public void Repos_Add_ParsesMinimalFlags()
+    {
+        var cmd = ReposCommand.Build(ApiUrlOption, TokenOption);
+        var result = cmd.Parse(
+            "add --clone-url https://github.com/a/b.git --name b --provider github");
+
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
     public void Repos_Delete_RequiresId()
     {
         var cmd = ReposCommand.Build(ApiUrlOption, TokenOption);

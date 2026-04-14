@@ -61,6 +61,61 @@ public class CliIntegrationTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Repos_Add_CreatesRepositoryAndAppearsInList()
+    {
+        var cloneUrl = $"https://github.com/acme/cli-add-{Guid.NewGuid():N}.git";
+        var request = new CreateRepositoryRequest(
+            Name: "cli-add-test",
+            Description: "via CLI",
+            Provider: "github",
+            CloneUrl: cloneUrl,
+            DefaultBranch: null,
+            ExternalId: null);
+
+        var createResp = await _client.PostAsJsonAsync("api/repositories", request, JsonOptions);
+        createResp.EnsureSuccessStatusCode();
+        var created = await createResp.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        Assert.NotNull(created);
+        Assert.Equal("cli-add-test", created.Name);
+        Assert.Equal(cloneUrl, created.CloneUrl);
+
+        var list = await _client.GetFromJsonAsync<PagedResult<RepositoryDto>>(
+            "api/repositories?scope=mine&page=1&pageSize=50", JsonOptions);
+        Assert.NotNull(list);
+        Assert.Contains(list.Items, r => r.Id == created.Id);
+    }
+
+    [Fact]
+    public async Task Repos_Add_DuplicateCloneUrl_IsIdempotent()
+    {
+        var cloneUrl = $"https://github.com/acme/cli-dup-{Guid.NewGuid():N}.git";
+        var request = new CreateRepositoryRequest(
+            "cli-dup", null, "github", cloneUrl, null, null);
+
+        var first = await _client.PostAsJsonAsync("api/repositories", request, JsonOptions);
+        first.EnsureSuccessStatusCode();
+        var firstDto = await first.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        var second = await _client.PostAsJsonAsync("api/repositories", request, JsonOptions);
+        second.EnsureSuccessStatusCode();
+        var secondDto = await second.Content.ReadFromJsonAsync<RepositoryDto>(JsonOptions);
+
+        Assert.Equal(firstDto!.Id, secondDto!.Id);
+    }
+
+    [Fact]
+    public async Task Repos_Add_InvalidProvider_Returns400()
+    {
+        var request = new CreateRepositoryRequest(
+            "bad", null, "bitbucket", "https://example.com/x.git", null, null);
+
+        var resp = await _client.PostAsJsonAsync("api/repositories", request, JsonOptions);
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
     public async Task Repos_Delete_Succeeds()
     {
         var repoId = await SeedRepoAsync("cli-delete-test");

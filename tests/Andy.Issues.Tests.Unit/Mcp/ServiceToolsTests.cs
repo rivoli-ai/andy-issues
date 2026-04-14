@@ -72,6 +72,80 @@ public class ServiceToolsTests
     }
 
     [Fact]
+    public async Task CreateRepository_DelegatesRequestAndReturnsDto()
+    {
+        var dto = MakeRepoDto("new-repo");
+        var svc = new StubRepositoryService
+        {
+            CreateResult = CreateRepositoryResult.Created,
+            CreateDto = dto
+        };
+
+        var json = await ServiceTools.CreateRepository(
+            _ctx, svc,
+            name: "new-repo",
+            provider: "github",
+            cloneUrl: "https://github.com/acme/new-repo.git",
+            description: "manual add",
+            defaultBranch: "main",
+            externalId: "123");
+
+        var result = JsonSerializer.Deserialize<RepositoryDto>(json, JsonOptions);
+
+        Assert.NotNull(result);
+        Assert.Equal("new-repo", result.Name);
+        Assert.NotNull(svc.LastCreateRequest);
+        Assert.Equal("new-repo", svc.LastCreateRequest.Name);
+        Assert.Equal("github", svc.LastCreateRequest.Provider);
+        Assert.Equal("https://github.com/acme/new-repo.git", svc.LastCreateRequest.CloneUrl);
+        Assert.Equal("manual add", svc.LastCreateRequest.Description);
+        Assert.Equal("main", svc.LastCreateRequest.DefaultBranch);
+        Assert.Equal("123", svc.LastCreateRequest.ExternalId);
+        Assert.Equal("test-user", svc.LastCreateOwner);
+    }
+
+    [Fact]
+    public async Task CreateRepository_AlreadyExists_ReturnsExistingDto()
+    {
+        var existing = MakeRepoDto("dup-repo");
+        var svc = new StubRepositoryService
+        {
+            CreateResult = CreateRepositoryResult.AlreadyExists,
+            CreateDto = existing
+        };
+
+        var json = await ServiceTools.CreateRepository(
+            _ctx, svc, "dup-repo", "github", "https://github.com/acme/dup-repo.git", null, null, null);
+
+        var result = JsonSerializer.Deserialize<RepositoryDto>(json, JsonOptions);
+        Assert.NotNull(result);
+        Assert.Equal(existing.Id, result.Id);
+    }
+
+    [Fact]
+    public async Task CreateRepository_InvalidProvider_ReturnsErrorMessage()
+    {
+        var svc = new StubRepositoryService { CreateResult = CreateRepositoryResult.InvalidProvider };
+
+        var result = await ServiceTools.CreateRepository(
+            _ctx, svc, "x", "bitbucket", "https://example.com/x.git", null, null, null);
+
+        Assert.Contains("bitbucket", result);
+        Assert.Contains("github", result);
+    }
+
+    [Fact]
+    public async Task CreateRepository_InvalidCloneUrl_ReturnsErrorMessage()
+    {
+        var svc = new StubRepositoryService { CreateResult = CreateRepositoryResult.InvalidCloneUrl };
+
+        var result = await ServiceTools.CreateRepository(
+            _ctx, svc, "x", "github", "not-a-url", null, null, null);
+
+        Assert.Contains("CloneUrl", result);
+    }
+
+    [Fact]
     public async Task SyncGitHubRepositories_DelegatesToService()
     {
         var svc = new StubRepositoryService
@@ -330,6 +404,10 @@ file class StubRepositoryService : IRepositoryService
     public SyncResult? SyncGitHubResult { get; set; }
     public SyncResult? SyncAzureResult { get; set; }
     public IReadOnlyList<string>? LastGitHubFullNames { get; private set; }
+    public CreateRepositoryResult CreateResult { get; set; } = CreateRepositoryResult.Created;
+    public RepositoryDto? CreateDto { get; set; }
+    public CreateRepositoryRequest? LastCreateRequest { get; private set; }
+    public string? LastCreateOwner { get; private set; }
 
     public Task<PagedResult<RepositoryDto>> ListAsync(string userId, RepositoryScope scope, int page, int pageSize, CancellationToken ct = default) =>
         Task.FromResult(ListResult!);
@@ -349,8 +427,12 @@ file class StubRepositoryService : IRepositoryService
     public Task<SyncResult?> SyncFromAzureDevOpsAsync(string userId, string organization, string? project, IReadOnlyList<string> repositoryIds, CancellationToken ct = default) =>
         Task.FromResult(SyncAzureResult);
 
-    public Task<(CreateRepositoryResult Result, RepositoryDto? Dto)> CreateAsync(CreateRepositoryRequest request, string ownerUserId, CancellationToken ct = default) =>
-        Task.FromResult<(CreateRepositoryResult, RepositoryDto?)>((CreateRepositoryResult.Created, null));
+    public Task<(CreateRepositoryResult Result, RepositoryDto? Dto)> CreateAsync(CreateRepositoryRequest request, string ownerUserId, CancellationToken ct = default)
+    {
+        LastCreateRequest = request;
+        LastCreateOwner = ownerUserId;
+        return Task.FromResult((CreateResult, CreateDto));
+    }
 
     public Task<(ShareResult Result, RepositoryShareDto? Dto)> ShareAsync(Guid repositoryId, string email, string ownerUserId, CancellationToken ct = default) =>
         Task.FromResult<(ShareResult, RepositoryShareDto?)>((ShareResult.Created, null));

@@ -75,6 +75,34 @@ public static class ServiceTools
         return result is null ? "No linked Azure DevOps provider found." : Serialize(result);
     }
 
+    [McpServerTool, Description(
+        "Register a repository by clone URL. Use this when the user already knows the clone URL — " +
+        "it's the manual path that does not require a linked GitHub/Azure DevOps token. " +
+        "When the user wants to import every repo they own from GitHub, call sync_github_repositories instead. " +
+        "Calling this again with the same clone URL for the same user is a no-op and returns the existing repository.")]
+    public static async Task<string> CreateRepository(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Display name for the repository")] string name,
+        [Description("Provider: 'github' or 'azuredevops'")] string provider,
+        [Description("Absolute http(s) clone URL")] string cloneUrl,
+        [Description("Optional description")] string? description,
+        [Description("Optional default branch (defaults to 'main' server-side)")] string? defaultBranch,
+        [Description("Optional provider-specific external ID (e.g. GitHub repo id, AzDO repo GUID)")] string? externalId)
+    {
+        var userId = GetUserId(ctx);
+        var request = new CreateRepositoryRequest(name, description, provider, cloneUrl, defaultBranch, externalId);
+        var (result, dto) = await svc.CreateAsync(request, userId);
+        return result switch
+        {
+            CreateRepositoryResult.Created => Serialize(dto!),
+            CreateRepositoryResult.AlreadyExists => Serialize(dto!),
+            CreateRepositoryResult.InvalidProvider => $"Unknown provider '{provider}'. Use 'github' or 'azuredevops'.",
+            CreateRepositoryResult.InvalidCloneUrl => "CloneUrl is required and must be an absolute http(s) URL.",
+            _ => "Failed to create repository."
+        };
+    }
+
     [McpServerTool, Description("Delete a repository by its ID.")]
     public static async Task<string> DeleteRepository(
         IHttpContextAccessor ctx,

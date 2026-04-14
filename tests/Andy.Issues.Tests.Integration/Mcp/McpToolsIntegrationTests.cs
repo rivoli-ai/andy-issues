@@ -51,6 +51,7 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         var names = tools.Select(t => t.GetProperty("name").GetString()).ToList();
 
         Assert.Contains("list_repositories", names);
+        Assert.Contains("create_repository", names);
         Assert.Contains("list_backlog", names);
         Assert.Contains("create_epic", names);
         Assert.Contains("create_sandbox", names);
@@ -118,6 +119,70 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         });
 
         Assert.Contains("MCP-Created Epic", result);
+    }
+
+    [Fact]
+    public async Task CallTool_CreateRepository_CreatesRow()
+    {
+        var sessionId = await InitializeSessionAsync();
+        var cloneUrl = $"https://github.com/acme/mcp-created-{Guid.NewGuid():N}.git";
+
+        var created = await CallToolAsync(sessionId, "create_repository", new
+        {
+            name = "mcp-created",
+            provider = "github",
+            cloneUrl,
+            description = (string?)null,
+            defaultBranch = (string?)null,
+            externalId = (string?)null
+        });
+
+        Assert.Contains("mcp-created", created);
+
+        var list = await CallToolAsync(sessionId, "list_repositories", new
+        {
+            scope = "mine",
+            page = 1,
+            pageSize = 50
+        });
+        Assert.Contains(cloneUrl, list);
+    }
+
+    [Fact]
+    public async Task CallTool_CreateRepository_DuplicateIsIdempotent()
+    {
+        var sessionId = await InitializeSessionAsync();
+        var cloneUrl = $"https://github.com/acme/dup-{Guid.NewGuid():N}.git";
+
+        var first = await CallToolAsync(sessionId, "create_repository", new
+        {
+            name = "dup-repo",
+            provider = "github",
+            cloneUrl,
+            description = (string?)null,
+            defaultBranch = (string?)null,
+            externalId = (string?)null
+        });
+        var second = await CallToolAsync(sessionId, "create_repository", new
+        {
+            name = "dup-repo",
+            provider = "github",
+            cloneUrl,
+            description = (string?)null,
+            defaultBranch = (string?)null,
+            externalId = (string?)null
+        });
+
+        // Both calls return the same repository record.
+        var firstId = ExtractId(first);
+        var secondId = ExtractId(second);
+        Assert.Equal(firstId, secondId);
+    }
+
+    private static string ExtractId(string toolOutput)
+    {
+        using var doc = JsonDocument.Parse(toolOutput);
+        return doc.RootElement.GetProperty("id").GetString()!;
     }
 
     [Fact]

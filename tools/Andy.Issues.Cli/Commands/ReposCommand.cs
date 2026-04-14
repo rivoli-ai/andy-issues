@@ -16,6 +16,7 @@ public static class ReposCommand
 
         cmd.AddCommand(BuildList(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildGet(apiUrlOption, tokenOption));
+        cmd.AddCommand(BuildAdd(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildDelete(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildSyncGitHub(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildSyncAzdo(apiUrlOption, tokenOption));
@@ -89,6 +90,61 @@ public static class ReposCommand
             Console.WriteLine($"Azure identity:  {(repo.HasAzureIdentity ? "configured" : "none")}");
             Console.WriteLine($"Code index:      {repo.CodeIndexStatus}");
             Console.WriteLine($"Created:         {repo.CreatedAt:u}");
+        });
+        return cmd;
+    }
+
+    private static Command BuildAdd(Option<string> apiUrlOption, Option<string?> tokenOption)
+    {
+        var cloneUrlOption = new Option<string>("--clone-url", "Absolute http(s) clone URL") { IsRequired = true };
+        var nameOption = new Option<string>("--name", "Display name") { IsRequired = true };
+        var providerOption = new Option<string>("--provider", "Provider: github or azuredevops") { IsRequired = true };
+        var descriptionOption = new Option<string?>("--description", "Optional description");
+        var defaultBranchOption = new Option<string?>("--default-branch", "Default branch (server defaults to 'main')");
+        var externalIdOption = new Option<string?>("--external-id", "Provider-specific external ID");
+        var jsonOption = new Option<bool>("--json", "Output raw JSON");
+
+        var cmd = new Command("add", "Register a repository by clone URL (no OAuth required)")
+        {
+            cloneUrlOption, nameOption, providerOption, descriptionOption,
+            defaultBranchOption, externalIdOption, jsonOption
+        };
+
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            var provider = ctx.ParseResult.GetValueForOption(providerOption)!;
+            var providerNormalized = provider.ToLowerInvariant();
+            if (providerNormalized is not ("github" or "azuredevops"))
+            {
+                Console.Error.WriteLine($"Invalid --provider '{provider}'. Use 'github' or 'azuredevops'.");
+                ctx.ExitCode = 1;
+                return;
+            }
+
+            var request = new CreateRepositoryRequest(
+                ctx.ParseResult.GetValueForOption(nameOption)!,
+                ctx.ParseResult.GetValueForOption(descriptionOption),
+                providerNormalized,
+                ctx.ParseResult.GetValueForOption(cloneUrlOption)!,
+                ctx.ParseResult.GetValueForOption(defaultBranchOption),
+                ctx.ParseResult.GetValueForOption(externalIdOption));
+
+            using var api = CreateClient(ctx, apiUrlOption, tokenOption);
+            var dto = await api.PostAsync<RepositoryDto>("api/repositories", request);
+            if (dto is null) return;
+
+            var json = ctx.ParseResult.GetValueForOption(jsonOption);
+            if (json)
+            {
+                Console.WriteLine(ApiClient.ToJson(dto));
+                return;
+            }
+
+            Console.WriteLine($"Repository: {dto.Name}");
+            Console.WriteLine($"  ID:              {dto.Id}");
+            Console.WriteLine($"  Provider:        {dto.Provider}");
+            Console.WriteLine($"  Clone URL:       {dto.CloneUrl}");
+            Console.WriteLine($"  Default branch:  {dto.DefaultBranch}");
         });
         return cmd;
     }
