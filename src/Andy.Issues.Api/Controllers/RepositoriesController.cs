@@ -18,15 +18,18 @@ public class RepositoriesController : ControllerBase
     private readonly IRepositoryService _repositoryService;
     private readonly IPullRequestService _pullRequestService;
     private readonly IDraftBacklogGenerator _draftBacklogGenerator;
+    private readonly IBacklogGitHubImportService _backlogGitHubImportService;
 
     public RepositoriesController(
         IRepositoryService repositoryService,
         IPullRequestService pullRequestService,
-        IDraftBacklogGenerator draftBacklogGenerator)
+        IDraftBacklogGenerator draftBacklogGenerator,
+        IBacklogGitHubImportService backlogGitHubImportService)
     {
         _repositoryService = repositoryService;
         _pullRequestService = pullRequestService;
         _draftBacklogGenerator = draftBacklogGenerator;
+        _backlogGitHubImportService = backlogGitHubImportService;
     }
 
     [HttpPost("{id:guid}/generate-backlog")]
@@ -175,6 +178,23 @@ public class RepositoriesController : ControllerBase
         var result = await _repositoryService.SyncFromGitHubAsync(userId, request.RepoIds, ct);
         if (result is null)
             return Unauthorized(new { error = "No GitHub access token linked for this user." });
+        return Ok(result);
+    }
+
+    /// <summary>
+    /// Imports the repository's GitHub issues into the local backlog.
+    /// Classifies by <c>type:epic</c> / <c>type:feature</c> /
+    /// <c>type:story</c> labels, upserts by issue number, and infers
+    /// hierarchy from markdown task-list references in parent bodies.
+    /// </summary>
+    [HttpPost("{id:guid}/sync-github-issues")]
+    public async Task<ActionResult<SyncResult>> SyncGitHubIssues(
+        Guid id,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _backlogGitHubImportService.ImportAsync(id, userId, ct);
+        if (result is null) return NotFound();
         return Ok(result);
     }
 
