@@ -39,24 +39,35 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         @"^\s*[-*]\s*\[[ xX]\]\s*#(\d+)",
         RegexOptions.Compiled | RegexOptions.Multiline);
 
+    /// <summary>
+    /// Fast-path env var to pick up a GitHub PAT when no
+    /// <see cref="Domain.Entities.LinkedProvider"/> row is registered.
+    /// Temporary bridge (tracked as issue #76) until the andy-settings
+    /// backed flow in Conductor ships.
+    /// </summary>
+    internal const string EnvironmentPatVariable = "GITHUB_PAT";
+
     private readonly AppDbContext _db;
     private readonly IGitHubClient _gitHubClient;
     private readonly IRepositoryAccessGuard _guard;
     private readonly ISecretStore _secretStore;
     private readonly ILogger<BacklogGitHubImportService> _logger;
+    private readonly Func<string, string?> _environmentReader;
 
     public BacklogGitHubImportService(
         AppDbContext db,
         IGitHubClient gitHubClient,
         IRepositoryAccessGuard guard,
         ISecretStore secretStore,
-        ILogger<BacklogGitHubImportService> logger)
+        ILogger<BacklogGitHubImportService> logger,
+        Func<string, string?>? environmentReader = null)
     {
         _db = db;
         _gitHubClient = gitHubClient;
         _guard = guard;
         _secretStore = secretStore;
         _logger = logger;
+        _environmentReader = environmentReader ?? Environment.GetEnvironmentVariable;
     }
 
     public async Task<SyncResult?> ImportAsync(
@@ -89,6 +100,25 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         if (provider is not null)
         {
             accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+        }
+
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            // Fast-path fallback (issue #76): pick up a PAT from the
+            // GITHUB_PAT env var when no LinkedProvider is registered.
+            // Conductor forwards its CONDUCTOR_GITHUB_TOKEN / GITHUB_TOKEN
+            // into this variable when launching the embedded service.
+            // User-registered LinkedProviders always win over the env
+            // var because the check above sets `accessToken` first.
+            // Deprecated once conductor#540 (Settings UI) lands.
+            var envPat = _environmentReader(EnvironmentPatVariable);
+            if (!string.IsNullOrEmpty(envPat))
+            {
+                _logger.LogInformation(
+                    "Using {EnvVar} env-var fallback for {Owner}/{Repo} (no LinkedProvider).",
+                    EnvironmentPatVariable, owner, repoName);
+                accessToken = envPat;
+            }
         }
 
         IReadOnlyList<GitHubIssueInfo> issues;

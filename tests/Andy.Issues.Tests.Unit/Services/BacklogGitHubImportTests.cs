@@ -37,9 +37,13 @@ public class BacklogGitHubImportTests : IDisposable
 
     private AppDbContext NewContext() => new(_options);
 
-    private BacklogGitHubImportService NewImporter(AppDbContext ctx, StubGitHubClient gh) =>
+    private BacklogGitHubImportService NewImporter(
+        AppDbContext ctx,
+        StubGitHubClient gh,
+        Func<string, string?>? environmentReader = null) =>
         new(ctx, gh, new RepositoryAccessGuard(ctx), new StubSecretStore(),
-            NullLogger<BacklogGitHubImportService>.Instance);
+            NullLogger<BacklogGitHubImportService>.Instance,
+            environmentReader);
 
     private async Task<Guid> SeedRepoAsync(string cloneUrl = "https://github.com/acme/widgets.git")
     {
@@ -322,6 +326,70 @@ public class BacklogGitHubImportTests : IDisposable
         Assert.NotNull(result);
         Assert.Single(result!.Errors);
         Assert.Contains("publicly accessible", result.Errors[0]);
+    }
+
+    [Fact]
+    public async Task Import_NoLinkedProviderButEnvPat_UsesEnvToken()
+    {
+        // Issue #76 fast path: GITHUB_PAT in the service process env
+        // is picked up when no LinkedProvider row is registered.
+        var repoId = await SeedRepoWithoutProviderAsync();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(1, "Env-token story", "story")
+        });
+        Func<string, string?> reader = name =>
+            name == "GITHUB_PAT" ? "gho_env_token" : null;
+
+        await using var ctx = NewContext();
+        var result = await NewImporter(ctx, gh, reader).ImportAsync(repoId, "alice");
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result!.Added);
+        Assert.Empty(result.Errors);
+        // The env-sourced token was actually forwarded to the client.
+        Assert.Equal("gho_env_token", gh.ListIssuesTokens.Single());
+    }
+
+    [Fact]
+    public async Task Import_LinkedProviderWinsOverEnvPat()
+    {
+        // Explicit user-registered PAT must take precedence over the
+        // env-var fallback — otherwise you couldn't reset to a
+        // personal token without unsetting the shared env var.
+        var repoId = await SeedRepoAsync(); // seeds LinkedProvider with "pat"
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(1, "Linked-PAT story", "story")
+        });
+        Func<string, string?> reader = _ => "gho_env_token";
+
+        await using var ctx = NewContext();
+        await NewImporter(ctx, gh, reader).ImportAsync(repoId, "alice");
+
+        Assert.Equal("pat", gh.ListIssuesTokens.Single());
+    }
+
+    [Fact]
+    public async Task Import_NoLinkedProviderAndNoEnvVar_StillPublicFetches()
+    {
+        // When neither a LinkedProvider nor the env var is present,
+        // the importer falls through to anonymous access (public-repo
+        // fallback from #64). We verify that by confirming the client
+        // saw an empty token.
+        var repoId = await SeedRepoWithoutProviderAsync();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(1, "Public story", "story")
+        });
+        Func<string, string?> reader = _ => null;
+
+        await using var ctx = NewContext();
+        var result = await NewImporter(ctx, gh, reader).ImportAsync(repoId, "alice");
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result!.Added);
+        Assert.Equal(string.Empty, gh.ListIssuesTokens.Single());
     }
 
     [Fact]
