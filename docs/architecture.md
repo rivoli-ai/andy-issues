@@ -77,6 +77,13 @@ andy-issues never creates, execs into, or destroys containers itself. Every cont
 - `SandboxService` keeps only a minimal `Sandbox` projection locally: container id (the opaque identifier returned by andy-containers), repo/branch/owner, cached status, and IDE/VNC endpoints surfaced for convenience. Status is refreshed from the live container on `List`/`Get`; if the container is gone remotely the sandbox is marked `Destroyed` and eventually cleaned up.
 - Deployments wire `ContainersClient` to the configured `AndyContainers:BaseUrl`. In cloud mode, an `AuthenticatedHttpHandler` forwards the caller's bearer token from the ambient `HttpContext`. In Conductor-embedded mode the `IContainersClient` binding can be supplied directly by the Conductor host so the two services share an in-process channel — no HTTP roundtrip required.
 
+## Code Understanding and andy-code-index
+
+andy-issues never parses, indexes, or analyzes repository source code itself. All code understanding — symbol search, file analysis, repository summarization, draft-backlog generation — is delegated to the sibling `andy-code-index` service via its HTTP client.
+
+- `Andy.Issues.Application.Interfaces.ICodeIndexClient` is the seam andy-issues code depends on. Repositories are auto-registered with `andy-code-index` on creation (`Story 6.2`) and the draft-backlog generator (`Story 6.3`) reads indexed context from the same service.
+- The legacy in-repo code analysis shapes (`CodeAnalysis`, `FileAnalysis`, `VPSAnalysisService`) have been removed. A CI guard in `.github/workflows/ci.yml` fails the build if any of those identifiers reappear in `src/`, `tests/`, `tools/`, or `client/src/`.
+
 ## Database Strategy
 
 - **PostgreSQL** (default): Used in standalone deployment
