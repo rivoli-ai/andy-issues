@@ -38,6 +38,7 @@ public class AppDbContext : DbContext
     public DbSet<Sandbox> Sandboxes => Set<Sandbox>();
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
     public DbSet<UserDirectoryEntry> UserDirectory => Set<UserDirectoryEntry>();
+    public DbSet<OutboxEntry> Outbox => Set<OutboxEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -186,6 +187,22 @@ public class AppDbContext : DbContext
             e.Property(x => x.DisplayName).HasMaxLength(256);
             e.HasIndex(x => x.UserId).IsUnique();
             e.HasIndex(x => x.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<OutboxEntry>(e =>
+        {
+            e.ToTable("Outbox");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Subject).IsRequired().HasMaxLength(256);
+            e.Property(x => x.PayloadType).HasMaxLength(256);
+            e.Property(x => x.PayloadJson).IsRequired();
+            e.Property(x => x.LastError).HasMaxLength(2000);
+
+            // Composite index over the dispatcher's hot query:
+            //   WHERE PublishedAt IS NULL ORDER BY CreatedAt
+            // Plain (non-filtered) so the same DDL works on Postgres and SQLite.
+            e.HasIndex(x => new { x.PublishedAt, x.CreatedAt });
+            e.HasIndex(x => x.CorrelationId);
         });
     }
 }

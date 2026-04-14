@@ -6,6 +6,7 @@ using Andy.Issues.Api.Infrastructure;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.External;
+using Andy.Issues.Infrastructure.Messaging;
 using Andy.Issues.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,11 @@ var builder = WebApplication.CreateBuilder(args);
 
 // --- Database ---
 builder.Services.AddAppDatabase(builder.Configuration);
+
+// --- Messaging (ADR 0001) ---
+// InMemory is the default for local dev and tests. Story 15.7 will add a
+// NATS branch selected via Messaging:Provider = "Nats".
+builder.Services.AddIssuesMessaging(builder.Configuration);
 
 // --- Authentication (Andy Auth) ---
 var andyAuthAuthority = builder.Configuration["AndyAuth:Authority"] ?? "";
