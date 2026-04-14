@@ -83,6 +83,108 @@ public class GitHubClient : IGitHubClient
             DefaultBranch: root.GetProperty("default_branch").GetString() ?? "main");
     }
 
+    public async Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
+        string owner,
+        string repo,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        var results = new List<GitHubIssueInfo>();
+        // GitHub's issues endpoint paginates via the Link header. Start
+        // with an explicit query string and walk `rel="next"` links
+        // until none remain. `state=all` pulls both open and closed;
+        // per_page=100 is the documented maximum.
+        var nextUrl = $"{BaseUrl}/repos/{owner}/{repo}/issues?state=all&per_page=100";
+
+        while (!string.IsNullOrEmpty(nextUrl))
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+            using var response = await _http.SendAsync(request, ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return results;
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "GitHub GET /repos/{Owner}/{Repo}/issues failed with {Status}",
+                    owner, repo, response.StatusCode);
+                return results;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return results;
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                var number = item.TryGetProperty("number", out var n) ? n.GetInt32() : 0;
+                var title = item.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                var body = item.TryGetProperty("body", out var b) && b.ValueKind != JsonValueKind.Null
+                    ? b.GetString() : null;
+                var state = item.TryGetProperty("state", out var s) ? s.GetString() ?? "open" : "open";
+                var isPr = item.TryGetProperty("pull_request", out var pr) && pr.ValueKind != JsonValueKind.Null;
+
+                var labels = new List<string>();
+                if (item.TryGetProperty("labels", out var labelsEl) && labelsEl.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var label in labelsEl.EnumerateArray())
+                    {
+                        // Labels can be plain strings (older API) or
+                        // objects with `name`. Handle both.
+                        if (label.ValueKind == JsonValueKind.String)
+                        {
+                            var name = label.GetString();
+                            if (!string.IsNullOrEmpty(name)) labels.Add(name);
+                        }
+                        else if (label.ValueKind == JsonValueKind.Object
+                                 && label.TryGetProperty("name", out var nameEl))
+                        {
+                            var name = nameEl.GetString();
+                            if (!string.IsNullOrEmpty(name)) labels.Add(name);
+                        }
+                    }
+                }
+
+                results.Add(new GitHubIssueInfo(number, title, body, state, isPr, labels));
+            }
+
+            nextUrl = ParseNextLink(response.Headers);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Parses the <c>rel="next"</c> entry from GitHub's Link header.
+    /// Returns null when absent, signalling end of pagination.
+    /// </summary>
+    internal static string? ParseNextLink(HttpResponseHeaders headers)
+    {
+        if (!headers.TryGetValues("Link", out var linkValues))
+            return null;
+
+        foreach (var header in linkValues)
+        {
+            // Link: <https://api.github.com/...?page=2>; rel="next", <...>; rel="last"
+            foreach (var part in header.Split(','))
+            {
+                var trimmed = part.Trim();
+                var relIdx = trimmed.IndexOf("rel=\"next\"", StringComparison.Ordinal);
+                if (relIdx < 0) continue;
+                var urlStart = trimmed.IndexOf('<');
+                var urlEnd = trimmed.IndexOf('>');
+                if (urlStart >= 0 && urlEnd > urlStart)
+                    return trimmed.Substring(urlStart + 1, urlEnd - urlStart - 1);
+            }
+        }
+        return null;
+    }
+
     public async Task<GitHubPullRequestInfo?> CreatePullRequestAsync(
         string owner,
         string repo,

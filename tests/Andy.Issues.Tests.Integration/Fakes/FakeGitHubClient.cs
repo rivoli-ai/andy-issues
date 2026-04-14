@@ -55,4 +55,21 @@ public class FakeGitHubClient : IGitHubClient
         _prCalls.Add((owner, repo, title, description, head, baseBranch));
         return Task.FromResult(PullRequestResult);
     }
+
+    private readonly ConcurrentDictionary<string, IReadOnlyList<GitHubIssueInfo>> _issueResponses = new();
+
+    public void SetIssues(string owner, string repo, IReadOnlyList<GitHubIssueInfo> issues)
+    {
+        _issueResponses[$"{owner}/{repo}"] = issues;
+    }
+
+    public Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
+        string owner,
+        string repo,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
+        return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
+    }
 }

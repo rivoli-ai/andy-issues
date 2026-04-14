@@ -15,6 +15,19 @@ public record GitHubPullRequestInfo(int Number, string Url);
 
 public record GitHubUserInfo(string Login);
 
+/// <summary>
+/// A GitHub issue as returned by <c>GET /repos/{owner}/{repo}/issues</c>.
+/// The <see cref="IsPullRequest"/> flag is surfaced so callers can skip
+/// PRs — that endpoint returns both issues and PRs in the same list.
+/// </summary>
+public record GitHubIssueInfo(
+    int Number,
+    string Title,
+    string? Body,
+    string State,
+    bool IsPullRequest,
+    IReadOnlyList<string> Labels);
+
 public interface IGitHubClient
 {
     /// <summary>
@@ -37,6 +50,18 @@ public interface IGitHubClient
         string? description,
         string head,
         string baseBranch,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists all issues in a repository (both open and closed). The
+    /// underlying GitHub endpoint returns pull requests alongside
+    /// issues — each item's <see cref="GitHubIssueInfo.IsPullRequest"/>
+    /// flag lets callers filter them out.
+    /// </summary>
+    Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
+        string owner,
+        string repo,
         string accessToken,
         CancellationToken ct = default);
 }

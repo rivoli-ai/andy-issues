@@ -46,4 +46,24 @@ public class StubGitHubClient : IGitHubClient
         PullRequestCalls.Add((owner, repo, title, description, head, baseBranch));
         return Task.FromResult(PullRequestResult);
     }
+
+    public List<(string owner, string repo)> ListIssuesCalls { get; } = new();
+    private readonly Dictionary<string, IReadOnlyList<GitHubIssueInfo>> _issueResponses = new();
+
+    public StubGitHubClient IssuesFor(string owner, string repo, IReadOnlyList<GitHubIssueInfo> issues)
+    {
+        _issueResponses[$"{owner}/{repo}"] = issues;
+        return this;
+    }
+
+    public Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
+        string owner,
+        string repo,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        ListIssuesCalls.Add((owner, repo));
+        _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
+        return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
+    }
 }
