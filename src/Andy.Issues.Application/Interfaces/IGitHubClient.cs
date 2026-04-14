@@ -28,6 +28,23 @@ public record GitHubIssueInfo(
     bool IsPullRequest,
     IReadOnlyList<string> Labels);
 
+/// <summary>
+/// Thrown when a GitHub API call fails in a way the caller needs to
+/// distinguish from "the repo has no issues". Carries the HTTP status
+/// code so callers (e.g. the backlog importer) can surface
+/// actionable messages for 401/403/404 without re-parsing strings.
+/// </summary>
+public class GitHubApiException : Exception
+{
+    public int? StatusCode { get; }
+
+    public GitHubApiException(string message, int? statusCode = null)
+        : base(message)
+    {
+        StatusCode = statusCode;
+    }
+}
+
 public interface IGitHubClient
 {
     /// <summary>
