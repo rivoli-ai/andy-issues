@@ -132,31 +132,80 @@ public class BacklogGitHubImportTests : IDisposable
     }
 
     [Fact]
-    public async Task Import_ClassifiesByLabelAndSkipsUnlabeled()
+    public async Task Import_ClassifiesByLabel_UnlabeledDefaultsToStory()
     {
+        // Unlabeled issues now default to Story so repos that don't
+        // follow the `type:*` convention still produce a populated
+        // backlog. Only PRs are skipped.
         var repoId = await SeedRepoAsync();
         var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
         {
             Issue(1, "Epic A", "epic"),
             Issue(2, "Feature B", "feature"),
             Issue(3, "Story C", "story"),
-            Issue(4, "Bug report", "") // no type label → skipped
+            Issue(4, "Bug report", "") // no type label → imported as Story
         });
 
         await using var ctx = NewContext();
         var result = await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
 
         Assert.NotNull(result);
-        // 3 typed + the synthetic Uncategorized epic + Uncategorized feature.
-        Assert.Equal(3, result!.Added);
-        Assert.Equal(1, result.Skipped);
+        // 4 imported (1 epic + 1 feature + 2 stories) — nothing skipped.
+        Assert.Equal(4, result!.Added);
+        Assert.Equal(0, result.Skipped);
         Assert.Empty(result.Errors);
 
-        // Epic + Uncategorized.
+        // Real epic + synthetic Uncategorized.
         Assert.Equal(2, await ctx.Epics.CountAsync());
-        // Feature + Uncategorized.
+        // Real feature + synthetic Uncategorized.
         Assert.Equal(2, await ctx.Features.CountAsync());
-        Assert.Single(await ctx.UserStories.ToListAsync());
+        // Two stories: the labelled one and the unlabeled bug report.
+        Assert.Equal(2, await ctx.UserStories.CountAsync());
+    }
+
+    [Theory]
+    [InlineData(new[] { "type:epic" }, BacklogGitHubImportService.IssueType.Epic)]
+    [InlineData(new[] { "epic" }, BacklogGitHubImportService.IssueType.Epic)]
+    [InlineData(new[] { "EPIC" }, BacklogGitHubImportService.IssueType.Epic)]
+    [InlineData(new[] { "type:feature" }, BacklogGitHubImportService.IssueType.Feature)]
+    [InlineData(new[] { "feature" }, BacklogGitHubImportService.IssueType.Feature)]
+    [InlineData(new[] { "foundation", "feature" }, BacklogGitHubImportService.IssueType.Feature)]
+    [InlineData(new[] { "type:story" }, BacklogGitHubImportService.IssueType.Story)]
+    [InlineData(new[] { "story" }, BacklogGitHubImportService.IssueType.Story)]
+    [InlineData(new[] { "user-story" }, BacklogGitHubImportService.IssueType.Story)]
+    [InlineData(new[] { "user story" }, BacklogGitHubImportService.IssueType.Story)]
+    [InlineData(new[] { "bug" }, BacklogGitHubImportService.IssueType.Story)] // fallback
+    [InlineData(new[] { "documentation", "compliance" }, BacklogGitHubImportService.IssueType.Story)] // fallback
+    [InlineData(new string[] { }, BacklogGitHubImportService.IssueType.Story)] // fully unlabeled
+    public void ClassifyIssue_MatchesAllConventions(string[] labels, BacklogGitHubImportService.IssueType expected)
+    {
+        Assert.Equal(expected, BacklogGitHubImportService.ClassifyIssue(labels));
+    }
+
+    [Fact]
+    public async Task Import_BareLabelsFromAndyAgentsStyle_AllImported()
+    {
+        // Regression: rivoli-ai/andy-agents uses bare `feature`,
+        // `documentation`, `foundation` labels with no `type:` prefix.
+        // Every non-PR issue should land in the backlog — no silent
+        // drops.
+        var repoId = await SeedRepoAsync();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            new GitHubIssueInfo(1, "Feature one", "body",
+                "open", IsPullRequest: false, Labels: new[] { "feature", "foundation" }),
+            new GitHubIssueInfo(2, "Doc task", "body",
+                "open", IsPullRequest: false, Labels: new[] { "documentation" }),
+            new GitHubIssueInfo(3, "No labels at all", "body",
+                "open", IsPullRequest: false, Labels: Array.Empty<string>())
+        });
+
+        await using var ctx = NewContext();
+        var result = await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+        Assert.Equal(3, result!.Added);
+        Assert.Equal(0, result.Skipped);
+        Assert.Single(await ctx.Features.Where(f => f.ExternalId != "gh:uncategorized").ToListAsync());
+        Assert.Equal(2, await ctx.UserStories.CountAsync());
     }
 
     [Fact]

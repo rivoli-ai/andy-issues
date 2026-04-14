@@ -101,10 +101,12 @@ public class BacklogGitHubImportTests : IClassFixture<TestWebApplicationFactory>
 
         var result = await response.Content.ReadFromJsonAsync<SyncResult>(JsonOptions);
         Assert.NotNull(result);
-        // 1 epic + 1 feature + 2 stories created; 1 unlabelled skipped.
-        Assert.Equal(4, result!.Added);
+        // 1 epic + 1 feature + 3 stories — the unlabelled bug is now
+        // imported as a story rather than skipped (see the widened
+        // classifier in BacklogGitHubImportService.ClassifyIssue).
+        Assert.Equal(5, result!.Added);
         Assert.Equal(0, result.Updated);
-        Assert.Equal(1, result.Skipped);
+        Assert.Equal(0, result.Skipped);
         Assert.Empty(result.Errors);
 
         using var scope = _factory.Services.CreateScope();

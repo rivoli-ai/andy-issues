@@ -31,9 +31,25 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     /// <summary>Synthetic bucket for items that couldn't be parented via task lists.</summary>
     internal const string UncategorizedExternalId = ExternalIdPrefix + "uncategorized";
 
-    internal const string TypeEpicLabel = "type:epic";
-    internal const string TypeFeatureLabel = "type:feature";
-    internal const string TypeStoryLabel = "type:story";
+    // Repos vary wildly in labeling convention: rivoli-ai/conductor uses
+    // strict `type:*` prefixes, rivoli-ai/andy-agents uses bare
+    // `feature` / `documentation`, many repos are untyped entirely. The
+    // classifier checks each set in order; anything that matches none
+    // of these falls through to the default ("story") bucket so no
+    // non-PR issue is ever silently dropped. Matching is case-
+    // insensitive (see IssueType.Classify).
+    internal static readonly IReadOnlyList<string> EpicLabels = new[]
+    {
+        "type:epic", "epic"
+    };
+    internal static readonly IReadOnlyList<string> FeatureLabels = new[]
+    {
+        "type:feature", "feature"
+    };
+    internal static readonly IReadOnlyList<string> StoryLabels = new[]
+    {
+        "type:story", "story", "user-story", "user story"
+    };
 
     private static readonly Regex TaskListRefRegex = new(
         @"^\s*[-*]\s*\[[ xX]\]\s*#(\d+)",
@@ -158,17 +174,18 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         var epicIssues = new List<GitHubIssueInfo>();
         var featureIssues = new List<GitHubIssueInfo>();
         var storyIssues = new List<GitHubIssueInfo>();
-        int unlabeledSkipped = 0;
+        int pullRequestsSkipped = 0;
 
         foreach (var issue in issues)
         {
-            if (issue.IsPullRequest) { unlabeledSkipped++; continue; }
+            if (issue.IsPullRequest) { pullRequestsSkipped++; continue; }
 
-            var labels = new HashSet<string>(issue.Labels.Select(l => l.ToLowerInvariant()));
-            if (labels.Contains(TypeEpicLabel)) epicIssues.Add(issue);
-            else if (labels.Contains(TypeFeatureLabel)) featureIssues.Add(issue);
-            else if (labels.Contains(TypeStoryLabel)) storyIssues.Add(issue);
-            else unlabeledSkipped++;
+            switch (ClassifyIssue(issue.Labels))
+            {
+                case IssueType.Epic: epicIssues.Add(issue); break;
+                case IssueType.Feature: featureIssues.Add(issue); break;
+                case IssueType.Story: storyIssues.Add(issue); break;
+            }
         }
 
         // Hierarchy inference: feature# -> epic#, story# -> feature#.
@@ -245,7 +262,32 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         }
 
         await _db.SaveChangesAsync(ct);
-        return new SyncResult(added, updated, unlabeledSkipped, errors);
+        return new SyncResult(added, updated, pullRequestsSkipped, errors);
+    }
+
+    /// <summary>
+    /// The three buckets an issue can land in. Every non-PR issue
+    /// classifies as *something* — the fallback for unlabeled issues
+    /// is Story, on the theory that the user cares about the work
+    /// item even if nobody has triaged it yet.
+    /// </summary>
+    public enum IssueType { Epic, Feature, Story }
+
+    /// <summary>
+    /// Classifies an issue by its labels. Epic wins if any epic label
+    /// matches (incl. bare <c>epic</c> and <c>type:epic</c>); feature
+    /// wins next; otherwise story — explicit <c>story</c> label or
+    /// unlabeled fallback.
+    /// </summary>
+    public static IssueType ClassifyIssue(IReadOnlyList<string> labels)
+    {
+        var normalized = new HashSet<string>(
+            labels.Select(l => l.Trim().ToLowerInvariant()));
+
+        if (EpicLabels.Any(l => normalized.Contains(l))) return IssueType.Epic;
+        if (FeatureLabels.Any(l => normalized.Contains(l))) return IssueType.Feature;
+        // Story is the catch-all: explicit story label OR unlabeled.
+        return IssueType.Story;
     }
 
     private async Task<(Epic entity, bool added)> UpsertEpicAsync(
