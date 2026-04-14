@@ -27,6 +27,8 @@ public class FakeGitHubClient : IGitHubClient
         _prCalls.Clear();
         PullRequestResult = null;
         CurrentUserResult = new("fake-gh-user");
+        _issueResponses.Clear();
+        ListIssuesException = null;
     }
 
     public Task<GitHubUserInfo?> GetCurrentUserAsync(
@@ -58,6 +60,13 @@ public class FakeGitHubClient : IGitHubClient
 
     private readonly ConcurrentDictionary<string, IReadOnlyList<GitHubIssueInfo>> _issueResponses = new();
 
+    /// <summary>
+    /// When non-null, <see cref="ListIssuesAsync"/> throws this
+    /// exception instead of returning a list — simulates 401/403/404
+    /// responses from the real API.
+    /// </summary>
+    public Exception? ListIssuesException { get; set; }
+
     public void SetIssues(string owner, string repo, IReadOnlyList<GitHubIssueInfo> issues)
     {
         _issueResponses[$"{owner}/{repo}"] = issues;
@@ -69,6 +78,8 @@ public class FakeGitHubClient : IGitHubClient
         string accessToken,
         CancellationToken ct = default)
     {
+        if (ListIssuesException is not null)
+            throw ListIssuesException;
         _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
     }
