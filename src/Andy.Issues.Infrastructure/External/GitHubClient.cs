@@ -99,20 +99,47 @@ public class GitHubClient : IGitHubClient
         while (!string.IsNullOrEmpty(nextUrl))
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, nextUrl);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            // Allow unauthenticated calls for public repos. GitHub
+            // accepts anonymous requests at 60/hr/IP and refuses
+            // private-repo reads with a 404 (indistinguishable from a
+            // non-existent repo) or 401/403 when partial visibility
+            // is involved.
+            if (!string.IsNullOrEmpty(accessToken))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
             request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
 
             using var response = await _http.SendAsync(request, ct);
-            if (response.StatusCode == HttpStatusCode.NotFound)
-                return results;
             if (!response.IsSuccessStatusCode)
             {
+                // Distinguish the three user-facing failure modes so
+                // the caller can surface an actionable message. We
+                // leak the exception rather than silently returning
+                // an empty list because "no issues" and "couldn't
+                // talk to GitHub" must not collapse into the same
+                // outcome for the caller's UX.
+                var status = (int)response.StatusCode;
+                var remaining = response.Headers.TryGetValues("X-RateLimit-Remaining", out var v)
+                    ? v.FirstOrDefault() : null;
+                string message = status switch
+                {
+                    401 => "GitHub rejected the token (unauthorized).",
+                    403 when remaining == "0" =>
+                        string.IsNullOrEmpty(accessToken)
+                            ? "GitHub rate limit reached (60/hr unauthenticated). Link a PAT for 5000/hr."
+                            : "GitHub rate limit reached for the linked PAT.",
+                    403 => "GitHub forbade the request — check the PAT's scopes.",
+                    404 =>
+                        string.IsNullOrEmpty(accessToken)
+                            ? $"Repository '{owner}/{repo}' is not publicly accessible — link a GitHub PAT."
+                            : $"Repository '{owner}/{repo}' not found — or the PAT can't see it.",
+                    _ => $"GitHub request failed with HTTP {status}."
+                };
                 _logger.LogWarning(
                     "GitHub GET /repos/{Owner}/{Repo}/issues failed with {Status}",
                     owner, repo, response.StatusCode);
-                return results;
+                throw new GitHubApiException(message, status);
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);

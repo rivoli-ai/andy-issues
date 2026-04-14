@@ -48,7 +48,14 @@ public class StubGitHubClient : IGitHubClient
     }
 
     public List<(string owner, string repo)> ListIssuesCalls { get; } = new();
+    public List<string?> ListIssuesTokens { get; } = new();
     private readonly Dictionary<string, IReadOnlyList<GitHubIssueInfo>> _issueResponses = new();
+
+    /// <summary>
+    /// When non-null, ListIssuesAsync throws this exception instead of
+    /// returning a list — simulates GitHub API failures (401/403/404).
+    /// </summary>
+    public Exception? ListIssuesException { get; set; }
 
     public StubGitHubClient IssuesFor(string owner, string repo, IReadOnlyList<GitHubIssueInfo> issues)
     {
@@ -63,6 +70,9 @@ public class StubGitHubClient : IGitHubClient
         CancellationToken ct = default)
     {
         ListIssuesCalls.Add((owner, repo));
+        ListIssuesTokens.Add(accessToken);
+        if (ListIssuesException is not null)
+            throw ListIssuesException;
         _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
     }

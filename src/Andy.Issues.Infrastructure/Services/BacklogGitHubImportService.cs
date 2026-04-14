@@ -76,19 +76,35 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         if (!TryParseOwnerRepo(repo.CloneUrl, out var owner, out var repoName))
             return new SyncResult(0, 0, 0, new[] { $"Cannot derive GitHub owner/repo from clone URL '{repo.CloneUrl}'." });
 
+        // A linked PAT is preferred (higher rate limit, private-repo
+        // visibility) but not required — public repos work
+        // anonymously. If no provider is registered, we still attempt
+        // the call with a null token so first-click "Sync from GitHub"
+        // produces data for public repos without any extra setup.
         var provider = await _db.LinkedProviders
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.OwnerUserId == userId
                 && p.Provider == LinkedProviderKind.GitHub, ct);
-        if (provider is null)
-            return new SyncResult(0, 0, 0, new[] { "No GitHub linked provider for user." });
-
-        var accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+        string? accessToken = null;
+        if (provider is not null)
+        {
+            accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+        }
 
         IReadOnlyList<GitHubIssueInfo> issues;
         try
         {
-            issues = await _gitHubClient.ListIssuesAsync(owner, repoName, accessToken, ct);
+            // `string` parameter on the interface doesn't allow null,
+            // so pass an empty string when no PAT is linked — the
+            // implementation skips the Authorization header on empty.
+            issues = await _gitHubClient.ListIssuesAsync(owner, repoName, accessToken ?? string.Empty, ct);
+        }
+        catch (GitHubApiException ex)
+        {
+            // Typed exception — message already phrased for the user
+            // ("Repository is not publicly accessible — link a PAT",
+            // rate-limit hints, etc.).
+            return new SyncResult(0, 0, 0, new[] { ex.Message });
         }
         catch (Exception ex)
         {

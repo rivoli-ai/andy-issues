@@ -280,8 +280,12 @@ public class BacklogGitHubImportTests : IDisposable
     }
 
     [Fact]
-    public async Task Import_NoLinkedProvider_ReturnsError()
+    public async Task Import_NoLinkedProvider_StillAttemptsPublicFetch()
     {
+        // Public repos are readable anonymously (60 req/hr/IP). With no
+        // LinkedProvider the importer now passes an empty token through
+        // and proceeds; the stub doesn't check auth so classification
+        // runs as usual.
         await using var ctx = NewContext();
         var repo = new Repository
         {
@@ -294,10 +298,61 @@ public class BacklogGitHubImportTests : IDisposable
         ctx.Repositories.Add(repo);
         await ctx.SaveChangesAsync();
 
-        var gh = new StubGitHubClient();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(1, "Public story", "story")
+        });
         var result = await NewImporter(ctx, gh).ImportAsync(repo.Id, "alice");
         Assert.NotNull(result);
-        Assert.Contains(result!.Errors, e => e.Contains("linked provider", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(1, result!.Added);
+        Assert.Empty(result.Errors);
+    }
+
+    [Fact]
+    public async Task Import_NoLinkedProviderAnd404_SurfacesHelpfulMessage()
+    {
+        var repoId = await SeedRepoWithoutProviderAsync();
+        var gh = new StubGitHubClient();
+        gh.ListIssuesException = new GitHubApiException(
+            "Repository 'acme/widgets' is not publicly accessible — link a GitHub PAT.",
+            statusCode: 404);
+
+        await using var ctx = NewContext();
+        var result = await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+        Assert.NotNull(result);
+        Assert.Single(result!.Errors);
+        Assert.Contains("publicly accessible", result.Errors[0]);
+    }
+
+    [Fact]
+    public async Task Import_RateLimitError_SurfacesHint()
+    {
+        var repoId = await SeedRepoAsync();
+        var gh = new StubGitHubClient();
+        gh.ListIssuesException = new GitHubApiException(
+            "GitHub rate limit reached (60/hr unauthenticated). Link a PAT for 5000/hr.",
+            statusCode: 403);
+
+        await using var ctx = NewContext();
+        var result = await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+        Assert.NotNull(result);
+        Assert.Contains("rate limit", result!.Errors[0], StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task<Guid> SeedRepoWithoutProviderAsync(string cloneUrl = "https://github.com/acme/widgets.git")
+    {
+        await using var ctx = NewContext();
+        var repo = new Repository
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = "alice",
+            Name = "widgets",
+            Provider = RepositoryProvider.GitHub,
+            CloneUrl = cloneUrl
+        };
+        ctx.Repositories.Add(repo);
+        await ctx.SaveChangesAsync();
+        return repo.Id;
     }
 
     [Fact]
