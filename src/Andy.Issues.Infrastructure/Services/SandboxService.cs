@@ -5,10 +5,12 @@ using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
+using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -93,6 +95,7 @@ public class SandboxService : ISandboxService
             VncEndpoint = container.VncEndpoint
         };
         _db.Sandboxes.Add(sandbox);
+        _db.AppendSandboxEvent(sandbox, SandboxEventKind.Attached);
         await _db.SaveChangesAsync(ct);
         return sandbox.ToDto();
     }
@@ -143,6 +146,10 @@ public class SandboxService : ISandboxService
             throw;
         }
 
+        // Emit detached before removing the Sandbox row. EF holds the
+        // entity in the ChangeTracker through SaveChanges so the payload
+        // builder can still read its fields.
+        _db.AppendSandboxEvent(sandbox, SandboxEventKind.Detached);
         _db.Sandboxes.Remove(sandbox);
         await _db.SaveChangesAsync(ct);
         return true;
@@ -183,16 +190,33 @@ public class SandboxService : ISandboxService
             {
                 sandbox.Status = SandboxStatus.Destroyed;
                 sandbox.UpdatedAt = DateTimeOffset.UtcNow;
+                // Remote container disappeared — emit detached so
+                // consumers learn the sandbox is no longer live.
+                _db.AppendSandboxEvent(sandbox, SandboxEventKind.Detached);
             }
             return;
         }
 
+        var previousStatus = sandbox.Status;
         var newStatus = ParseStatus(remote.Status);
         var changed = false;
         if (sandbox.Status != newStatus) { sandbox.Status = newStatus; changed = true; }
         if (sandbox.IdeEndpoint != remote.IdeEndpoint) { sandbox.IdeEndpoint = remote.IdeEndpoint; changed = true; }
         if (sandbox.VncEndpoint != remote.VncEndpoint) { sandbox.VncEndpoint = remote.VncEndpoint; changed = true; }
         if (changed) sandbox.UpdatedAt = DateTimeOffset.UtcNow;
+
+        // Transition-triggered events: only on first crossing into the
+        // terminal state, to avoid spamming the same event on every
+        // refresh tick.
+        if (previousStatus != SandboxStatus.Failed && newStatus == SandboxStatus.Failed)
+        {
+            _db.AppendSandboxEvent(sandbox, SandboxEventKind.Failed,
+                reason: $"container reported status '{remote.Status}'");
+        }
+        else if (previousStatus != SandboxStatus.Destroyed && newStatus == SandboxStatus.Destroyed)
+        {
+            _db.AppendSandboxEvent(sandbox, SandboxEventKind.Detached);
+        }
     }
 
     private async Task AppendMcpServersAsync(
