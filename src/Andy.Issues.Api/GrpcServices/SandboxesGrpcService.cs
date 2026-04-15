@@ -1,7 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Security.Claims;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
@@ -102,10 +102,13 @@ public class SandboxesGrpcService : SandboxesService.SandboxesServiceBase
 
     private static string GetUserId(ServerCallContext context)
     {
-        var user = context.GetHttpContext().User;
-        return user.FindFirst("sub")?.Value
-            ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? user.Identity?.Name
-            ?? "dev-user";
+        try
+        {
+            return context.GetHttpContext().User.RequireUserId();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            throw new RpcException(new Status(StatusCode.Unauthenticated, ex.Message));
+        }
     }
 }

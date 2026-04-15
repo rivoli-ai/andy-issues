@@ -205,7 +205,11 @@ builder.Services.AddOpenTelemetry()
     });
 
 // --- Swagger ---
-builder.Services.AddControllers()
+builder.Services.AddControllers(options =>
+    {
+        // Translate UnauthorizedAccessException → 401 (see issue #65).
+        options.Filters.Add<Andy.Issues.Api.Auth.UnauthorizedExceptionFilter>();
+    })
     .AddJsonOptions(options =>
     {
         options.JsonSerializerOptions.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
