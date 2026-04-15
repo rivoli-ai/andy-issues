@@ -20,6 +20,27 @@ services:
     networks:
       - andy-issues-network
 
+  # NATS JetStream broker for inter-service messaging (ADR 0001).
+  # -js enables JetStream; -m 8222 exposes the HTTP monitoring endpoint
+  # used by the healthcheck and for local observability.
+  nats:
+    image: nats:2-alpine
+    container_name: andy-issues-nats
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    volumes:
+      - nats_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8222/healthz || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - andy-issues-network
+
   api:
     build:
       context: .
@@ -38,6 +59,8 @@ services:
       - Rbac__ApplicationCode=andy-issues
       - AndySettings__ApiBaseUrl=https://host.docker.internal:5300
       - AndySettings__ApplicationCode=andy-issues
+      - Messaging__Provider=Nats
+      - Messaging__Nats__Url=nats://nats:4222
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
@@ -48,6 +71,8 @@ services:
       - dpkeys:/app/.aspnet/DataProtection-Keys
     depends_on:
       postgres:
+        condition: service_healthy
+      nats:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fk", "https://localhost:8443/health"]
@@ -62,6 +87,7 @@ services:
 volumes:
   dpkeys:
   postgres_data:
+  nats_data:
 
 networks:
   andy-issues-network:

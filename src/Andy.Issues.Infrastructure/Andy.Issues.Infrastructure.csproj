@@ -27,6 +27,8 @@
     </PackageReference>
     <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="8.0.11" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" Version="8.0.11" />
+    <!-- Messaging (ADR 0001) — version-aligned with andy-tasks -->
+    <PackageReference Include="NATS.Net" Version="2.7.3" />
   </ItemGroup>
 
 </Project>
