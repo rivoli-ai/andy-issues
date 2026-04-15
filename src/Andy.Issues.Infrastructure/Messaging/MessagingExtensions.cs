@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Messaging;
+using Andy.Issues.Infrastructure.Messaging.Consumers;
 using Andy.Issues.Infrastructure.Messaging.Nats;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -40,6 +41,12 @@ public static class MessagingExtensions
         services.Configure<OutboxDispatcherOptions>(
             configuration.GetSection(OutboxDispatcherOptions.SectionName));
         services.AddHostedService<OutboxDispatcher>();
+
+        // Consumers (ADR 0001). The consumer itself gates on the
+        // Messaging:ConsumeRunEvents flag so registering it
+        // unconditionally is safe — a disabled consumer is a no-op
+        // hosted service.
+        services.AddHostedService<ContainerRunEventConsumer>();
 
         return services;
     }
