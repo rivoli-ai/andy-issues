@@ -4,10 +4,12 @@
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
+using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
 
 namespace Andy.Issues.Infrastructure.Services;
@@ -188,6 +190,7 @@ public class BacklogService : IBacklogService
             ExternalId = request.ExternalId
         };
         _db.UserStories.Add(story);
+        _db.AppendStoryEvent(story, featureId, feature.Epic.Id, feature.Epic.RepositoryId, StoryEventKind.Created);
         await _db.SaveChangesAsync(ct);
         var dto = story.ToDto();
         await _notifier.StoryAddedAsync(feature.Epic.RepositoryId, dto, ct);
@@ -212,6 +215,7 @@ public class BacklogService : IBacklogService
         if (request.StoryPoints is not null) story.StoryPoints = request.StoryPoints;
         if (request.Order is not null) story.Order = request.Order.Value;
         story.UpdatedAt = DateTimeOffset.UtcNow;
+        _db.AppendStoryEvent(story, story.FeatureId, story.Feature.EpicId, story.Feature.Epic.RepositoryId, StoryEventKind.Updated);
         await _db.SaveChangesAsync(ct);
         var dto = story.ToDto();
         await _notifier.StoryUpdatedAsync(story.Feature.Epic.RepositoryId, dto, ct);
@@ -245,6 +249,16 @@ public class BacklogService : IBacklogService
 
         if (request.PullRequestUrl is not null)
             story.PullRequestUrl = request.PullRequestUrl;
+
+        // Kind follows the destination status: Ready → readied,
+        // Done → done, anything else (Draft/InProgress/InReview) → updated.
+        var kind = next switch
+        {
+            UserStoryStatus.Ready => StoryEventKind.Readied,
+            UserStoryStatus.Done => StoryEventKind.Done,
+            _ => StoryEventKind.Updated
+        };
+        _db.AppendStoryEvent(story, story.FeatureId, story.Feature.EpicId, story.Feature.Epic.RepositoryId, kind);
 
         await _db.SaveChangesAsync(ct);
         var dto = story.ToDto();
