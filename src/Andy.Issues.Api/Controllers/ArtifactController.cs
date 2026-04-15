@@ -1,7 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Security.Claims;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
@@ -105,11 +105,5 @@ public class ArtifactController : ControllerBase
     private Task<bool> IsAdminAsync(CancellationToken ct) =>
         _permissions.HasPermissionAsync(GetUserId(), AdminPermission, ct);
 
-    private string GetUserId()
-    {
-        return User.FindFirst("sub")?.Value
-            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? User.Identity?.Name
-            ?? "dev-user";
-    }
+    private string GetUserId() => User.RequireUserId();
 }
