@@ -8,6 +8,7 @@ using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 
@@ -92,6 +93,7 @@ public class RepositoryService : IRepositoryService
             CreatedAt = DateTimeOffset.UtcNow
         };
         _db.Repositories.Add(entity);
+        _db.AppendRepositoryRegistered(entity);
         await _db.SaveChangesAsync(ct);
 
         // Best-effort code index registration — don't fail repo creation
@@ -281,6 +283,7 @@ public class RepositoryService : IRepositoryService
         var updated = 0;
         var skipped = 0;
         var errors = new List<string>();
+        var touched = new List<Repository>();
 
         foreach (var fullName in fullNames.Distinct())
         {
@@ -316,7 +319,7 @@ public class RepositoryService : IRepositoryService
 
             if (existing is null)
             {
-                _db.Repositories.Add(new Repository
+                var newRepo = new Repository
                 {
                     Id = Guid.NewGuid(),
                     OwnerUserId = userId,
@@ -326,8 +329,10 @@ public class RepositoryService : IRepositoryService
                     CloneUrl = info.CloneUrl,
                     DefaultBranch = info.DefaultBranch,
                     ExternalId = info.ExternalId
-                });
+                };
+                _db.Repositories.Add(newRepo);
                 added++;
+                touched.Add(newRepo);
             }
             else
             {
@@ -340,6 +345,7 @@ public class RepositoryService : IRepositoryService
                 {
                     existing.UpdatedAt = DateTimeOffset.UtcNow;
                     updated++;
+                    touched.Add(existing);
                 }
                 else
                 {
@@ -347,6 +353,14 @@ public class RepositoryService : IRepositoryService
                 }
             }
         }
+
+        // One synced event per repo row that was added or updated. Skipped
+        // rows (no-op) and repos that errored out do not emit. Payload
+        // carries the batch-level aggregate so a consumer can see the
+        // whole sync at a glance even if it only subscribes to a single
+        // repo's events.
+        foreach (var repo in touched)
+            _db.AppendRepositorySynced(repo, added, updated, skipped, errors.Count);
 
         await _db.SaveChangesAsync(ct);
         return new SyncResult(added, updated, skipped, errors);
@@ -447,6 +461,7 @@ public class RepositoryService : IRepositoryService
         var updated = 0;
         var skipped = 0;
         var errors = new List<string>();
+        var touched = new List<Repository>();
 
         foreach (var repoId in repositoryIds.Distinct())
         {
@@ -483,7 +498,7 @@ public class RepositoryService : IRepositoryService
 
             if (existing is null)
             {
-                _db.Repositories.Add(new Repository
+                var newRepo = new Repository
                 {
                     Id = Guid.NewGuid(),
                     OwnerUserId = userId,
@@ -493,8 +508,10 @@ public class RepositoryService : IRepositoryService
                     CloneUrl = info.CloneUrl,
                     DefaultBranch = info.DefaultBranch,
                     ExternalId = info.ExternalId
-                });
+                };
+                _db.Repositories.Add(newRepo);
                 added++;
+                touched.Add(newRepo);
             }
             else
             {
@@ -507,6 +524,7 @@ public class RepositoryService : IRepositoryService
                 {
                     existing.UpdatedAt = DateTimeOffset.UtcNow;
                     updated++;
+                    touched.Add(existing);
                 }
                 else
                 {
@@ -514,6 +532,9 @@ public class RepositoryService : IRepositoryService
                 }
             }
         }
+
+        foreach (var repo in touched)
+            _db.AppendRepositorySynced(repo, added, updated, skipped, errors.Count);
 
         await _db.SaveChangesAsync(ct);
         return new SyncResult(added, updated, skipped, errors);
