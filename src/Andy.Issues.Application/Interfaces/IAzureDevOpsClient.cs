@@ -29,6 +29,14 @@ public record AzureDevOpsFeedInfo(string Id, string Name, string? Description, s
 
 public record AzureDevOpsUserInfo(string DisplayName);
 
+/// <summary>
+/// Result of an org-scoped PAT verification — returned by
+/// <see cref="IAzureDevOpsClient.VerifyConnectionAsync"/>. The id / display
+/// name fields come straight from the ConnectionData payload's
+/// <c>authenticatedUser</c> object.
+/// </summary>
+public record AzureDevOpsConnectionInfo(string AuthenticatedUserId, string DisplayName);
+
 public interface IAzureDevOpsClient
 {
     /// <summary>
@@ -36,6 +44,16 @@ public interface IAzureDevOpsClient
     /// Returns user info on success or null if the token is invalid.
     /// </summary>
     Task<AzureDevOpsUserInfo?> GetCurrentUserAsync(
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Validates a PAT against a specific organization by calling
+    /// <c>https://dev.azure.com/{organization}/_apis/ConnectionData</c>.
+    /// Returns null if the PAT is invalid or the org is unreachable.
+    /// </summary>
+    Task<AzureDevOpsConnectionInfo?> VerifyConnectionAsync(
+        string organization,
         string personalAccessToken,
         CancellationToken ct = default);
 

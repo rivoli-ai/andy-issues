@@ -27,6 +27,11 @@ public record UpdateRepositoryAzureIdentityRequest(
     [Required] string TenantId,
     string? SubscriptionId);
 
+public record UpdateRepositoryAzurePatIdentityRequest(
+    [Required] string Organization,
+    [Required] string Project,
+    [Required] string Pat);
+
 public record ShareRepositoryRequest(
     [Required][EmailAddress] string Email);
 

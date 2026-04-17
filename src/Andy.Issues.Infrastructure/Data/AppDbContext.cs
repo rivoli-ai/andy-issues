@@ -59,6 +59,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.AzureClientSecret).HasMaxLength(1024);
             e.Property(x => x.AzureTenantId).HasMaxLength(256);
             e.Property(x => x.AzureSubscriptionId).HasMaxLength(256);
+            e.Property(x => x.AzureOrganization).HasMaxLength(256);
+            e.Property(x => x.AzureProject).HasMaxLength(256);
+            e.Property(x => x.AzurePat).HasMaxLength(1024);
             e.HasIndex(x => x.OwnerUserId);
             e.HasOne(x => x.LlmSetting)
                 .WithMany()

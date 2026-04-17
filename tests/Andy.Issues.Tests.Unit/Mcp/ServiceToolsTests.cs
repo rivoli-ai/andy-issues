@@ -449,6 +449,9 @@ file class StubRepositoryService : IRepositoryService
     public Task<SetAzureIdentityResult> SetAzureIdentityAsync(Guid repositoryId, string clientId, string clientSecret, string tenantId, string? subscriptionId, string ownerUserId, CancellationToken ct = default) =>
         Task.FromResult(SetAzureIdentityResult.Updated);
 
+    public Task<SetAzureIdentityResult> SetAzurePatIdentityAsync(Guid repositoryId, string organization, string project, string pat, string ownerUserId, CancellationToken ct = default) =>
+        Task.FromResult(SetAzureIdentityResult.Updated);
+
     public Task<VerifyAzureIdentityResult?> VerifyAzureIdentityAsync(Guid repositoryId, string ownerUserId, CancellationToken ct = default) =>
         Task.FromResult<VerifyAzureIdentityResult?>(null);
 }
