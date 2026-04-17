@@ -37,6 +37,28 @@ public class SecretMaskingTests
         Assert.DoesNotContain("AzureClientId", propNames);
         Assert.DoesNotContain("AzureTenantId", propNames);
         Assert.DoesNotContain("AzureSubscriptionId", propNames);
+        Assert.DoesNotContain("AzureOrganization", propNames);
+        Assert.DoesNotContain("AzureProject", propNames);
+        Assert.DoesNotContain("AzurePat", propNames);
+    }
+
+    [Fact]
+    public void RepositoryDto_HasAzureIdentity_TrueForPatPath()
+    {
+        var repo = new Repository
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = "owner",
+            Name = "demo",
+            Provider = RepositoryProvider.AzureDevOps,
+            CloneUrl = "https://example.com/demo.git",
+            AzureOrganization = "contoso",
+            AzureProject = "proj",
+            AzurePat = "secret::ref"
+        };
+
+        var dto = repo.ToDto();
+        Assert.True(dto.HasAzureIdentity);
     }
 
     [Fact]

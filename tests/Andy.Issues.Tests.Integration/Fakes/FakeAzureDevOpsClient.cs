@@ -14,6 +14,20 @@ public class FakeAzureDevOpsClient : IAzureDevOpsClient
         string personalAccessToken, CancellationToken ct = default) =>
         Task.FromResult(CurrentUserResult);
 
+    public AzureDevOpsConnectionInfo? DefaultConnectionResult { get; set; } =
+        new("fake-user-id", "fake-azdo-user");
+    public ConcurrentDictionary<string, AzureDevOpsConnectionInfo?> ConnectionResults { get; } = new();
+
+    public Task<AzureDevOpsConnectionInfo?> VerifyConnectionAsync(
+        string organization,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        if (ConnectionResults.TryGetValue(organization, out var specific))
+            return Task.FromResult(specific);
+        return Task.FromResult(DefaultConnectionResult);
+    }
+
     private readonly ConcurrentDictionary<string, AzureDevOpsRepositoryInfo> _responses = new();
     private readonly ConcurrentDictionary<int, AzureDevOpsWorkItemSnapshot> _workItems = new();
     private int _nextId = 1000;

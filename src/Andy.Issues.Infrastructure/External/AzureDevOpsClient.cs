@@ -52,6 +52,51 @@ public class AzureDevOpsClient : IAzureDevOpsClient
         return new AzureDevOpsUserInfo(displayName);
     }
 
+    public async Task<AzureDevOpsConnectionInfo?> VerifyConnectionAsync(
+        string organization,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        // Org-scoped ConnectionData is the canonical "does this PAT work
+        // against this organization?" probe. A 200 with a non-empty
+        // authenticatedUser.id means the PAT authenticated successfully.
+        // Anything else — 401/403 for a bad PAT, 404 for a wrong org —
+        // collapses to null so the caller surfaces a single failure.
+        var url = $"https://dev.azure.com/{Uri.EscapeDataString(organization)}/_apis/ConnectionData?api-version={ApiVersion}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($":{personalAccessToken}")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "Azure DevOps ConnectionData {Organization} failed: {Status}",
+                organization, response.StatusCode);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        if (!doc.RootElement.TryGetProperty("authenticatedUser", out var user))
+            return null;
+
+        var id = user.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+            ? idEl.GetString() : null;
+        if (string.IsNullOrEmpty(id))
+            return null;
+
+        var displayName = user.TryGetProperty("providerDisplayName", out var nameEl)
+            && nameEl.ValueKind == JsonValueKind.String
+            ? nameEl.GetString() ?? string.Empty
+            : string.Empty;
+
+        return new AzureDevOpsConnectionInfo(id, displayName);
+    }
+
     public async Task<AzureDevOpsRepositoryInfo?> GetRepositoryAsync(
         string organization,
         string project,

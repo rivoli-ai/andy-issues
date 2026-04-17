@@ -250,6 +250,89 @@ public static class ServiceTools
         return Serialize(list);
     }
 
+    // ── LLM settings ────────────────────────────────────────────────
+
+    [McpServerTool, Description("List the current user's saved LLM provider/model configurations.")]
+    public static async Task<string> ListLlmSettings(
+        IHttpContextAccessor ctx,
+        ILlmSettingService svc)
+    {
+        var list = await svc.ListAsync(GetUserId(ctx));
+        return Serialize(list);
+    }
+
+    [McpServerTool, Description(
+        "Create an LLM setting owned by the current user. " +
+        "Provider must be one of: openai, anthropic, ollama, custom. " +
+        "The ApiKey is stored via the secret store and never echoed back in responses.")]
+    public static async Task<string> CreateLlmSetting(
+        IHttpContextAccessor ctx,
+        ILlmSettingService svc,
+        [Description("Display name (1-100 chars)")] string name,
+        [Description("Provider: openai, anthropic, ollama, or custom")] string provider,
+        [Description("Model id, e.g. gpt-4o or claude-opus-4-6")] string model,
+        [Description("API key — stored encrypted, never returned")] string apiKey,
+        [Description("Optional base URL override (absolute http(s))")] string? baseUrl,
+        [Description("Mark this setting as the user's default")] bool? isDefault)
+    {
+        var (result, dto) = await svc.CreateAsync(
+            new CreateLlmSettingRequest(name, provider, apiKey, model, baseUrl, isDefault),
+            GetUserId(ctx));
+        return result switch
+        {
+            CreateLlmSettingResult.Created => Serialize(dto!),
+            CreateLlmSettingResult.InvalidProvider => $"Unknown provider '{provider}'. Use openai, anthropic, ollama, or custom.",
+            CreateLlmSettingResult.InvalidBaseUrl => "BaseUrl must be an absolute http(s) URL when supplied.",
+            _ => "Failed to create LLM setting."
+        };
+    }
+
+    [McpServerTool, Description("Update an LLM setting owned by the current user. Null/empty fields are left untouched.")]
+    public static async Task<string> UpdateLlmSetting(
+        IHttpContextAccessor ctx,
+        ILlmSettingService svc,
+        [Description("LLM setting ID (GUID)")] string settingId,
+        [Description("Optional new display name")] string? name,
+        [Description("Optional new provider")] string? provider,
+        [Description("Optional new model id")] string? model,
+        [Description("Optional new API key (replaces the stored secret)")] string? apiKey,
+        [Description("Optional new base URL")] string? baseUrl,
+        [Description("Set this setting as the user's default")] bool? isDefault)
+    {
+        var (result, dto) = await svc.UpdateAsync(
+            Guid.Parse(settingId),
+            new UpdateLlmSettingRequest(name, provider, apiKey, model, baseUrl, isDefault),
+            GetUserId(ctx));
+        return result switch
+        {
+            UpdateLlmSettingResult.Updated => Serialize(dto!),
+            UpdateLlmSettingResult.NotFound => "LLM setting not found.",
+            UpdateLlmSettingResult.InvalidProvider => $"Unknown provider '{provider}'. Use openai, anthropic, ollama, or custom.",
+            UpdateLlmSettingResult.InvalidBaseUrl => "BaseUrl must be an absolute http(s) URL when supplied.",
+            _ => "Failed to update LLM setting."
+        };
+    }
+
+    [McpServerTool, Description("Delete an LLM setting owned by the current user.")]
+    public static async Task<string> DeleteLlmSetting(
+        IHttpContextAccessor ctx,
+        ILlmSettingService svc,
+        [Description("LLM setting ID (GUID)")] string settingId)
+    {
+        var ok = await svc.DeleteAsync(Guid.Parse(settingId), GetUserId(ctx));
+        return ok ? "LLM setting deleted." : "LLM setting not found.";
+    }
+
+    [McpServerTool, Description("Mark an LLM setting as the user's default. Any other default is cleared atomically.")]
+    public static async Task<string> SetDefaultLlmSetting(
+        IHttpContextAccessor ctx,
+        ILlmSettingService svc,
+        [Description("LLM setting ID (GUID)")] string settingId)
+    {
+        var ok = await svc.SetDefaultAsync(Guid.Parse(settingId), GetUserId(ctx));
+        return ok ? "Default LLM setting updated." : "LLM setting not found.";
+    }
+
     // ── Artifact feeds ──────────────────────────────────────────────
 
     [McpServerTool, Description("List enabled artifact feeds (NuGet/npm registries) configured for this service.")]

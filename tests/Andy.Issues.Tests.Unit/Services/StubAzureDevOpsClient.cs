@@ -13,6 +13,23 @@ public class StubAzureDevOpsClient : IAzureDevOpsClient
         string personalAccessToken, CancellationToken ct = default) =>
         Task.FromResult(CurrentUserResult);
 
+    // Default to success so tests not asserting verification behaviour keep
+    // passing. Individual tests override via ConnectionResults keyed by org,
+    // or null out DefaultConnectionResult to simulate a bad PAT.
+    public AzureDevOpsConnectionInfo? DefaultConnectionResult { get; set; } =
+        new("stub-user-id", "stub-azdo-user");
+    public Dictionary<string, AzureDevOpsConnectionInfo?> ConnectionResults { get; } = new();
+
+    public Task<AzureDevOpsConnectionInfo?> VerifyConnectionAsync(
+        string organization,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        if (ConnectionResults.TryGetValue(organization, out var specific))
+            return Task.FromResult(specific);
+        return Task.FromResult(DefaultConnectionResult);
+    }
+
     private readonly Dictionary<string, AzureDevOpsRepositoryInfo?> _responses = new();
     private readonly Dictionary<int, AzureDevOpsWorkItemSnapshot> _workItems = new();
     private int _nextId = 1000;

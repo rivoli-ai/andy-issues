@@ -240,6 +240,32 @@ public class RepositoriesController : ControllerBase
         };
     }
 
+    [HttpPatch("{id:guid}/azure-pat-identity")]
+    public async Task<IActionResult> SetAzurePatIdentity(
+        Guid id,
+        [FromBody] UpdateRepositoryAzurePatIdentityRequest request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _repositoryService.SetAzurePatIdentityAsync(
+            id,
+            request.Organization,
+            request.Project,
+            request.Pat,
+            userId,
+            ct);
+        // NotOwner is mapped to 404 rather than 403 so the endpoint does
+        // not leak the existence of other users' repository IDs (the same
+        // ownership-hiding rule that GET /api/repositories/{id} follows).
+        return result switch
+        {
+            SetAzureIdentityResult.Updated => NoContent(),
+            SetAzureIdentityResult.NotFound => NotFound(),
+            SetAzureIdentityResult.NotOwner => NotFound(),
+            _ => StatusCode(500)
+        };
+    }
+
     [HttpPost("{id:guid}/verify-azure-identity")]
     public async Task<ActionResult<VerifyAzureIdentityResult>> VerifyAzureIdentity(
         Guid id,

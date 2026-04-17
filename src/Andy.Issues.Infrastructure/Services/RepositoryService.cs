@@ -385,6 +385,44 @@ public class RepositoryService : IRepositoryService
             $"andy.issues.repo.{repositoryId}.azureClientSecret", clientSecret, ct);
         repo.AzureTenantId = tenantId;
         repo.AzureSubscriptionId = subscriptionId;
+
+        // A repo has one Azure identity at a time. Setting the
+        // service-principal tuple clears any previously-saved PAT so the
+        // verify path can't be fooled into taking the wrong branch.
+        repo.AzureOrganization = null;
+        repo.AzureProject = null;
+        repo.AzurePat = null;
+
+        repo.UpdatedAt = DateTimeOffset.UtcNow;
+        await _db.SaveChangesAsync(ct);
+        return SetAzureIdentityResult.Updated;
+    }
+
+    public async Task<SetAzureIdentityResult> SetAzurePatIdentityAsync(
+        Guid repositoryId,
+        string organization,
+        string project,
+        string pat,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        var repo = await _db.Repositories
+            .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
+        if (repo is null) return SetAzureIdentityResult.NotFound;
+        if (repo.OwnerUserId != ownerUserId) return SetAzureIdentityResult.NotOwner;
+
+        repo.AzureOrganization = organization;
+        repo.AzureProject = project;
+        repo.AzurePat = await _secretStore.StoreAsync(
+            $"andy.issues.repo.{repositoryId}.azurePat", pat, ct);
+
+        // Mirror of the service-principal path: setting the PAT clears the
+        // service-principal tuple so exactly one identity is ever live.
+        repo.AzureClientId = null;
+        repo.AzureClientSecret = null;
+        repo.AzureTenantId = null;
+        repo.AzureSubscriptionId = null;
+
         repo.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
         return SetAzureIdentityResult.Updated;
@@ -401,16 +439,37 @@ public class RepositoryService : IRepositoryService
         if (repo is null) return null;
         if (repo.OwnerUserId != ownerUserId) return null;
 
-        // TODO (Story 4.1): exec `az login --service-principal ...` inside an
-        // ephemeral helper container via ContainersClient and return the real
-        // result. For now this is a presence check so the endpoint shape is
-        // stable for frontend wiring.
-        if (!repo.HasAzureIdentity)
-            return new VerifyAzureIdentityResult(false, "No Azure identity configured.");
+        switch (repo.HasAzureIdentityKind)
+        {
+            case AzureIdentityKind.None:
+                return new VerifyAzureIdentityResult(false, "No Azure identity configured.");
 
-        return new VerifyAzureIdentityResult(
-            true,
-            "Azure identity fields present. Live verification against the Azure REST API is pending Story 4.1.");
+            case AzureIdentityKind.ServicePrincipal:
+                // TODO (Story 4.1): exec `az login --service-principal ...` inside an
+                // ephemeral helper container via ContainersClient and return the real
+                // result. For now this is a presence check so the endpoint shape is
+                // stable for frontend wiring.
+                return new VerifyAzureIdentityResult(
+                    true,
+                    "Azure service-principal fields present. Live verification against the Azure REST API is pending Story 4.1.");
+
+            case AzureIdentityKind.Pat:
+                var pat = await _secretStore.ResolveAsync(repo.AzurePat, ct) ?? repo.AzurePat ?? string.Empty;
+                var connection = await _azureDevOpsClient.VerifyConnectionAsync(
+                    repo.AzureOrganization!, pat, ct);
+                if (connection is null || string.IsNullOrEmpty(connection.AuthenticatedUserId))
+                {
+                    return new VerifyAzureIdentityResult(
+                        false,
+                        $"Azure DevOps PAT verification failed for organization '{repo.AzureOrganization}'.");
+                }
+                return new VerifyAzureIdentityResult(
+                    true,
+                    $"Azure DevOps PAT authenticated as '{connection.DisplayName}'.");
+
+            default:
+                return new VerifyAzureIdentityResult(false, "Unknown Azure identity kind.");
+        }
     }
 
     public async Task<SetLlmResult> SetLlmSettingAsync(

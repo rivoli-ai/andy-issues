@@ -103,6 +103,14 @@ public interface IRepositoryService
         string ownerUserId,
         CancellationToken ct = default);
 
+    Task<SetAzureIdentityResult> SetAzurePatIdentityAsync(
+        Guid repositoryId,
+        string organization,
+        string project,
+        string pat,
+        string ownerUserId,
+        CancellationToken ct = default);
+
     Task<VerifyAzureIdentityResult?> VerifyAzureIdentityAsync(
         Guid repositoryId,
         string ownerUserId,
