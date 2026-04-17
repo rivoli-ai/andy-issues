@@ -6,16 +6,17 @@ using System.ComponentModel.DataAnnotations;
 namespace Andy.Issues.Application.Requests;
 
 public record CreateLlmSettingRequest(
-    [Required] string Name,
+    [Required][StringLength(100, MinimumLength = 1)] string Name,
     [Required] string Provider,
     [Required] string ApiKey,
-    [Required] string Model,
+    [Required][StringLength(200, MinimumLength = 1)] string Model,
     string? BaseUrl,
     bool? IsDefault);
 
 public record UpdateLlmSettingRequest(
-    string? Name,
+    [StringLength(100, MinimumLength = 1)] string? Name,
+    string? Provider,
     string? ApiKey,
-    string? Model,
+    [StringLength(200, MinimumLength = 1)] string? Model,
     string? BaseUrl,
     bool? IsDefault);
