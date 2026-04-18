@@ -127,7 +127,73 @@ public class BacklogAiService : IBacklogAiService
 
     // MARK: - LLM call
 
-    private async Task<string> CallLlmAsync(
+    private const string SystemPrompt =
+        "You are a senior product manager. Write clear, concrete backlog item drafts as plain prose. Do not include headings, code fences, or explanations — only the requested content.";
+
+    public async Task<(bool Success, string Message)> TestConnectionAsync(
+        LlmSetting setting,
+        CancellationToken ct = default)
+    {
+        try
+        {
+            var reply = await CallLlmAsync(
+                setting,
+                prompt: "Reply with the single word OK.",
+                ct);
+            var trimmed = reply.Trim();
+            if (trimmed.Length == 0)
+                return (false, "Provider returned an empty response.");
+            var preview = trimmed.Length <= 120
+                ? trimmed
+                : trimmed[..120] + "…";
+            return (true, $"Connection OK. Model replied: \"{preview}\"");
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex,
+                "TestConnection HTTP failure for LlmSetting {SettingId}.",
+                setting.Id);
+            // ASP.NET's HttpRequestException carries the upstream
+            // status code when available — surface it so the user
+            // can tell 401 (bad key) from 429 (rate) from 5xx.
+            var status = ex.StatusCode.HasValue
+                ? $" (HTTP {(int)ex.StatusCode.Value} {ex.StatusCode.Value})"
+                : string.Empty;
+            return (false, $"Provider rejected the request{status}: {ex.Message}");
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex,
+                "TestConnection failure for LlmSetting {SettingId}.",
+                setting.Id);
+            return (false, ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Routes the LLM call to the provider-specific endpoint and body
+    /// shape. Anthropic's Messages API diverges enough from
+    /// OpenAI's Chat Completions that a common path would either
+    /// silently 404 or return a response we can't parse — which was
+    /// the live symptom when a user configured an Anthropic key
+    /// against a hard-coded <c>{baseUrl}/chat/completions</c> call.
+    /// </summary>
+    private Task<string> CallLlmAsync(
+        LlmSetting setting,
+        string prompt,
+        CancellationToken ct)
+    {
+        return setting.Provider switch
+        {
+            LlmProvider.Anthropic => CallAnthropicAsync(setting, prompt, ct),
+            // OpenAI, Ollama, and `Custom` all speak the OpenAI
+            // Chat Completions wire format (the latter two by
+            // convention — most self-hosted providers proxy it).
+            _ => CallOpenAiChatAsync(setting, prompt, ct)
+        };
+    }
+
+    private async Task<string> CallOpenAiChatAsync(
         LlmSetting setting,
         string prompt,
         CancellationToken ct)
@@ -142,7 +208,7 @@ public class BacklogAiService : IBacklogAiService
             model = setting.Model,
             messages = new[]
             {
-                new { role = "system", content = "You are a senior product manager. Write clear, concrete backlog item drafts as plain prose. Do not include headings, code fences, or explanations — only the requested content." },
+                new { role = "system", content = SystemPrompt },
                 new { role = "user", content = prompt }
             },
             temperature = 0.7,
@@ -164,6 +230,75 @@ public class BacklogAiService : IBacklogAiService
             .GetString();
 
         return content ?? throw new InvalidOperationException("LLM returned null content.");
+    }
+
+    /// <summary>
+    /// Anthropic's Messages API: <c>POST /v1/messages</c> with
+    /// <c>x-api-key</c> + <c>anthropic-version</c> headers, system
+    /// prompt in a dedicated top-level field (not a role), and a
+    /// response body shaped as <c>content: [{type: "text",
+    /// text: "…"}]</c>.
+    /// </summary>
+    private async Task<string> CallAnthropicAsync(
+        LlmSetting setting,
+        string prompt,
+        CancellationToken ct)
+    {
+        var baseUrl = GetBaseUrl(setting);
+        var client = _httpClientFactory.CreateClient("LlmProvider");
+        // Anthropic uses `x-api-key` instead of Bearer. Clear any
+        // Authorization header the factory may have left on the
+        // pooled client from a previous call.
+        client.DefaultRequestHeaders.Authorization = null;
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/messages")
+        {
+            Content = JsonContent.Create(
+                new
+                {
+                    model = setting.Model,
+                    max_tokens = 400,
+                    temperature = 0.7,
+                    system = SystemPrompt,
+                    messages = new[]
+                    {
+                        new { role = "user", content = prompt }
+                    }
+                },
+                options: JsonOptions)
+        };
+        request.Headers.Add("x-api-key", setting.ApiKey);
+        request.Headers.Add("anthropic-version", "2023-06-01");
+
+        using var response = await client.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        // The `content` array can mix text and tool-use blocks; we
+        // only care about text blocks and we concatenate them in
+        // order. A defensive fallback grabs the first block's `text`
+        // field directly when the shape is unexpected.
+        if (doc.RootElement.TryGetProperty("content", out var blocks)
+            && blocks.ValueKind == JsonValueKind.Array)
+        {
+            var parts = new List<string>();
+            foreach (var block in blocks.EnumerateArray())
+            {
+                if (block.TryGetProperty("type", out var type)
+                    && type.GetString() == "text"
+                    && block.TryGetProperty("text", out var text)
+                    && text.GetString() is { } chunk)
+                {
+                    parts.Add(chunk);
+                }
+            }
+            if (parts.Count > 0)
+                return string.Join("\n\n", parts);
+        }
+
+        throw new InvalidOperationException("Anthropic response did not contain any text content blocks.");
     }
 
     private static string GetBaseUrl(LlmSetting setting)

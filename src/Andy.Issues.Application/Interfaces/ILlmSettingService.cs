@@ -3,6 +3,7 @@
 
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.Enums;
 
 namespace Andy.Issues.Application.Interfaces;
 
@@ -60,6 +61,20 @@ public interface ILlmSettingService
         CancellationToken ct = default);
 
     Task<bool> SetDefaultAsync(
+        Guid id,
+        string ownerUserId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Live connectivity check. Makes a trivial generation call
+    /// against the provider and reports whether the key + model +
+    /// base URL combination is actually usable. Provider-side
+    /// failures (auth, quota, model-not-found) are returned as
+    /// <see cref="TestLlmSettingOutcome.ProviderRejected"/> with a
+    /// human-readable message rather than bubbling as exceptions —
+    /// the UI renders them as a red banner.
+    /// </summary>
+    Task<(TestLlmSettingOutcome Outcome, string? Message)> TestAsync(
         Guid id,
         string ownerUserId,
         CancellationToken ct = default);
