@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 
 namespace Andy.Issues.Application.Interfaces;
@@ -31,5 +32,17 @@ public interface IBacklogAiService
     Task<(SuggestContentOutcome Outcome, string? Suggestion, string? Error)> SuggestContentAsync(
         SuggestContentRequest request,
         string userId,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Makes a minimal live call against the supplied setting to
+    /// verify connectivity + auth + model. Returns the first 200
+    /// characters of the model's reply on success, or a short
+    /// user-facing error string on failure. Never throws — network
+    /// and provider errors are converted into the failure string so
+    /// callers can render them in a UI banner.
+    /// </summary>
+    Task<(bool Success, string Message)> TestConnectionAsync(
+        LlmSetting setting,
         CancellationToken ct = default);
 }

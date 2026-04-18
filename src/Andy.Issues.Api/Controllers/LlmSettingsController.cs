@@ -5,6 +5,7 @@ using Andy.Issues.Api.Auth;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -94,6 +95,30 @@ public class LlmSettingsController : ControllerBase
         var ok = await _service.SetDefaultAsync(id, userId, ct);
         if (!ok) return NotFound();
         return NoContent();
+    }
+
+    /// <summary>
+    /// Makes a trivial live call to the provider so the caller can
+    /// verify their API key + model + base URL are reachable before
+    /// relying on the setting from the "Suggest with AI" button.
+    /// Returns <c>{ success, message }</c> so the UI can show a
+    /// clear green/red banner.
+    /// </summary>
+    [HttpPost("{id:guid}/test")]
+    public async Task<ActionResult<TestLlmSettingDto>> Test(Guid id, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var outcome = await _service.TestAsync(id, userId, ct);
+        return outcome.Outcome switch
+        {
+            TestLlmSettingOutcome.Ok =>
+                Ok(new TestLlmSettingDto(true, outcome.Message ?? "Connection OK.")),
+            TestLlmSettingOutcome.NotFound =>
+                NotFound(),
+            TestLlmSettingOutcome.ProviderRejected =>
+                Ok(new TestLlmSettingDto(false, outcome.Message ?? "Provider rejected the request.")),
+            _ => StatusCode(500)
+        };
     }
 
     private string GetUserId() => User.RequireUserId();

@@ -16,11 +16,16 @@ public class LlmSettingService : ILlmSettingService
 {
     private readonly AppDbContext _db;
     private readonly ISecretStore _secretStore;
+    private readonly IBacklogAiService _backlogAi;
 
-    public LlmSettingService(AppDbContext db, ISecretStore secretStore)
+    public LlmSettingService(
+        AppDbContext db,
+        ISecretStore secretStore,
+        IBacklogAiService backlogAi)
     {
         _db = db;
         _secretStore = secretStore;
+        _backlogAi = backlogAi;
     }
 
     public async Task<IReadOnlyList<LlmSettingDto>> ListAsync(
@@ -173,6 +178,42 @@ public class LlmSettingService : ILlmSettingService
         entity.UpdatedAt = DateTimeOffset.UtcNow;
         await _db.SaveChangesAsync(ct);
         return true;
+    }
+
+    public async Task<(TestLlmSettingOutcome Outcome, string? Message)> TestAsync(
+        Guid id,
+        string ownerUserId,
+        CancellationToken ct = default)
+    {
+        // The setting carries a secret-store reference in `ApiKey`
+        // for encrypted-at-rest deployments. Resolve to the actual
+        // key for the live call; the in-memory entity we pass to
+        // the AI service has the secret inline.
+        var row = await _db.LlmSettings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(l => l.Id == id && l.OwnerUserId == ownerUserId, ct);
+        if (row is null)
+            return (TestLlmSettingOutcome.NotFound, null);
+
+        var resolvedKey = await _secretStore.ResolveAsync(row.ApiKey, ct) ?? row.ApiKey;
+        var settingForCall = new LlmSetting
+        {
+            Id = row.Id,
+            OwnerUserId = row.OwnerUserId,
+            Name = row.Name,
+            Provider = row.Provider,
+            Model = row.Model,
+            BaseUrl = row.BaseUrl,
+            ApiKey = resolvedKey,
+            IsDefault = row.IsDefault,
+            CreatedAt = row.CreatedAt,
+            UpdatedAt = row.UpdatedAt
+        };
+
+        var (success, message) = await _backlogAi.TestConnectionAsync(settingForCall, ct);
+        return success
+            ? (TestLlmSettingOutcome.Ok, message)
+            : (TestLlmSettingOutcome.ProviderRejected, message);
     }
 
     private async Task ClearOtherDefaultsAsync(string ownerUserId, Guid? exceptId, CancellationToken ct)

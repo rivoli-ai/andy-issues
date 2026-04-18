@@ -36,8 +36,26 @@ public class LlmSettingServiceTests : IDisposable
         GC.SuppressFinalize(this);
     }
 
+    private readonly StubBacklogAi _backlogAi = new();
     private AppDbContext NewContext() => new(_options);
-    private LlmSettingService NewService(AppDbContext ctx) => new(ctx, _secretStore);
+    private LlmSettingService NewService(AppDbContext ctx) => new(ctx, _secretStore, _backlogAi);
+
+    /// <summary>
+    /// Minimal <see cref="IBacklogAiService"/> stand-in. The CRUD
+    /// tests never exercise the AI path, so everything throws by
+    /// default. The `Test_*` suite (added below if/when needed)
+    /// can swap in a recording variant.
+    /// </summary>
+    private sealed class StubBacklogAi : IBacklogAiService
+    {
+        public Task<(Andy.Issues.Domain.Enums.SuggestContentOutcome Outcome, string? Suggestion, string? Error)>
+            SuggestContentAsync(Andy.Issues.Application.Requests.SuggestContentRequest request, string userId, CancellationToken ct = default)
+                => throw new NotImplementedException("Not exercised by LlmSettingService CRUD tests.");
+
+        public Task<(bool Success, string Message)> TestConnectionAsync(
+            Andy.Issues.Domain.Entities.LlmSetting setting, CancellationToken ct = default)
+                => Task.FromResult((true, "stub ok"));
+    }
 
     // MARK: - Create
 
