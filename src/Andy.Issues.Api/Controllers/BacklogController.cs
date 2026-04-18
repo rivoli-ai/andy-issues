@@ -5,6 +5,7 @@ using Andy.Issues.Api.Auth;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.Enums;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -16,11 +17,50 @@ public class BacklogController : ControllerBase
 {
     private readonly IBacklogService _backlog;
     private readonly IBacklogAzureDevOpsSyncService _azureSync;
+    private readonly IBacklogAiService _ai;
 
-    public BacklogController(IBacklogService backlog, IBacklogAzureDevOpsSyncService azureSync)
+    public BacklogController(
+        IBacklogService backlog,
+        IBacklogAzureDevOpsSyncService azureSync,
+        IBacklogAiService ai)
     {
         _backlog = backlog;
         _azureSync = azureSync;
+        _ai = ai;
+    }
+
+    /// <summary>
+    /// Generates an AI draft for a backlog item's description or
+    /// acceptance-criteria field. See issue #87 for the spec.
+    /// </summary>
+    [HttpPost("api/backlog/suggest")]
+    public async Task<ActionResult<SuggestContentDto>> SuggestContent(
+        [FromBody] SuggestContentRequest request,
+        CancellationToken ct)
+    {
+        var (outcome, suggestion, error) = await _ai.SuggestContentAsync(
+            request, GetUserId(), ct);
+
+        return outcome switch
+        {
+            SuggestContentOutcome.Ok =>
+                Ok(new SuggestContentDto(suggestion!)),
+            SuggestContentOutcome.InvalidField =>
+                BadRequest(new { error = error ?? "Invalid field." }),
+            SuggestContentOutcome.InvalidItemType =>
+                BadRequest(new { error = error ?? "Invalid itemType." }),
+            SuggestContentOutcome.NoLlmSetting =>
+                BadRequest(new { error = error ?? "No LLM setting configured." }),
+            SuggestContentOutcome.RepositoryNotFound =>
+                NotFound(),
+            SuggestContentOutcome.NotOwner =>
+                Forbid(),
+            SuggestContentOutcome.LlmCallFailed =>
+                StatusCode(502, new { error = error ?? "LLM call failed.", reason = "llmCallFailed" }),
+            SuggestContentOutcome.ParseFailed =>
+                StatusCode(502, new { error = error ?? "LLM returned unusable content.", reason = "parseFailed" }),
+            _ => StatusCode(500)
+        };
     }
 
     [HttpPost("api/repositories/{repositoryId:guid}/sync-azure-devops")]
