@@ -161,6 +161,7 @@ builder.Services.AddHttpClient<IMcpToolDiscoveryClient, McpToolDiscoveryClient>(
 builder.Services.AddScoped<IPermissionChecker, ClaimsPermissionChecker>();
 builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddScoped<IDraftBacklogGenerator, DraftBacklogGenerator>();
+builder.Services.AddScoped<IBacklogAiService, BacklogAiService>();
 builder.Services.AddScoped<ISecretStore, SecretStore>();
 builder.Services.AddScoped<ILinkedProviderService, LinkedProviderService>();
 builder.Services.AddScoped<ILlmSettingService, LlmSettingService>();
