@@ -1,0 +1,71 @@
+{
+  "$schema": "../../andy-service-template/docs/registration.schema.json",
+  "service": {
+    "name": "andy-issues",
+    "displayName": "Andy Issues",
+    "description": "Issue tracking, story refinement, and per-repo backlog management.",
+    "embeddedProxyPrefix": "/issues",
+    "ports": {
+      "dotnetHttps": 5410,
+      "dotnetHttp":  5411,
+      "dotnetPostgres": 5443,
+      "dotnetClient": 4203,
+      "dockerHttps": 7410,
+      "dockerHttp":  7411,
+      "dockerPostgres": 7443,
+      "dockerClient": 6203,
+      "embeddedProxy": 9100
+    }
+  },
+  "auth": {
+    "audience": "urn:andy-issues-api",
+    "apiClient": {
+      "clientId": "andy-issues-api",
+      "clientType": "confidential",
+      "clientSecretEnvVar": "ANDY_ISSUES_API_SECRET",
+      "displayName": "Andy Issues API",
+      "description": "Service-to-service client for Andy Issues",
+      "grantTypes": ["authorization_code", "refresh_token", "client_credentials"],
+      "scopes": ["email", "profile", "roles", "scp:urn:andy-issues-api"],
+      "redirectUris": ["https://localhost:5410/callback"],
+      "postLogoutRedirectUris": ["https://localhost:5410/"]
+    },
+    "webClient": {
+      "clientId": "andy-issues-web",
+      "clientType": "public",
+      "displayName": "Andy Issues Web",
+      "description": "Angular SPA for issue tracking and story refinement",
+      "grantTypes": ["authorization_code", "refresh_token"],
+      "scopes": ["email", "profile", "roles", "scp:urn:andy-issues-api"],
+      "redirectUris": [
+        "https://localhost:4203/callback",
+        "https://localhost:6203/callback",
+        "http://localhost:9100/issues/callback"
+      ],
+      "postLogoutRedirectUris": [
+        "https://localhost:4203/",
+        "https://localhost:6203/",
+        "http://localhost:9100/issues/"
+      ]
+    }
+  },
+  "rbac": {
+    "applicationCode": "andy-issues",
+    "applicationName": "Andy Issues",
+    "description": "Issue tracking and work item management",
+    "resourceTypes": [
+      { "code": "issue",   "name": "Issue",   "supportsInstances": true },
+      { "code": "backlog", "name": "Backlog", "supportsInstances": true },
+      { "code": "story",   "name": "Story",   "supportsInstances": true }
+    ],
+    "roles": [
+      { "code": "admin",  "name": "Administrator", "description": "Full access to issues", "isSystem": true },
+      { "code": "user",   "name": "User",          "description": "Standard user",         "isSystem": true },
+      { "code": "viewer", "name": "Viewer",        "description": "Read-only access",      "isSystem": true }
+    ],
+    "testUserRole": "admin"
+  },
+  "settings": {
+    "definitions": []
+  }
+}
