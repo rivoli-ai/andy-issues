@@ -3,6 +3,7 @@
 
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
+// HostEnvironmentExtensions.IsEmbedded / IsLocalOrEmbedded
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.External;
@@ -34,7 +35,14 @@ if (!string.IsNullOrEmpty(andyAuthAuthority))
         {
             options.Authority = andyAuthAuthority;
             options.Audience = audience;
-            options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+            // HTTPS metadata requirement is off in every non-production
+            // mode: Development talks to `dotnet run`'s self-signed cert,
+            // Docker uses plain http inside the compose network, Embedded
+            // goes through Conductor's localhost HTTP proxy (port 9100).
+            options.RequireHttpsMetadata = !builder.Environment.IsLocalOrEmbedded();
+
+            // Permissive SSL validation is strictly a `dotnet run`
+            // concession — Conductor never hits self-signed certs.
             if (builder.Environment.IsDevelopment())
             {
                 options.BackchannelHttpHandler = new HttpClientHandler
@@ -42,33 +50,33 @@ if (!string.IsNullOrEmpty(andyAuthAuthority))
                     ServerCertificateCustomValidationCallback =
                         HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
                 };
+                // Mode 1 legacy: some callers still ship tokens issued by
+                // the hardcoded https://localhost:5001/ issuer. Only
+                // accept this relaxed list in Development.
                 options.TokenValidationParameters.ValidIssuers = new[]
                 {
                     andyAuthAuthority, andyAuthAuthority.TrimEnd('/') + "/",
                     "https://localhost:5001", "https://localhost:5001/"
                 };
             }
+            else
+            {
+                // Docker + Embedded both expect strict issuer matching
+                // against the configured `AndyAuth:Authority`. No
+                // hardcoded localhost:5001 fallback; the token's `iss`
+                // must match what the proxy advertises in OIDC discovery.
+                options.TokenValidationParameters.ValidIssuers = new[]
+                {
+                    andyAuthAuthority, andyAuthAuthority.TrimEnd('/') + "/"
+                };
+            }
         });
-    // In Development mode, swap both the default and fallback
-    // authorization policies for an "allow anything" policy. This is
-    // the dev-mode equivalent of the policy provider hack other
-    // embedded Andy services use, but applied directly to
-    // `AddAuthorization()` so it actually short-circuits plain
-    // `[Authorize]` (the policy provider override has a `new` vs
-    // `override` bug in code-index that means `GetDefaultPolicyAsync`
-    // does not actually replace the base `RequireAuthenticatedUser`
-    // policy).
-    //
-    // Why we need this: Conductor's embedded desktop app currently
-    // ships a placeholder bearer token from `AuthService.signIn` until
-    // OAuth2 PKCE lands in the macOS client. The token is literally
-    // 32 zeros and would never validate as a JWT, so without this
-    // bypass `[Authorize]` returns 401 on every request and the user
-    // sees "your session has expired, please sign in again" the first
-    // time they try to add a repository in the Issues view.
-    //
-    // Production builds (where `IsDevelopment()` is false) keep the
-    // strict policy — real audience + issuer + signature validation.
+    // AllowAll policy is a `dotnet run` concession — developers hit the
+    // API with curl and a placeholder bearer token. It is EXPLICITLY
+    // NOT applied in Embedded mode because Conductor now mints real
+    // JWTs against the embedded andy-auth and real RBAC enforcement
+    // is required to keep `[Authorize]` attributes load-bearing inside
+    // the shipping desktop app.
     if (builder.Environment.IsDevelopment())
     {
         builder.Services.AddAuthorization(options =>
@@ -319,9 +327,12 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = Dat
 
 app.MapFallbackToFile("index.html");
 
-// --- Auto-migrate in development ---
+// --- Auto-migrate in development AND embedded modes ---
+// Embedded mode is a single-user desktop app — there is no ops team to
+// run `dotnet ef database update` on first launch. Auto-migrate so the
+// SQLite schema is created inline, same as dotnet-run development.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-if (app.Environment.IsDevelopment() && !string.IsNullOrEmpty(connectionString))
+if (app.Environment.IsLocalOrEmbedded() && !string.IsNullOrEmpty(connectionString))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();

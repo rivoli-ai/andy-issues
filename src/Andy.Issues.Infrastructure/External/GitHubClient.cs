@@ -177,7 +177,22 @@ public class GitHubClient : IGitHubClient
                     }
                 }
 
-                results.Add(new GitHubIssueInfo(number, title, body, state, isPr, labels));
+                // GitHub's typed Issue Types feature. When the repo
+                // has types enabled and the issue has one assigned, the
+                // API returns `type: { name: "Bug", ... }`. Absent or
+                // null when the repo doesn't use types or the issue
+                // is unassigned. See conductor#670 Bug 2.
+                string? issueType = null;
+                if (item.TryGetProperty("type", out var typeEl)
+                    && typeEl.ValueKind == JsonValueKind.Object
+                    && typeEl.TryGetProperty("name", out var typeNameEl)
+                    && typeNameEl.ValueKind == JsonValueKind.String)
+                {
+                    var typeName = typeNameEl.GetString();
+                    if (!string.IsNullOrWhiteSpace(typeName)) issueType = typeName;
+                }
+
+                results.Add(new GitHubIssueInfo(number, title, body, state, isPr, labels, issueType));
             }
 
             nextUrl = ParseNextLink(response.Headers);

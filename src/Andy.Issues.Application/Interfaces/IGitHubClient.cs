@@ -20,13 +20,25 @@ public record GitHubUserInfo(string Login);
 /// The <see cref="IsPullRequest"/> flag is surfaced so callers can skip
 /// PRs — that endpoint returns both issues and PRs in the same list.
 /// </summary>
+/// <summary>
+/// A GitHub issue as returned by <c>GET /repos/{owner}/{repo}/issues</c>.
+/// <para>
+/// <see cref="Type"/> is GitHub's typed Issue Type
+/// (<c>"Bug"</c> / <c>"Feature"</c> / <c>"Task"</c> — the new typed
+/// Issue Types feature). <c>null</c> when the source issue has no
+/// type set. Stored alongside labels so classification changes on
+/// re-sync can be detected without needing to remember the old
+/// label set. See conductor#670 Bug 2.
+/// </para>
+/// </summary>
 public record GitHubIssueInfo(
     int Number,
     string Title,
     string? Body,
     string State,
     bool IsPullRequest,
-    IReadOnlyList<string> Labels);
+    IReadOnlyList<string> Labels,
+    string? Type = null);
 
 /// <summary>
 /// Thrown when a GitHub API call fails in a way the caller needs to

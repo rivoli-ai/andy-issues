@@ -12,6 +12,25 @@ public class Epic
     public string? Description { get; set; }
     public int Order { get; set; }
     public string? ExternalId { get; set; }
+
+    /// <summary>
+    /// Labels carried from the external source (e.g. GitHub). Populated
+    /// by <c>BacklogGitHubImportService</c> on every sync so later syncs
+    /// can detect classification changes (Epic ↔ Feature ↔ Story) and
+    /// re-home the row in the correct entity table.
+    /// See conductor#670 Bug 2.
+    /// </summary>
+    public List<string> Labels { get; set; } = new();
+
+    /// <summary>
+    /// GitHub's typed Issue Type (<c>Bug</c> / <c>Feature</c> / <c>Task</c>
+    /// from the new typed Issue Types feature), or <c>null</c> when the
+    /// source doesn't expose one. Stored so the Conductor UI can show
+    /// the type badge without refetching and so re-sync can detect type
+    /// flips even when labels are unchanged.
+    /// </summary>
+    public string? GitHubType { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; set; }
 

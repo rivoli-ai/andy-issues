@@ -227,4 +227,104 @@ public class BacklogGitHubImportTests : IClassFixture<TestWebApplicationFactory>
         Assert.Single(stories);
         Assert.Equal("Revised title", stories[0].Title);
     }
+
+    // -------------------------------------------------------------------
+    // conductor#670 Bug 2 — end-to-end coverage through the HTTP sync
+    // endpoint. First sync establishes the initial classification;
+    // second sync with changed labels (or changed GitHub type) must
+    // re-home the entity AND update stored labels/type.
+    // -------------------------------------------------------------------
+
+    /// <summary>Helper matching the one in the unit-test file; builds
+    /// a GitHub issue with arbitrary labels and an optional typed
+    /// Issue Type. #670 Bug 2.</summary>
+    private static GitHubIssueInfo IssueWithLabels(
+        int number,
+        string title,
+        IEnumerable<string> labels,
+        string? type = null,
+        string? body = null,
+        string state = "open") =>
+        new(number, title, body, state, IsPullRequest: false, labels.ToList(), type);
+
+    [Fact]
+    public async Task Resync_WhenEpicRelabelledAsStory_RowMovesAndLabelsPersist()
+    {
+        // First sync classifies issue #100 as an Epic.
+        await SeedPatAsync();
+        var repoId = await SeedRepoAsync();
+        _factory.FakeGitHubClient.SetIssues("acme", "widgets", new[]
+        {
+            IssueWithLabels(100, "Cross-cutting epic",
+                labels: new[] { "type:epic", "priority:high" },
+                type: "Feature"),
+        });
+        var firstResponse = await _client.PostAsync(
+            $"/api/repositories/{repoId}/sync-github-issues",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var epic = await db.Epics.FirstAsync(e => e.ExternalId == "gh:100");
+            Assert.Equal(new[] { "type:epic", "priority:high" }, epic.Labels);
+            Assert.Equal("Feature", epic.GitHubType);
+        }
+
+        // Upstream flipped the labels — now it's a Story under the
+        // `bug` type. Re-sync must move the row to UserStories and
+        // persist the new labels + type.
+        _factory.FakeGitHubClient.SetIssues("acme", "widgets", new[]
+        {
+            IssueWithLabels(100, "Cross-cutting epic",
+                labels: new[] { "story", "priority:high" },
+                type: "Bug"),
+        });
+        var secondResponse = await _client.PostAsync(
+            $"/api/repositories/{repoId}/sync-github-issues",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, secondResponse.StatusCode);
+
+        using var check = _factory.Services.CreateScope();
+        var db2 = check.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Null(await db2.Epics.FirstOrDefaultAsync(e => e.ExternalId == "gh:100"));
+        var story = await db2.UserStories.FirstOrDefaultAsync(s => s.ExternalId == "gh:100");
+        Assert.NotNull(story);
+        Assert.Equal(new[] { "story", "priority:high" }, story!.Labels);
+        Assert.Equal("Bug", story.GitHubType);
+    }
+
+    [Fact]
+    public async Task Resync_TypeFlipWithoutLabelChange_IsStillReflected()
+    {
+        // GitHub typed Issue Types are independent of labels. When
+        // only the type changes upstream, the row stays in place but
+        // the `GitHubType` column updates.
+        await SeedPatAsync();
+        var repoId = await SeedRepoAsync();
+
+        _factory.FakeGitHubClient.SetIssues("acme", "widgets", new[]
+        {
+            IssueWithLabels(200, "Some story",
+                labels: new[] { "story" }, type: "Task"),
+        });
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.PostAsync(
+                $"/api/repositories/{repoId}/sync-github-issues", null)).StatusCode);
+
+        _factory.FakeGitHubClient.SetIssues("acme", "widgets", new[]
+        {
+            IssueWithLabels(200, "Some story",
+                labels: new[] { "story" }, type: "Bug"),
+        });
+        Assert.Equal(HttpStatusCode.OK,
+            (await _client.PostAsync(
+                $"/api/repositories/{repoId}/sync-github-issues", null)).StatusCode);
+
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var story = await db.UserStories.FirstAsync(s => s.ExternalId == "gh:200");
+        Assert.Equal("Bug", story.GitHubType);
+    }
 }
