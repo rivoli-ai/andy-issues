@@ -12,6 +12,18 @@ public class Feature
     public string? Description { get; set; }
     public int Order { get; set; }
     public string? ExternalId { get; set; }
+
+    /// <summary>
+    /// Labels carried from the external source. See Epic.Labels for the
+    /// full rationale (conductor#670 Bug 2).
+    /// </summary>
+    public List<string> Labels { get; set; } = new();
+
+    /// <summary>
+    /// GitHub's typed Issue Type when present. See Epic.GitHubType.
+    /// </summary>
+    public string? GitHubType { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; set; }
 

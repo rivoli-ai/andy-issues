@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Text.Json;
 using Andy.Issues.Domain.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
@@ -39,6 +40,25 @@ public class AppDbContext : DbContext
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
     public DbSet<UserDirectoryEntry> UserDirectory => Set<UserDirectoryEntry>();
     public DbSet<OutboxEntry> Outbox => Set<OutboxEntry>();
+
+    /// <summary>
+    /// Value converter + comparer for the <c>Labels</c> property on
+    /// Epic / Feature / UserStory. Stores the list as a JSON string so
+    /// it round-trips cleanly on both SQLite and Postgres without
+    /// needing a join table. See conductor#670 Bug 2.
+    /// </summary>
+    private static readonly ValueConverter<List<string>, string> LabelsConverter = new(
+        v => JsonSerializer.Serialize(v, (JsonSerializerOptions?)null),
+        v => string.IsNullOrWhiteSpace(v)
+            ? new List<string>()
+            : JsonSerializer.Deserialize<List<string>>(v, (JsonSerializerOptions?)null) ?? new List<string>()
+    );
+
+    private static readonly Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<string>> LabelsComparer = new(
+        (a, b) => (a ?? new List<string>()).SequenceEqual(b ?? new List<string>()),
+        v => v == null ? 0 : v.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())),
+        v => v == null ? new List<string>() : v.ToList()
+    );
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -87,6 +107,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Description).HasMaxLength(4096);
             e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.Property(x => x.GitHubType).HasMaxLength(64);
+            e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
             e.HasOne(x => x.Repository)
                 .WithMany(r => r.Epics)
                 .HasForeignKey(x => x.RepositoryId)
@@ -99,6 +121,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Description).HasMaxLength(4096);
             e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.Property(x => x.GitHubType).HasMaxLength(64);
+            e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
             e.HasOne(x => x.Epic)
                 .WithMany(r => r.Features)
                 .HasForeignKey(x => x.EpicId)
@@ -114,6 +138,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.PullRequestUrl).HasMaxLength(1024);
             e.Property(x => x.Status).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.ExternalId).HasMaxLength(256);
+            e.Property(x => x.GitHubType).HasMaxLength(64);
+            e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
             e.HasIndex(x => x.AzureDevOpsWorkItemId);
             e.HasOne(x => x.Feature)
                 .WithMany(f => f.Stories)

@@ -216,6 +216,20 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         int added = 0, updated = 0;
         var errors = new List<string>();
 
+        // #670 Bug 2: re-home rows whose classification flipped since
+        // the last sync. Each non-PR issue's CURRENT classification
+        // (from its labels / type) is computed above; if the row
+        // already exists in the WRONG entity table (e.g. an Epic that
+        // was relabelled `type:story` upstream), we delete the old
+        // row here so the upsert loop below creates the row in the
+        // correct table. Cascade-delete clears stale children; the
+        // correct children are recreated by the upsert pass since we
+        // ran the full issue list.
+        await RehomeReclassifiedItemsAsync(
+            repositoryId,
+            epicIssues, featureIssues, storyIssues,
+            ct);
+
         // Upsert epics.
         var epicByNumber = new Dictionary<int, Epic>();
         foreach (var issue in epicIssues)
@@ -306,7 +320,9 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
                 Title = issue.Title,
                 Description = issue.Body,
                 Order = issue.Number,
-                ExternalId = externalId
+                ExternalId = externalId,
+                Labels = issue.Labels.ToList(),
+                GitHubType = issue.Type
             };
             _db.Epics.Add(epic);
             return (epic, true);
@@ -315,6 +331,8 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         existing.Title = issue.Title;
         existing.Description = issue.Body;
         existing.Order = issue.Number;
+        existing.Labels = issue.Labels.ToList();
+        existing.GitHubType = issue.Type;
         existing.UpdatedAt = DateTimeOffset.UtcNow;
         return (existing, false);
     }
@@ -335,7 +353,9 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
                 Title = issue.Title,
                 Description = issue.Body,
                 Order = issue.Number,
-                ExternalId = externalId
+                ExternalId = externalId,
+                Labels = issue.Labels.ToList(),
+                GitHubType = issue.Type
             };
             _db.Features.Add(feature);
             return (feature, true);
@@ -345,6 +365,8 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         existing.Title = issue.Title;
         existing.Description = issue.Body;
         existing.Order = issue.Number;
+        existing.Labels = issue.Labels.ToList();
+        existing.GitHubType = issue.Type;
         existing.UpdatedAt = DateTimeOffset.UtcNow;
         return (existing, false);
     }
@@ -367,7 +389,9 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
                 Title = issue.Title,
                 Description = issue.Body,
                 Order = issue.Number,
-                ExternalId = externalId
+                ExternalId = externalId,
+                Labels = issue.Labels.ToList(),
+                GitHubType = issue.Type
             };
             if (targetStatus != UserStoryStatus.Draft)
                 story.SetStatus(targetStatus);
@@ -379,6 +403,8 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         existing.Title = issue.Title;
         existing.Description = issue.Body;
         existing.Order = issue.Number;
+        existing.Labels = issue.Labels.ToList();
+        existing.GitHubType = issue.Type;
         // Only advance status forward from the remote side — never
         // overwrite an in-progress local story with Draft just because
         // the GitHub issue is still open. Done is the one signal we
@@ -387,6 +413,87 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             existing.SetStatus(UserStoryStatus.Done);
         existing.UpdatedAt = DateTimeOffset.UtcNow;
         return (existing, false);
+    }
+
+    /// <summary>
+    /// #670 Bug 2 — classification re-home pass.
+    ///
+    /// For each issue in the current sync batch, checks whether the row
+    /// already exists in a DIFFERENT entity table than its new
+    /// classification predicts. If so, deletes the old row so the
+    /// normal upsert loop creates the row in the correct table. The
+    /// row's hierarchy is re-inferred fresh on every sync (from the
+    /// current GitHub task-list references), so orphaned children
+    /// from a cascade-delete get reparented in the same pass.
+    ///
+    /// Example: an issue was labelled <c>type:feature</c> on first
+    /// sync and stored in <c>Features</c>. Upstream it's relabelled
+    /// <c>type:epic</c>. On the next sync, <see cref="ClassifyIssue"/>
+    /// returns Epic, this method detects the row in Features with
+    /// that <c>ExternalId</c>, deletes it, and the Epic upsert loop
+    /// creates the new Epic row.
+    /// </summary>
+    private async Task RehomeReclassifiedItemsAsync(
+        Guid repositoryId,
+        List<GitHubIssueInfo> epicIssues,
+        List<GitHubIssueInfo> featureIssues,
+        List<GitHubIssueInfo> storyIssues,
+        CancellationToken ct)
+    {
+        // Epics: delete any existing Feature or Story row that now
+        // classifies as Epic.
+        foreach (var issue in epicIssues)
+        {
+            var externalId = ExternalIdPrefix + issue.Number;
+
+            var wrongFeature = await _db.Features
+                .FirstOrDefaultAsync(f => f.ExternalId == externalId, ct);
+            if (wrongFeature is not null) _db.Features.Remove(wrongFeature);
+
+            var wrongStory = await _db.UserStories
+                .FirstOrDefaultAsync(s => s.ExternalId == externalId, ct);
+            if (wrongStory is not null) _db.UserStories.Remove(wrongStory);
+        }
+
+        // Features: delete any existing Epic or Story row that now
+        // classifies as Feature.
+        foreach (var issue in featureIssues)
+        {
+            var externalId = ExternalIdPrefix + issue.Number;
+
+            var wrongEpic = await _db.Epics
+                .FirstOrDefaultAsync(
+                    e => e.RepositoryId == repositoryId && e.ExternalId == externalId,
+                    ct);
+            if (wrongEpic is not null) _db.Epics.Remove(wrongEpic);
+
+            var wrongStory = await _db.UserStories
+                .FirstOrDefaultAsync(s => s.ExternalId == externalId, ct);
+            if (wrongStory is not null) _db.UserStories.Remove(wrongStory);
+        }
+
+        // Stories: delete any existing Epic or Feature row that now
+        // classifies as Story.
+        foreach (var issue in storyIssues)
+        {
+            var externalId = ExternalIdPrefix + issue.Number;
+
+            var wrongEpic = await _db.Epics
+                .FirstOrDefaultAsync(
+                    e => e.RepositoryId == repositoryId && e.ExternalId == externalId,
+                    ct);
+            if (wrongEpic is not null) _db.Epics.Remove(wrongEpic);
+
+            var wrongFeature = await _db.Features
+                .FirstOrDefaultAsync(f => f.ExternalId == externalId, ct);
+            if (wrongFeature is not null) _db.Features.Remove(wrongFeature);
+        }
+
+        // Flush the deletes so the upsert loop's `FirstOrDefaultAsync`
+        // queries don't see the to-be-deleted rows in the tracked
+        // change set.
+        if (_db.ChangeTracker.HasChanges())
+            await _db.SaveChangesAsync(ct);
     }
 
     private async Task<(Epic epic, Feature feature)> EnsureUncategorizedAsync(

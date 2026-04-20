@@ -513,4 +513,204 @@ public class BacklogGitHubImportTests : IDisposable
         var feature = await ctx.Features.FirstAsync(f => f.ExternalId == "gh:50");
         Assert.Equal(firstEpic.Id, feature.EpicId);
     }
+
+    // -------------------------------------------------------------------
+    // conductor#670 Bug 2 — labels, type, and classification changes on
+    // re-sync. Before this change the importer wrote the GitHub labels
+    // once on first import then discarded them; if upstream changed the
+    // issue's classification, the andy-issues row stayed wrong until a
+    // human manually fixed it.
+    // -------------------------------------------------------------------
+
+    /// <summary>Builds an issue with an arbitrary label set and an
+    /// optional GitHub-typed Issue Type. The older <see cref="Issue"/>
+    /// helper assumes one-of-three-types; tests below need more
+    /// realistic label mixes.</summary>
+    private static GitHubIssueInfo IssueWithLabels(
+        int number,
+        string title,
+        IEnumerable<string> labels,
+        string? type = null,
+        string? body = null,
+        string state = "open") =>
+        new(number, title, body, state, IsPullRequest: false, labels.ToList(), type);
+
+    [Fact]
+    public async Task Import_StoresLabelsAndGitHubTypeOnFirstImport()
+    {
+        var repoId = await SeedRepoAsync();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(1, "Top-level epic",
+                labels: new[] { "type:epic", "priority:high" },
+                type: "Feature"),
+            IssueWithLabels(2, "A feature",
+                labels: new[] { "type:feature", "area:ui" },
+                type: null),
+            IssueWithLabels(3, "A story",
+                labels: new[] { "story", "good-first-issue" },
+                type: "Task"),
+        });
+
+        await using var ctx = NewContext();
+        await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+
+        var epic = await ctx.Epics.FirstAsync(e => e.ExternalId == "gh:1");
+        Assert.Equal(new[] { "type:epic", "priority:high" }, epic.Labels);
+        Assert.Equal("Feature", epic.GitHubType);
+
+        var feature = await ctx.Features.FirstAsync(f => f.ExternalId == "gh:2");
+        Assert.Equal(new[] { "type:feature", "area:ui" }, feature.Labels);
+        Assert.Null(feature.GitHubType);
+
+        var story = await ctx.UserStories.FirstAsync(s => s.ExternalId == "gh:3");
+        Assert.Equal(new[] { "story", "good-first-issue" }, story.Labels);
+        Assert.Equal("Task", story.GitHubType);
+    }
+
+    [Fact]
+    public async Task Import_RerunWithUpdatedLabels_UpdatesStoredLabels()
+    {
+        var repoId = await SeedRepoAsync();
+
+        // First sync — `area:ui` only.
+        var gh1 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(5, "A feature", labels: new[] { "type:feature", "area:ui" }),
+        });
+        await using (var ctx1 = NewContext())
+            await NewImporter(ctx1, gh1).ImportAsync(repoId, "alice");
+
+        // Second sync — upstream added `area:auth` and removed `area:ui`.
+        var gh2 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(5, "A feature", labels: new[] { "type:feature", "area:auth" }),
+        });
+        await using (var ctx2 = NewContext())
+            await NewImporter(ctx2, gh2).ImportAsync(repoId, "alice");
+
+        await using var ctx = NewContext();
+        var feature = await ctx.Features.FirstAsync(f => f.ExternalId == "gh:5");
+        Assert.Equal(new[] { "type:feature", "area:auth" }, feature.Labels);
+    }
+
+    [Fact]
+    public async Task Import_WhenEpicRelabelledAsStory_MovesRowToStoriesTable()
+    {
+        // First sync: issue #7 is an Epic. Second sync: upstream
+        // relabelled it `story`. The Epic row must be gone and a
+        // Story row must exist with the same ExternalId.
+        var repoId = await SeedRepoAsync();
+
+        var gh1 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(7, "Was an epic", labels: new[] { "type:epic" }),
+        });
+        await using (var ctx1 = NewContext())
+            await NewImporter(ctx1, gh1).ImportAsync(repoId, "alice");
+
+        await using (var ctxCheck = NewContext())
+        {
+            Assert.NotNull(await ctxCheck.Epics
+                .FirstOrDefaultAsync(e => e.ExternalId == "gh:7"));
+            Assert.Null(await ctxCheck.UserStories
+                .FirstOrDefaultAsync(s => s.ExternalId == "gh:7"));
+        }
+
+        var gh2 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(7, "Now a story", labels: new[] { "story" }),
+        });
+        await using (var ctx2 = NewContext())
+            await NewImporter(ctx2, gh2).ImportAsync(repoId, "alice");
+
+        await using var ctx = NewContext();
+        Assert.Null(await ctx.Epics
+            .FirstOrDefaultAsync(e => e.ExternalId == "gh:7"));
+        var story = await ctx.UserStories
+            .FirstOrDefaultAsync(s => s.ExternalId == "gh:7");
+        Assert.NotNull(story);
+        Assert.Equal("Now a story", story!.Title);
+    }
+
+    [Fact]
+    public async Task Import_WhenStoryPromotedToFeature_MovesRowToFeaturesTable()
+    {
+        var repoId = await SeedRepoAsync();
+
+        var gh1 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(8, "Was a story", labels: new[] { "story" }),
+        });
+        await using (var ctx1 = NewContext())
+            await NewImporter(ctx1, gh1).ImportAsync(repoId, "alice");
+
+        var gh2 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(8, "Now a feature", labels: new[] { "type:feature" }),
+        });
+        await using (var ctx2 = NewContext())
+            await NewImporter(ctx2, gh2).ImportAsync(repoId, "alice");
+
+        await using var ctx = NewContext();
+        Assert.Null(await ctx.UserStories
+            .FirstOrDefaultAsync(s => s.ExternalId == "gh:8"));
+        var feature = await ctx.Features
+            .FirstOrDefaultAsync(f => f.ExternalId == "gh:8");
+        Assert.NotNull(feature);
+        Assert.Equal("Now a feature", feature!.Title);
+    }
+
+    [Fact]
+    public async Task Import_WhenFeaturePromotedToEpic_MovesRowToEpicsTable()
+    {
+        var repoId = await SeedRepoAsync();
+
+        var gh1 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(9, "Was a feature", labels: new[] { "type:feature" }),
+        });
+        await using (var ctx1 = NewContext())
+            await NewImporter(ctx1, gh1).ImportAsync(repoId, "alice");
+
+        var gh2 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(9, "Now an epic", labels: new[] { "type:epic" }),
+        });
+        await using (var ctx2 = NewContext())
+            await NewImporter(ctx2, gh2).ImportAsync(repoId, "alice");
+
+        await using var ctx = NewContext();
+        Assert.Null(await ctx.Features
+            .FirstOrDefaultAsync(f => f.ExternalId == "gh:9"));
+        var epic = await ctx.Epics
+            .FirstOrDefaultAsync(e => e.ExternalId == "gh:9");
+        Assert.NotNull(epic);
+        Assert.Equal("Now an epic", epic!.Title);
+    }
+
+    [Fact]
+    public async Task Import_GitHubTypeChanges_AreReflected()
+    {
+        // Labels unchanged; only the typed Issue Type flips.
+        var repoId = await SeedRepoAsync();
+
+        var gh1 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(11, "Some story", labels: new[] { "story" }, type: "Task"),
+        });
+        await using (var ctx1 = NewContext())
+            await NewImporter(ctx1, gh1).ImportAsync(repoId, "alice");
+
+        var gh2 = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            IssueWithLabels(11, "Some story", labels: new[] { "story" }, type: "Bug"),
+        });
+        await using (var ctx2 = NewContext())
+            await NewImporter(ctx2, gh2).ImportAsync(repoId, "alice");
+
+        await using var ctx = NewContext();
+        var story = await ctx.UserStories.FirstAsync(s => s.ExternalId == "gh:11");
+        Assert.Equal("Bug", story.GitHubType);
+    }
 }
