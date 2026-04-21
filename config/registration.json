@@ -7,11 +7,11 @@
     "embeddedProxyPrefix": "/issues",
     "ports": {
       "dotnetHttps": 5410,
-      "dotnetHttp":  5411,
+      "dotnetHttp": 5411,
       "dotnetPostgres": 5443,
       "dotnetClient": 4203,
       "dockerHttps": 7410,
-      "dockerHttp":  7411,
+      "dockerHttp": 7411,
       "dockerPostgres": 7443,
       "dockerClient": 6203,
       "embeddedProxy": 9100
@@ -25,18 +25,39 @@
       "clientSecretEnvVar": "ANDY_ISSUES_API_SECRET",
       "displayName": "Andy Issues API",
       "description": "Service-to-service client for Andy Issues",
-      "grantTypes": ["authorization_code", "refresh_token", "client_credentials"],
-      "scopes": ["email", "profile", "roles", "scp:urn:andy-issues-api"],
-      "redirectUris": ["https://localhost:5410/callback"],
-      "postLogoutRedirectUris": ["https://localhost:5410/"]
+      "grantTypes": [
+        "authorization_code",
+        "refresh_token",
+        "client_credentials"
+      ],
+      "scopes": [
+        "email",
+        "profile",
+        "roles",
+        "scp:urn:andy-issues-api"
+      ],
+      "redirectUris": [
+        "https://localhost:5410/callback"
+      ],
+      "postLogoutRedirectUris": [
+        "https://localhost:5410/"
+      ]
     },
     "webClient": {
       "clientId": "andy-issues-web",
       "clientType": "public",
       "displayName": "Andy Issues Web",
       "description": "Angular SPA for issue tracking and story refinement",
-      "grantTypes": ["authorization_code", "refresh_token"],
-      "scopes": ["email", "profile", "roles", "scp:urn:andy-issues-api"],
+      "grantTypes": [
+        "authorization_code",
+        "refresh_token"
+      ],
+      "scopes": [
+        "email",
+        "profile",
+        "roles",
+        "scp:urn:andy-issues-api"
+      ],
       "redirectUris": [
         "https://localhost:4203/callback",
         "https://localhost:6203/callback",
@@ -54,18 +75,119 @@
     "applicationName": "Andy Issues",
     "description": "Issue tracking and work item management",
     "resourceTypes": [
-      { "code": "issue",   "name": "Issue",   "supportsInstances": true },
-      { "code": "backlog", "name": "Backlog", "supportsInstances": true },
-      { "code": "story",   "name": "Story",   "supportsInstances": true }
+      {
+        "code": "issue",
+        "name": "Issue",
+        "supportsInstances": true
+      },
+      {
+        "code": "backlog",
+        "name": "Backlog",
+        "supportsInstances": true
+      },
+      {
+        "code": "story",
+        "name": "Story",
+        "supportsInstances": true
+      }
     ],
     "roles": [
-      { "code": "admin",  "name": "Administrator", "description": "Full access to issues", "isSystem": true },
-      { "code": "user",   "name": "User",          "description": "Standard user",         "isSystem": true },
-      { "code": "viewer", "name": "Viewer",        "description": "Read-only access",      "isSystem": true }
+      {
+        "code": "admin",
+        "name": "Administrator",
+        "description": "Full access to issues",
+        "isSystem": true
+      },
+      {
+        "code": "user",
+        "name": "User",
+        "description": "Standard user",
+        "isSystem": true
+      },
+      {
+        "code": "viewer",
+        "name": "Viewer",
+        "description": "Read-only access",
+        "isSystem": true
+      }
     ],
     "testUserRole": "admin"
   },
   "settings": {
-    "definitions": []
+    "definitions": [
+      {
+        "key": "andy.issues.integrations.githubPat",
+        "displayName": "GitHub Personal Access Token (system fallback)",
+        "description": "System-level GitHub PAT used when no per-user LinkedProvider.AccessToken is present. Replaces the GITHUB_PAT environment variable.",
+        "category": "Integrations",
+        "dataType": "Secret",
+        "isSecret": true,
+        "allowedScopes": [
+          "Machine"
+        ]
+      },
+      {
+        "key": "andy.issues.integrations.azureDevOpsPat",
+        "displayName": "Azure DevOps PAT (system fallback)",
+        "description": "System-level Azure DevOps PAT used when no per-repo PAT is configured.",
+        "category": "Integrations",
+        "dataType": "Secret",
+        "isSecret": true,
+        "allowedScopes": [
+          "Machine"
+        ]
+      },
+      {
+        "key": "andy.issues.llm.provider",
+        "displayName": "LLM Provider",
+        "description": "System-fallback LLM provider identifier.",
+        "category": "Llm",
+        "dataType": "String",
+        "defaultValue": "anthropic",
+        "allowedScopes": [
+          "Machine",
+          "Application",
+          "User"
+        ]
+      },
+      {
+        "key": "andy.issues.llm.model",
+        "displayName": "LLM Model",
+        "description": "System-fallback LLM model name.",
+        "category": "Llm",
+        "dataType": "String",
+        "defaultValue": "claude-3-5-sonnet-latest",
+        "allowedScopes": [
+          "Machine",
+          "Application",
+          "User"
+        ]
+      },
+      {
+        "key": "andy.issues.llm.apiKey",
+        "displayName": "LLM API Key (system fallback)",
+        "description": "System-level LLM API key used when no user-owned LlmSetting is present.",
+        "category": "Llm",
+        "dataType": "Secret",
+        "isSecret": true,
+        "allowedScopes": [
+          "Machine",
+          "Application",
+          "User"
+        ]
+      },
+      {
+        "key": "andy.issues.llm.baseUrl",
+        "displayName": "LLM Base URL",
+        "description": "Base URL override for the LLM provider.",
+        "category": "Llm",
+        "dataType": "Uri",
+        "allowedScopes": [
+          "Machine",
+          "Application",
+          "User"
+        ]
+      }
+    ]
   }
 }
