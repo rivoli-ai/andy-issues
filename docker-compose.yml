@@ -52,10 +52,10 @@ services:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=https://+:8443;http://+:8080
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=andy_issues;Username=andy_issues;Password=andy_issues_dev_password
-      - AndyAuth__Authority=https://host.docker.internal:5001
+      - AndyAuth__Authority=https://host.docker.internal:${ANDY_AUTH_DOCKER_HTTPS:-7001}
       - AndyAuth__Audience=urn:andy-issues-api
       - AndyAuth__RequireHttpsMetadata=false
-      - Rbac__ApiBaseUrl=https://host.docker.internal:5003
+      - Rbac__ApiBaseUrl=https://host.docker.internal:${ANDY_RBAC_DOCKER_HTTPS:-7003}
       - Rbac__ApplicationCode=andy-issues
       # Port resolved from andy-settings' config/registration.json via
       # ../andy-settings/scripts/generate-docker-ports-env.sh. See rivoli-ai/conductor#793.
