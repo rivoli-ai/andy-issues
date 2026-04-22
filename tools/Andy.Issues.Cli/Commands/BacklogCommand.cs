@@ -44,14 +44,14 @@ public static class BacklogCommand
 
             foreach (var epic in backlog.Epics)
             {
-                Console.WriteLine($"Epic: {epic.Title}  [{epic.Id}]");
+                Console.WriteLine($"{epic.DisplayId}  {epic.Title}");
                 foreach (var feature in epic.Features)
                 {
-                    Console.WriteLine($"  Feature: {feature.Title}  [{feature.Id}]");
+                    Console.WriteLine($"  {feature.DisplayId}  {feature.Title}");
                     foreach (var story in feature.Stories)
                     {
                         var pts = story.StoryPoints.HasValue ? $" ({story.StoryPoints}pts)" : "";
-                        Console.WriteLine($"    [{story.Status,-10}] {story.Title}{pts}  [{story.Id}]");
+                        Console.WriteLine($"    {story.DisplayId}  [{story.Status,-10}] {story.Title}{pts}");
                     }
                 }
             }
@@ -77,7 +77,7 @@ public static class BacklogCommand
                 new CreateEpicRequest(title, desc, null, null));
             if (epic is null) return;
 
-            Console.WriteLine($"Epic created: {epic.Id}  {epic.Title}");
+            Console.WriteLine($"Epic created: {epic.DisplayId}  {epic.Title}  [{epic.Id}]");
         });
         return cmd;
     }
@@ -100,7 +100,7 @@ public static class BacklogCommand
                 new CreateFeatureRequest(title, desc, null, null));
             if (feature is null) return;
 
-            Console.WriteLine($"Feature created: {feature.Id}  {feature.Title}");
+            Console.WriteLine($"Feature created: {feature.DisplayId}  {feature.Title}  [{feature.Id}]");
         });
         return cmd;
     }
@@ -130,7 +130,7 @@ public static class BacklogCommand
                 new CreateUserStoryRequest(title, desc, ac, pts, null, null));
             if (story is null) return;
 
-            Console.WriteLine($"Story created: {story.Id}  {story.Title}  [{story.Status}]");
+            Console.WriteLine($"Story created: {story.DisplayId}  {story.Title}  [{story.Status}]  [{story.Id}]");
         });
         return cmd;
     }
@@ -153,7 +153,7 @@ public static class BacklogCommand
                 new UpdateUserStoryStatusRequest(status, prUrl));
             if (story is null) return;
 
-            Console.WriteLine($"Story {story.Id} status: {story.Status}");
+            Console.WriteLine($"Story {story.DisplayId} status: {story.Status}");
         });
         return cmd;
     }

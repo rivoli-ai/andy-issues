@@ -38,7 +38,8 @@ public static class StoryEventOutbox
             EpicId: epicId,
             RepositoryId: repositoryId,
             Title: story.Title,
-            Status: story.Status.ToString());
+            Status: story.Status.ToString(),
+            DisplayId: story.DisplayId);
 
         var subject = $"andy.issues.events.story.{story.Id}.{kind.ToSubjectKind()}";
 

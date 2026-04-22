@@ -9,6 +9,7 @@ public record BacklogDto(
 
 public record EpicDto(
     Guid Id,
+    string DisplayId,
     Guid RepositoryId,
     string Title,
     string? Description,
@@ -20,6 +21,7 @@ public record EpicDto(
 
 public record FeatureDto(
     Guid Id,
+    string DisplayId,
     Guid EpicId,
     string Title,
     string? Description,
@@ -31,6 +33,7 @@ public record FeatureDto(
 
 public record UserStoryDto(
     Guid Id,
+    string DisplayId,
     Guid FeatureId,
     string Title,
     string? Description,

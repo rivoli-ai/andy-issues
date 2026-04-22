@@ -90,6 +90,17 @@ public class BacklogController : ControllerBase
         return CreatedAtAction(nameof(Get), new { repositoryId }, dto);
     }
 
+    // AH1 — resolve by GUID or `EPIC-42` short id. Routes without a
+    // `:guid` constraint so both shapes hit the same endpoint; the
+    // service parses and dispatches.
+    [HttpGet("api/epics/{identifier}")]
+    public async Task<ActionResult<EpicDto>> GetEpic(string identifier, CancellationToken ct)
+    {
+        var dto = await _backlog.GetEpicAsync(identifier, GetUserId(), ct);
+        if (dto is null) return NotFound();
+        return Ok(dto);
+    }
+
     [HttpPatch("api/epics/{epicId:guid}")]
     public async Task<ActionResult<EpicDto>> UpdateEpic(
         Guid epicId,
@@ -120,6 +131,15 @@ public class BacklogController : ControllerBase
         return Ok(dto);
     }
 
+    // AH1 — resolve by GUID or `FEAT-7` short id.
+    [HttpGet("api/features/{identifier}")]
+    public async Task<ActionResult<FeatureDto>> GetFeature(string identifier, CancellationToken ct)
+    {
+        var dto = await _backlog.GetFeatureAsync(identifier, GetUserId(), ct);
+        if (dto is null) return NotFound();
+        return Ok(dto);
+    }
+
     [HttpPatch("api/features/{featureId:guid}")]
     public async Task<ActionResult<FeatureDto>> UpdateFeature(
         Guid featureId,
@@ -146,6 +166,15 @@ public class BacklogController : ControllerBase
         CancellationToken ct)
     {
         var dto = await _backlog.AddStoryAsync(featureId, request, GetUserId(), ct);
+        if (dto is null) return NotFound();
+        return Ok(dto);
+    }
+
+    // AH1 — resolve by GUID or `STORY-13` short id.
+    [HttpGet("api/stories/{identifier}")]
+    public async Task<ActionResult<UserStoryDto>> GetStory(string identifier, CancellationToken ct)
+    {
+        var dto = await _backlog.GetStoryAsync(identifier, GetUserId(), ct);
         if (dto is null) return NotFound();
         return Ok(dto);
     }

@@ -12,7 +12,13 @@ public sealed record StoryEventPayload(
     Guid EpicId,
     Guid RepositoryId,
     string Title,
-    string Status)
+    string Status,
+    // AH1 — short human-readable identifier (`STORY-{seq}`) derived
+    // from the entity's `Seq`. Older consumers that ignored unknown
+    // fields keep working; consumers that care can cross-reference
+    // without a GUID round-trip. Nullable so payloads replayed from
+    // pre-AH1 outbox rows decode cleanly.
+    string? DisplayId = null)
 {
     public const int SchemaVersion = 1;
 
