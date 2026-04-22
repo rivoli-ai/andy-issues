@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
@@ -44,6 +45,70 @@ public class BacklogService : IBacklogService
             .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
 
         return repo?.ToBacklogDto();
+    }
+
+    public async Task<EpicDto?> GetEpicAsync(string identifier, string userId, CancellationToken ct = default)
+    {
+        var parsed = BacklogIdentifier.Parse(identifier);
+        if (parsed.ExpectedType is not null && parsed.ExpectedType != BacklogEntityType.Epic)
+            return null;
+
+        var query = _db.Epics
+            .AsNoTracking()
+            .Include(e => e.Features).ThenInclude(f => f.Stories);
+
+        var epic = parsed.Id is { } id
+            ? await query.FirstOrDefaultAsync(e => e.Id == id, ct)
+            : parsed.Seq is { } seq
+                ? await query.FirstOrDefaultAsync(e => e.Seq == seq, ct)
+                : null;
+
+        if (epic is null) return null;
+        if (!await _guard.CanViewAsync(epic.RepositoryId, userId, ct)) return null;
+        return epic.ToDto();
+    }
+
+    public async Task<FeatureDto?> GetFeatureAsync(string identifier, string userId, CancellationToken ct = default)
+    {
+        var parsed = BacklogIdentifier.Parse(identifier);
+        if (parsed.ExpectedType is not null && parsed.ExpectedType != BacklogEntityType.Feature)
+            return null;
+
+        var query = _db.Features
+            .AsNoTracking()
+            .Include(f => f.Epic)
+            .Include(f => f.Stories);
+
+        var feature = parsed.Id is { } id
+            ? await query.FirstOrDefaultAsync(f => f.Id == id, ct)
+            : parsed.Seq is { } seq
+                ? await query.FirstOrDefaultAsync(f => f.Seq == seq, ct)
+                : null;
+
+        if (feature is null) return null;
+        if (!await _guard.CanViewAsync(feature.Epic.RepositoryId, userId, ct)) return null;
+        return feature.ToDto();
+    }
+
+    public async Task<UserStoryDto?> GetStoryAsync(string identifier, string userId, CancellationToken ct = default)
+    {
+        var parsed = BacklogIdentifier.Parse(identifier);
+        if (parsed.ExpectedType is not null && parsed.ExpectedType != BacklogEntityType.Story)
+            return null;
+
+        var query = _db.UserStories
+            .AsNoTracking()
+            .Include(s => s.Feature).ThenInclude(f => f.Epic);
+
+        var story = parsed.Id is { } id
+            ? await query.FirstOrDefaultAsync(s => s.Id == id, ct)
+            : parsed.Seq is { } seq
+                ? await query.FirstOrDefaultAsync(s => s.Seq == seq, ct)
+                : null;
+
+        if (story is null) return null;
+        if (!await _guard.CanViewAsync(story.Feature.Epic.RepositoryId, userId, ct)) return null;
+        return story.ToDto();
     }
 
     public async Task<EpicDto?> AddEpicAsync(

@@ -378,15 +378,15 @@ public class ServiceToolsTests
             "main", null, null, false, "None", DateTimeOffset.UtcNow, null);
 
     private static EpicDto MakeEpicDto(string title) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), title, null, 0, null,
+        new(Guid.NewGuid(), "EPIC-0", Guid.NewGuid(), title, null, 0, null,
             DateTimeOffset.UtcNow, null, new List<FeatureDto>());
 
     private static FeatureDto MakeFeatureDto(string title) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), title, null, 0, null,
+        new(Guid.NewGuid(), "FEAT-0", Guid.NewGuid(), title, null, 0, null,
             DateTimeOffset.UtcNow, null, new List<UserStoryDto>());
 
     private static UserStoryDto MakeStoryDto(string title, string status = "Draft") =>
-        new(Guid.NewGuid(), Guid.NewGuid(), title, null, null, null, status, null, 0, null, null,
+        new(Guid.NewGuid(), "STORY-0", Guid.NewGuid(), title, null, null, null, status, null, 0, null, null,
             DateTimeOffset.UtcNow, null);
 
     private static SandboxDto MakeSandboxDto() =>
@@ -466,6 +466,15 @@ file class StubBacklogService : IBacklogService
 
     public Task<BacklogDto?> GetAsync(Guid repositoryId, string userId, CancellationToken ct = default) =>
         Task.FromResult(GetResult);
+
+    public Task<EpicDto?> GetEpicAsync(string identifier, string userId, CancellationToken ct = default) =>
+        Task.FromResult<EpicDto?>(null);
+
+    public Task<FeatureDto?> GetFeatureAsync(string identifier, string userId, CancellationToken ct = default) =>
+        Task.FromResult<FeatureDto?>(null);
+
+    public Task<UserStoryDto?> GetStoryAsync(string identifier, string userId, CancellationToken ct = default) =>
+        Task.FromResult<UserStoryDto?>(null);
 
     public Task<EpicDto?> AddEpicAsync(Guid repositoryId, CreateEpicRequest request, string userId, CancellationToken ct = default) =>
         Task.FromResult(AddEpicResult);

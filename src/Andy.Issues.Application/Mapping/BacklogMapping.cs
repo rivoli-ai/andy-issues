@@ -10,6 +10,7 @@ public static class BacklogMapping
 {
     public static UserStoryDto ToDto(this UserStory entity) => new(
         entity.Id,
+        entity.DisplayId,
         entity.FeatureId,
         entity.Title,
         entity.Description,
@@ -25,6 +26,7 @@ public static class BacklogMapping
 
     public static FeatureDto ToDto(this Feature entity) => new(
         entity.Id,
+        entity.DisplayId,
         entity.EpicId,
         entity.Title,
         entity.Description,
@@ -39,6 +41,7 @@ public static class BacklogMapping
 
     public static EpicDto ToDto(this Epic entity) => new(
         entity.Id,
+        entity.DisplayId,
         entity.RepositoryId,
         entity.Title,
         entity.Description,
