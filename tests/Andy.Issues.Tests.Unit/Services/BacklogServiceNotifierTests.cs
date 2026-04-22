@@ -39,7 +39,7 @@ public class BacklogServiceNotifierTests : IDisposable
     private AppDbContext NewContext() => new(_options);
 
     private BacklogService NewService(AppDbContext ctx) =>
-        new(ctx, new RepositoryAccessGuard(ctx), _notifier);
+        new(ctx, new RepositoryAccessGuard(ctx), new BacklogSequenceAllocator(ctx), _notifier);
 
     private async Task<Guid> SeedRepoAsync()
     {

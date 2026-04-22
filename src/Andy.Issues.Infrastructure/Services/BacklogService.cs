@@ -19,11 +19,17 @@ public class BacklogService : IBacklogService
     private readonly AppDbContext _db;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IBoardNotifier _notifier;
+    private readonly IBacklogSequenceAllocator _sequence;
 
-    public BacklogService(AppDbContext db, IRepositoryAccessGuard guard, IBoardNotifier? notifier = null)
+    public BacklogService(
+        AppDbContext db,
+        IRepositoryAccessGuard guard,
+        IBacklogSequenceAllocator sequence,
+        IBoardNotifier? notifier = null)
     {
         _db = db;
         _guard = guard;
+        _sequence = sequence;
         _notifier = notifier ?? new NullBoardNotifier();
     }
 
@@ -53,6 +59,7 @@ public class BacklogService : IBacklogService
         var epic = new Epic
         {
             Id = Guid.NewGuid(),
+            Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
             RepositoryId = repositoryId,
             Title = request.Title,
             Description = request.Description,
@@ -115,6 +122,7 @@ public class BacklogService : IBacklogService
         var feature = new Feature
         {
             Id = Guid.NewGuid(),
+            Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
             EpicId = epicId,
             Title = request.Title,
             Description = request.Description,
@@ -181,6 +189,7 @@ public class BacklogService : IBacklogService
         var story = new UserStory
         {
             Id = Guid.NewGuid(),
+            Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
             FeatureId = featureId,
             Title = request.Title,
             Description = request.Description,

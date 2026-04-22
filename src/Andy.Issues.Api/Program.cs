@@ -143,6 +143,7 @@ else
 builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
+builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddScoped<IBacklogGitHubImportService, BacklogGitHubImportService>();

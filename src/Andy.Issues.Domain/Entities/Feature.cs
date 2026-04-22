@@ -6,6 +6,20 @@ namespace Andy.Issues.Domain.Entities;
 public class Feature
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// Monotonic per-type sequence allocated by
+    /// <c>IBacklogSequenceAllocator</c> before insert. Projected as
+    /// <see cref="DisplayId"/>. Immutable once assigned. See AH1.
+    /// </summary>
+    public long Seq { get; internal set; }
+
+    /// <summary>
+    /// Human-readable short identifier (<c>FEAT-7</c>) derived from
+    /// <see cref="Seq"/>. See AH1.
+    /// </summary>
+    public string DisplayId => $"FEAT-{Seq}";
+
     public Guid EpicId { get; set; }
     public Epic Epic { get; set; } = null!;
     public string Title { get; set; } = string.Empty;

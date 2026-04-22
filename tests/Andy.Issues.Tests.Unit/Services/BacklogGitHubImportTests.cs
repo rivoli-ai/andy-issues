@@ -42,6 +42,7 @@ public class BacklogGitHubImportTests : IDisposable
         StubGitHubClient gh,
         Func<string, string?>? environmentReader = null) =>
         new(ctx, gh, new RepositoryAccessGuard(ctx), new StubSecretStore(),
+            new BacklogSequenceAllocator(ctx),
             NullLogger<BacklogGitHubImportService>.Instance,
             environmentReader);
 

@@ -187,6 +187,7 @@ public class DraftBacklogGeneratorTests : IDisposable
         // would need a full mock HTTP pipeline — those tests are covered
         // by integration tests. The guard/parse tests here never reach it.
         return new DraftBacklogGenerator(ctx, guard, ci, null!,
+            new BacklogSequenceAllocator(ctx),
             NullLogger<DraftBacklogGenerator>.Instance);
     }
 

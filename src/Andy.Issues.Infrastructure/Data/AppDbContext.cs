@@ -40,6 +40,7 @@ public class AppDbContext : DbContext
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
     public DbSet<UserDirectoryEntry> UserDirectory => Set<UserDirectoryEntry>();
     public DbSet<OutboxEntry> Outbox => Set<OutboxEntry>();
+    public DbSet<BacklogSequence> BacklogSequences => Set<BacklogSequence>();
 
     /// <summary>
     /// Value converter + comparer for the <c>Labels</c> property on
@@ -104,11 +105,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Epic>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.Seq).IsRequired();
+            e.HasIndex(x => x.Seq).IsUnique();
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Description).HasMaxLength(4096);
             e.Property(x => x.ExternalId).HasMaxLength(256);
             e.Property(x => x.GitHubType).HasMaxLength(64);
             e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Ignore(x => x.DisplayId);
             e.HasOne(x => x.Repository)
                 .WithMany(r => r.Epics)
                 .HasForeignKey(x => x.RepositoryId)
@@ -118,11 +122,14 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Feature>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.Seq).IsRequired();
+            e.HasIndex(x => x.Seq).IsUnique();
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Description).HasMaxLength(4096);
             e.Property(x => x.ExternalId).HasMaxLength(256);
             e.Property(x => x.GitHubType).HasMaxLength(64);
             e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Ignore(x => x.DisplayId);
             e.HasOne(x => x.Epic)
                 .WithMany(r => r.Features)
                 .HasForeignKey(x => x.EpicId)
@@ -132,6 +139,8 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<UserStory>(e =>
         {
             e.HasKey(x => x.Id);
+            e.Property(x => x.Seq).IsRequired();
+            e.HasIndex(x => x.Seq).IsUnique();
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Description).HasMaxLength(4096);
             e.Property(x => x.AcceptanceCriteria).HasMaxLength(8192);
@@ -140,11 +149,24 @@ public class AppDbContext : DbContext
             e.Property(x => x.ExternalId).HasMaxLength(256);
             e.Property(x => x.GitHubType).HasMaxLength(64);
             e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Ignore(x => x.DisplayId);
             e.HasIndex(x => x.AzureDevOpsWorkItemId);
             e.HasOne(x => x.Feature)
                 .WithMany(f => f.Stories)
                 .HasForeignKey(x => x.FeatureId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // Counter row backing the per-type short-id sequences. Seeded
+        // on first migration with NextSeq = max(Seq)+1 from the
+        // corresponding entity table, so backfilled rows and new
+        // allocations share a monotonic line.
+        modelBuilder.Entity<BacklogSequence>(e =>
+        {
+            e.ToTable("backlog_sequences");
+            e.HasKey(x => x.EntityType);
+            e.Property(x => x.EntityType).HasColumnName("entity_type");
+            e.Property(x => x.NextSeq).HasColumnName("next_seq").IsRequired();
         });
 
         modelBuilder.Entity<LinkedProvider>(e =>

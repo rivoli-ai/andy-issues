@@ -67,6 +67,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     private readonly IGitHubClient _gitHubClient;
     private readonly IRepositoryAccessGuard _guard;
     private readonly ISecretStore _secretStore;
+    private readonly IBacklogSequenceAllocator _sequence;
     private readonly ILogger<BacklogGitHubImportService> _logger;
     private readonly Func<string, string?> _environmentReader;
 
@@ -75,6 +76,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         IGitHubClient gitHubClient,
         IRepositoryAccessGuard guard,
         ISecretStore secretStore,
+        IBacklogSequenceAllocator sequence,
         ILogger<BacklogGitHubImportService> logger,
         Func<string, string?>? environmentReader = null)
     {
@@ -82,6 +84,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         _gitHubClient = gitHubClient;
         _guard = guard;
         _secretStore = secretStore;
+        _sequence = sequence;
         _logger = logger;
         _environmentReader = environmentReader ?? Environment.GetEnvironmentVariable;
     }
@@ -316,6 +319,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             var epic = new Epic
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
                 RepositoryId = repositoryId,
                 Title = issue.Title,
                 Description = issue.Body,
@@ -349,6 +353,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             var feature = new Feature
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
                 EpicId = epicId,
                 Title = issue.Title,
                 Description = issue.Body,
@@ -385,6 +390,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             var story = new UserStory
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
                 FeatureId = featureId,
                 Title = issue.Title,
                 Description = issue.Body,
@@ -506,6 +512,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             epic = new Epic
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
                 RepositoryId = repositoryId,
                 Title = "Uncategorized",
                 Description = "Orphan epics/features/stories imported from GitHub that couldn't be parented via task-list references.",
@@ -523,6 +530,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             feature = new Feature
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
                 EpicId = epic.Id,
                 Title = "Uncategorized",
                 Description = "Orphan stories with no matching feature in the imported task-lists.",

@@ -4,4 +4,15 @@
     <TargetFramework>net8.0</TargetFramework>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!--
+      `Seq` on Epic/Feature/UserStory has an `internal` setter so
+      short-id allocation stays inside the layer that knows about
+      the sequence table. See AH1.
+    -->
+    <InternalsVisibleTo Include="Andy.Issues.Infrastructure" />
+    <InternalsVisibleTo Include="Andy.Issues.Tests.Unit" />
+    <InternalsVisibleTo Include="Andy.Issues.Tests.Integration" />
+  </ItemGroup>
+
 </Project>
