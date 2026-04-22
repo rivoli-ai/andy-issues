@@ -26,6 +26,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
     private readonly IRepositoryAccessGuard _guard;
     private readonly ICodeIndexClient _codeIndex;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IBacklogSequenceAllocator _sequence;
     private readonly ILogger<DraftBacklogGenerator> _logger;
 
     public DraftBacklogGenerator(
@@ -33,12 +34,14 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         IRepositoryAccessGuard guard,
         ICodeIndexClient codeIndex,
         IHttpClientFactory httpClientFactory,
+        IBacklogSequenceAllocator sequence,
         ILogger<DraftBacklogGenerator> logger)
     {
         _db = db;
         _guard = guard;
         _codeIndex = codeIndex;
         _httpClientFactory = httpClientFactory;
+        _sequence = sequence;
         _logger = logger;
     }
 
@@ -99,6 +102,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
             var epic = new Epic
             {
                 Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
                 RepositoryId = repositoryId,
                 Title = de.Title,
                 Description = de.Description,
@@ -111,6 +115,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
                 var feature = new Feature
                 {
                     Id = Guid.NewGuid(),
+                    Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
                     EpicId = epic.Id,
                     Title = df.Title,
                     Description = df.Description,
@@ -123,6 +128,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
                     feature.Stories.Add(new UserStory
                     {
                         Id = Guid.NewGuid(),
+                        Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
                         FeatureId = feature.Id,
                         Title = ds.Title,
                         Description = ds.Description,

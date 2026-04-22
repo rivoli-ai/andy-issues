@@ -6,6 +6,21 @@ namespace Andy.Issues.Domain.Entities;
 public class Epic
 {
     public Guid Id { get; set; }
+
+    /// <summary>
+    /// Monotonic per-type sequence allocated by
+    /// <c>IBacklogSequenceAllocator</c> before insert. Projected as
+    /// <see cref="DisplayId"/>. Immutable once assigned. See AH1.
+    /// </summary>
+    public long Seq { get; internal set; }
+
+    /// <summary>
+    /// Human-readable short identifier (<c>EPIC-42</c>) derived from
+    /// <see cref="Seq"/>. Safe to display, copy, and cross-reference
+    /// from chat, commits, PRs. See AH1.
+    /// </summary>
+    public string DisplayId => $"EPIC-{Seq}";
+
     public Guid RepositoryId { get; set; }
     public Repository Repository { get; set; } = null!;
     public string Title { get; set; } = string.Empty;
