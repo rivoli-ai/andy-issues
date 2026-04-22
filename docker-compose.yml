@@ -57,7 +57,9 @@ services:
       - AndyAuth__RequireHttpsMetadata=false
       - Rbac__ApiBaseUrl=https://host.docker.internal:5003
       - Rbac__ApplicationCode=andy-issues
-      - AndySettings__ApiBaseUrl=https://host.docker.internal:5300
+      # Port resolved from andy-settings' config/registration.json via
+      # ../andy-settings/scripts/generate-docker-ports-env.sh. See rivoli-ai/conductor#793.
+      - AndySettings__ApiBaseUrl=https://host.docker.internal:${ANDY_SETTINGS_DOCKER_HTTPS:-7300}
       - AndySettings__ApplicationCode=andy-issues
       - Messaging__Provider=Nats
       - Messaging__Nats__Url=nats://nats:4222
