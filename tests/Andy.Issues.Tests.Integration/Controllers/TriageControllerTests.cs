@@ -22,6 +22,11 @@ public class TriageControllerTests : IClassFixture<TestWebApplicationFactory>
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
+        // The API serialises enums as strings (`Program.cs` adds
+        // JsonStringEnumConverter to the controller pipeline). Tests
+        // need the same converter to read TriageOutput's enum members
+        // back from a response body.
+        Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
 
     private readonly TestWebApplicationFactory _factory;
@@ -51,6 +56,67 @@ public class TriageControllerTests : IClassFixture<TestWebApplicationFactory>
         Assert.Equal(HttpStatusCode.Created, resp.StatusCode);
         var dto = await resp.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
         return dto!;
+    }
+
+    [Fact]
+    public async Task Complete_WithTriageOutput_PersistsAndEmitsInPayload()
+    {
+        var issue = await CreateIssueAsync();
+        await _client.PostAsync($"/api/triage/{issue.Id}/start", null);
+
+        // REST uses the API's default camelCase JSON convention. The
+        // snake_case schema in schemas/triage-output.v1.json applies to
+        // the NATS event payload (EventJson.Options) — Z2's run-finish
+        // handler will write output via the consumer path, not REST.
+        var output = new
+        {
+            templateId = "BugFix",
+            severity = "Critical",
+            suggestedRepo = "rivoli-ai/andy-tasks",
+            rationale = "Repro on every save.",
+            inputsDocsRefs = Array.Empty<object>(),
+            initialEstimate = new { }
+        };
+
+        var completeResp = await _client.PostAsJsonAsync(
+            $"/api/triage/{issue.Id}/complete", output);
+        Assert.Equal(HttpStatusCode.OK, completeResp.StatusCode);
+        var afterComplete = await completeResp.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
+        Assert.NotNull(afterComplete!.TriageOutput);
+        Assert.Equal("rivoli-ai/andy-tasks", afterComplete.TriageOutput!.SuggestedRepo);
+
+        // Outbox row carries the same output payload.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var entry = await db.Outbox
+            .Where(o => o.CorrelationId == issue.Id && o.Subject.EndsWith(".triaged"))
+            .SingleAsync();
+
+        using var doc = JsonDocument.Parse(entry.PayloadJson);
+        var triageOutputElem = doc.RootElement.GetProperty("triage_output");
+        Assert.Equal("bug_fix", triageOutputElem.GetProperty("template_id").GetString());
+        Assert.Equal("critical", triageOutputElem.GetProperty("severity").GetString());
+        Assert.Equal("Repro on every save.", triageOutputElem.GetProperty("rationale").GetString());
+    }
+
+    [Fact]
+    public async Task Complete_WithEmptyRationale_Returns409()
+    {
+        var issue = await CreateIssueAsync();
+        await _client.PostAsync($"/api/triage/{issue.Id}/start", null);
+
+        var bad = new
+        {
+            templateId = "Feature",
+            severity = "Info",
+            suggestedRepo = (string?)null,
+            rationale = "   ",
+            inputsDocsRefs = Array.Empty<object>(),
+            initialEstimate = new { }
+        };
+
+        var resp = await _client.PostAsJsonAsync($"/api/triage/{issue.Id}/complete", bad);
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
     }
 
     [Fact]

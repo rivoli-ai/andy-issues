@@ -78,13 +78,21 @@ public class TriageController : ControllerBase
     public Task<ActionResult<IssueDto>> Start(Guid id, CancellationToken ct) =>
         Transition(_issues.StartTriageAsync(id, GetUserId(), ct));
 
+    // Z3 — `output` is an optional body. Manual REST callers and Z1's
+    // tests can complete with no body (state transition only); Z2's
+    // run-finish handler will pass the agent's output payload, which
+    // is then persisted on the Issue and emitted on the `triaged`
+    // event.
     [HttpPost("{id:guid}/complete")]
     [ProducesResponseType(typeof(IssueDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status409Conflict)]
-    public Task<ActionResult<IssueDto>> Complete(Guid id, CancellationToken ct) =>
-        Transition(_issues.CompleteTriageAsync(id, GetUserId(), ct));
+    public Task<ActionResult<IssueDto>> Complete(
+        Guid id,
+        [FromBody] Andy.Issues.Domain.ValueTypes.TriageOutput? output,
+        CancellationToken ct) =>
+        Transition(_issues.CompleteTriageAsync(id, GetUserId(), output, ct));
 
     [HttpPost("{id:guid}/accept")]
     [ProducesResponseType(typeof(IssueDto), StatusCodes.Status200OK)]

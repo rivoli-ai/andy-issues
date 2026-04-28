@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/rivoli-ai/andy-issues/blob/main/schemas/triage-output.v1.json",
+  "title": "TriageOutput",
+  "description": "Z3 — canonical agent-produced triage output. Stored on the Issue entity as a JSON column and emitted as the full payload of the andy.issues.events.issue.<id>.triaged event in Z4. Property names are snake_case to match EventJson serialisation across the Andy ecosystem (ADR 0001).",
+  "type": "object",
+  "required": [
+    "template_id",
+    "severity",
+    "rationale",
+    "inputs_docs_refs",
+    "initial_estimate",
+    "schema_version"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "template_id": {
+      "description": "Classification picked from the four WorkflowTemplate seeds shared with andy-tasks (Epic AA, story AA2).",
+      "type": "string",
+      "enum": ["bug_fix", "feature", "incident_response", "upgrade"]
+    },
+    "severity": {
+      "description": "Categorical severity. Drives retention (andy-tasks AD7) and Epic AC gating.",
+      "type": "string",
+      "enum": ["info", "moderate", "critical"]
+    },
+    "suggested_repo": {
+      "description": "Repository slug (\"owner/repo\"); a string rather than a Repository GUID because triage may propose a repo not yet known to the system. Null when no suggestion is made.",
+      "type": ["string", "null"]
+    },
+    "rationale": {
+      "description": "Short human-readable justification for the classification + severity. Required and non-empty.",
+      "type": "string",
+      "minLength": 1
+    },
+    "inputs_docs_refs": {
+      "description": "DocsRefs into andy-docs (AJ2). Echoes the Z8 attachments on the Issue. Inherited as TaskNode.Inputs[] when andy-tasks creates the Goal from the triaged event.",
+      "type": "array",
+      "items": { "$ref": "#/$defs/DocsRef" }
+    },
+    "initial_estimate": {
+      "description": "Cost/time estimate slot produced by the Z7 per-tenant learned model. All percentile fields are nullable; an empty slot ({}) is well-formed and means \"not yet estimated\".",
+      "$ref": "#/$defs/EstimateSlot"
+    },
+    "schema_version": {
+      "description": "Schema version. Frozen at 1 for v1; additive/optional fields do not bump the version, but breaking changes (e.g. adding `version` to DocsRef) ship as triage-output.v2.json.",
+      "type": "integer",
+      "const": 1
+    }
+  },
+  "$defs": {
+    "DocsRef": {
+      "description": "Pointer into andy-docs (AJ2 / AE1 reconciliation). DocumentId is the content reference; LinkId is the typed link row that scopes this reference to a specific Issue/Goal/etc.",
+      "type": "object",
+      "required": ["document_id", "link_id"],
+      "additionalProperties": false,
+      "properties": {
+        "document_id": { "type": "string", "format": "uuid" },
+        "link_id": { "type": "string", "format": "uuid" }
+      }
+    },
+    "EstimateSlot": {
+      "description": "Cost/time estimate slot. Shape matches andy-tasks Epic AI (AI1) so initial/planned/actual slots share one schema.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "cost_p50": { "type": ["number", "null"] },
+        "cost_p90": { "type": ["number", "null"] },
+        "time_p50": { "type": ["number", "null"] },
+        "time_p90": { "type": ["number", "null"] },
+        "estimated_by": { "type": ["string", "null"] },
+        "at": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  }
+}

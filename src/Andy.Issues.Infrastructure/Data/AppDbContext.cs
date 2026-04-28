@@ -168,6 +168,17 @@ public class AppDbContext : DbContext
             e.Property(x => x.TriagedBy).HasMaxLength(256);
             e.HasIndex(x => x.OwnerUserId);
             e.HasIndex(x => x.TriageState);
+
+            // Z3 — TriageOutput is a domain value, persisted as JSON
+            // text (portable across SQLite + Postgres). The whole record
+            // round-trips through System.Text.Json with the EventJson
+            // snake_case options used by the outbox so both surfaces
+            // agree on the wire shape.
+            e.Property(x => x.TriageOutput)
+                .HasConversion(
+                    v => v == null ? null : JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
+                    v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.TriageOutput>(v, Andy.Issues.Application.Messaging.EventJson.Options))
+                .HasColumnName("TriageOutputJson");
         });
 
         // Counter row backing the per-type short-id sequences. Seeded

@@ -75,6 +75,8 @@ The `Issue` entity tracks an intake envelope through triage before it becomes a 
 
 Triage endpoints carry full `[ProducesResponseType]` decorations (Z11), so the generated OpenAPI schema lists every status code each action emits. A schema contract test (`TriageOpenApiTests`) asserts the operations and response codes match the controller — drift fails CI. Repo-wide schema diffing (per Z11's "checked-in `openapi.json`") is deferred until a baseline lands.
 
+`POST /api/triage/{id}/complete` accepts an optional `TriageOutput` body (Z3): classification, severity, suggested repo, rationale, input doc refs, initial estimate. When provided, the output is persisted on the `Issue` and embedded in the `triaged` event payload. See [architecture.md](architecture.md#triage-output-z3) for field semantics; the wire schema lives at [`schemas/triage-output.v1.json`](https://github.com/rivoli-ai/andy-issues/blob/main/schemas/triage-output.v1.json).
+
 The `TriageState` enum values: `NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected` — stored as strings on the row.
 
 The same surface is also published as MCP tools (Z9) for agent callers via mcp-gateway. The MCP SDK auto-converts `PascalCase` method names to `snake_case`, so the tool ids are `issue_get`, `issue_list`, `issue_triage`:

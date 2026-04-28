@@ -27,7 +27,8 @@ public static class IssueEventOutbox
             Title: issue.Title,
             TriageState: issue.TriageState.ToString(),
             TriagedBy: issue.TriagedBy,
-            TriagedAt: issue.TriagedAt);
+            TriagedAt: issue.TriagedAt,
+            TriageOutput: issue.TriageOutput);
 
         var subject = $"andy.issues.events.issue.{issue.Id}.{kind.ToSubjectKind()}";
 
