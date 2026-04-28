@@ -70,8 +70,10 @@ The `Issue` entity tracks an intake envelope through triage before it becomes a 
 | `POST /api/triage/{id}/reject` | `Triaged`, `Rejected` (no-op) | Moves to `Rejected` (terminal); emits `.rejected` once. |
 
 - `200 OK` with the updated `IssueDto` on success.
-- `409 Conflict` if the transition is forbidden by the state machine.
+- `409 Conflict` (body: `TriageConflictResponse { error: string }`) if the transition is forbidden by the state machine.
 - `404 Not Found` if the issue does not exist or the caller does not own it.
+
+Triage endpoints carry full `[ProducesResponseType]` decorations (Z11), so the generated OpenAPI schema lists every status code each action emits. A schema contract test (`TriageOpenApiTests`) asserts the operations and response codes match the controller — drift fails CI. Repo-wide schema diffing (per Z11's "checked-in `openapi.json`") is deferred until a baseline lands.
 
 The `TriageState` enum values: `NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected` — stored as strings on the row.
 
