@@ -14,6 +14,16 @@ public interface IIssueService
 {
     Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default);
 
+    // Z9 — paginated list scoped to the caller. `triageState` is an
+    // optional filter; passing an unknown value yields an empty page so
+    // the MCP/CLI surfaces fail soft on typos rather than 4xx-ing.
+    Task<PagedResult<IssueDto>> ListAsync(
+        string userId,
+        string? triageState,
+        int page,
+        int pageSize,
+        CancellationToken ct = default);
+
     // Z1 transition methods. See Issue.cs for the state machine.
     Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default);

@@ -75,6 +75,14 @@ The `Issue` entity tracks an intake envelope through triage before it becomes a 
 
 The `TriageState` enum values: `NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected` — stored as strings on the row.
 
+The same surface is also published as MCP tools (Z9) for agent callers via mcp-gateway. The MCP SDK auto-converts `PascalCase` method names to `snake_case`, so the tool ids are `issue_get`, `issue_list`, `issue_triage`:
+
+| Tool | Inputs | Effect |
+|---|---|---|
+| `issue_get` | `issueId` | Owner-scoped `IssueDto`. |
+| `issue_list` | `triageState?`, `page?`, `pageSize?` | `PagedResult<IssueDto>`; unknown `triageState` filters yield an empty page. |
+| `issue_triage` | `issueId` | Re-invokes triage (calls `StartTriageAsync`). The actual agent dispatch lands in Z2; today this is the state transition only. |
+
 ## Artifact feeds
 
 Administrators manage the shared list of Azure DevOps artifact feeds (NuGet/NPM/Pip) that every sandbox will import. All endpoints live under `/api/artifact`:

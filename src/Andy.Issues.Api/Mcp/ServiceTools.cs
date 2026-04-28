@@ -239,6 +239,54 @@ public static class ServiceTools
         return ok ? "Sandbox destroyed." : "Sandbox not found.";
     }
 
+    // ── Issues / Triage (Z9) ────────────────────────────────────────
+    //
+    // The MCP SDK converts these PascalCase method names to snake_case at
+    // the protocol level: `IssueGet` → `issue_get`, etc. The Z9 spec
+    // names them `issue.get`/`issue.list`/`issue.triage`; underscore is
+    // the closest match the SDK's auto-conversion allows.
+
+    [McpServerTool, Description("Get a triage issue by ID. Owner-scoped — returns 'not found' if the issue belongs to another user.")]
+    public static async Task<string> IssueGet(
+        IHttpContextAccessor ctx,
+        IIssueService svc,
+        [Description("Issue ID (GUID)")] string issueId)
+    {
+        var dto = await svc.GetAsync(Guid.Parse(issueId), GetUserId(ctx));
+        return dto is null ? "Issue not found." : Serialize(dto);
+    }
+
+    [McpServerTool, Description("List the caller's triage issues, paginated. Optional triageState filter (NeedsTriage/Triaging/Triaged/Accepted/Rejected) is case-insensitive.")]
+    public static async Task<string> IssueList(
+        IHttpContextAccessor ctx,
+        IIssueService svc,
+        [Description("Optional triage state filter (e.g. NeedsTriage)")] string? triageState,
+        [Description("Page number (default 1)")] int? page,
+        [Description("Page size (default 50, max 200)")] int? pageSize)
+    {
+        var result = await svc.ListAsync(GetUserId(ctx), triageState, page ?? 1, pageSize ?? 50);
+        return Serialize(result);
+    }
+
+    [McpServerTool, Description(
+        "Re-invoke triage on an issue. Allowed from NeedsTriage or Triaged (re-invoke); " +
+        "any other state returns the conflict message. " +
+        "The actual agent dispatch lands in Z2 — for now this is the state transition only.")]
+    public static async Task<string> IssueTriage(
+        IHttpContextAccessor ctx,
+        IIssueService svc,
+        [Description("Issue ID (GUID)")] string issueId)
+    {
+        var result = await svc.StartTriageAsync(Guid.Parse(issueId), GetUserId(ctx));
+        return result.Outcome switch
+        {
+            IssueTriageOutcome.Updated => Serialize(result.Issue!),
+            IssueTriageOutcome.NotFound => "Issue not found.",
+            IssueTriageOutcome.InvalidTransition => result.Error ?? "Triage cannot be started from the current state.",
+            _ => "Failed to start triage."
+        };
+    }
+
     // ── MCP configs ─────────────────────────────────────────────────
 
     [McpServerTool, Description("List MCP server configurations visible to the current user (personal + shared).")]
