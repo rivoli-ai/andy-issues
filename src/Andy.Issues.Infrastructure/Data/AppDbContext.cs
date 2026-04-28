@@ -33,6 +33,7 @@ public class AppDbContext : DbContext
     public DbSet<Epic> Epics => Set<Epic>();
     public DbSet<Feature> Features => Set<Feature>();
     public DbSet<UserStory> UserStories => Set<UserStory>();
+    public DbSet<Issue> Issues => Set<Issue>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
@@ -155,6 +156,18 @@ public class AppDbContext : DbContext
                 .WithMany(f => f.Stories)
                 .HasForeignKey(x => x.FeatureId)
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Issue>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Title).IsRequired().HasMaxLength(512);
+            e.Property(x => x.Body).HasMaxLength(8192);
+            e.Property(x => x.TriageState).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.TriagedBy).HasMaxLength(256);
+            e.HasIndex(x => x.OwnerUserId);
+            e.HasIndex(x => x.TriageState);
         });
 
         // Counter row backing the per-type short-id sequences. Seeded

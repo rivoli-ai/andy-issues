@@ -67,6 +67,7 @@ andy-issues participates in the Andy ecosystem event bus as both publisher and s
 
 **Subjects andy-issues publishes** (see ADR for payloads):
 - `andy.issues.events.story.<id>.{created,readied,done,updated}`
+- `andy.issues.events.issue.<id>.{triaged,accepted,rejected}`
 - `andy.issues.events.repository.<id>.{registered,synced}`
 - `andy.issues.events.sandbox.<id>.{attached,detached,failed}`
 - `andy.issues.events.system.health` (heartbeat)
@@ -77,6 +78,28 @@ andy-issues participates in the Andy ecosystem event bus as both publisher and s
 NATS vs SignalR: SignalR (`/hubs/board`) pushes backlog changes to **human clients** (the Angular app, IDE plugins). NATS carries **inter-service** domain events. They are complementary; neither replaces the other.
 
 Implementation is tracked in Epic 15 of [`migration-stories.md`](migration-stories.md) (issues #67–#74). Default provider is `InMemory` for local dev and tests; production switches to `Nats` via `Messaging:Provider`.
+
+## Triage Lifecycle
+
+`Issue` is the intake envelope handled by the triage agent before any backlog item is produced. The state machine is enforced on the entity (`src/Andy.Issues.Domain/Entities/Issue.cs`) so REST, MCP (Z9), and CLI (Z10) callers all share the same invariants.
+
+```
+NeedsTriage ──Start──▶ Triaging ──Complete──▶ Triaged ──Accept──▶ Accepted (terminal)
+                          ▲                       │
+                          │                       └──Reject──▶ Rejected (terminal)
+                          │                       │
+                          └────────Start──────────┘  (re-invoke; Z9/Z10)
+```
+
+| Transition | Method on `Issue` | Endpoint | Outbox event |
+|---|---|---|---|
+| `NeedsTriage → Triaging` | `StartTriage()` | `POST /api/triage/{id}/start` | — |
+| `Triaging → Triaged` | `CompleteTriage(by)` | `POST /api/triage/{id}/complete` | `andy.issues.events.issue.{id}.triaged` |
+| `Triaged → Triaging` | `StartTriage()` | `POST /api/triage/{id}/start` | — |
+| `Triaged → Accepted` | `Accept(by)` | `POST /api/triage/{id}/accept` | `andy.issues.events.issue.{id}.accepted` |
+| `Triaged → Rejected` | `Reject(by)` | `POST /api/triage/{id}/reject` | `andy.issues.events.issue.{id}.rejected` |
+
+Idempotency: `Accept` on `Accepted` (and `Reject` on `Rejected`) is a no-op — the call succeeds, `UpdatedAt` is bumped, and no duplicate outbox row is appended. Every other invalid transition throws `InvalidOperationException` (surfaced as HTTP 409). The full triage output schema and the `triaged` event payload land in Z3/Z4.
 
 ## Sandboxes and andy-containers
 
