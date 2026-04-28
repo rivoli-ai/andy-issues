@@ -7,6 +7,7 @@ using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -295,6 +296,86 @@ public class CliIntegrationTests : IClassFixture<TestWebApplicationFactory>
             DisplayName = email
         });
         await db.SaveChangesAsync();
+    }
+
+    // ── Issues / Triage (Z10) ───────────────────────────────────────
+
+    [Fact]
+    public async Task Issues_List_ReturnsPagedResult()
+    {
+        await SeedIssueAsync("cli-issues-list");
+
+        var result = await _client.GetFromJsonAsync<PagedResult<IssueDto>>(
+            "api/triage?page=1&pageSize=50", JsonOptions);
+
+        Assert.NotNull(result);
+        Assert.Contains(result.Items, i => i.Title == "cli-issues-list");
+    }
+
+    [Fact]
+    public async Task Issues_List_FiltersByState()
+    {
+        await SeedIssueAsync("cli-needs-triage");
+        await SeedIssueAsync("cli-accepted-issue", state: TriageState.Accepted);
+
+        var result = await _client.GetFromJsonAsync<PagedResult<IssueDto>>(
+            "api/triage?triageState=Accepted&page=1&pageSize=50", JsonOptions);
+
+        Assert.NotNull(result);
+        Assert.Contains(result.Items, i => i.Title == "cli-accepted-issue");
+        Assert.DoesNotContain(result.Items, i => i.Title == "cli-needs-triage");
+    }
+
+    [Fact]
+    public async Task Issues_Get_ReturnsIssue()
+    {
+        var issueId = await SeedIssueAsync("cli-issues-get");
+
+        var issue = await _client.GetFromJsonAsync<IssueDto>(
+            $"api/triage/{issueId}", JsonOptions);
+
+        Assert.NotNull(issue);
+        Assert.Equal("cli-issues-get", issue.Title);
+    }
+
+    [Fact]
+    public async Task Issues_Triage_StartsTriage()
+    {
+        var issueId = await SeedIssueAsync("cli-issues-triage");
+
+        var resp = await _client.PostAsync($"api/triage/{issueId}/start", null);
+        resp.EnsureSuccessStatusCode();
+        var issue = await resp.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
+
+        Assert.NotNull(issue);
+        Assert.Equal("Triaging", issue.TriageState);
+    }
+
+    private async Task<Guid> SeedIssueAsync(string title, TriageState state = TriageState.NeedsTriage)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var issue = new Issue
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = "dev-user",
+            Title = title
+        };
+        db.Issues.Add(issue);
+        await db.SaveChangesAsync();
+
+        if (state != TriageState.NeedsTriage)
+        {
+            issue.StartTriage();
+            if (state != TriageState.Triaging)
+            {
+                issue.CompleteTriage("dev-user");
+                if (state == TriageState.Accepted) issue.Accept("dev-user");
+                else if (state == TriageState.Rejected) issue.Reject("dev-user");
+            }
+            await db.SaveChangesAsync();
+        }
+        return issue.Id;
     }
 
     private async Task<Guid> SeedRepoWithBacklogAsync(string name)

@@ -83,6 +83,14 @@ The same surface is also published as MCP tools (Z9) for agent callers via mcp-g
 | `issue_list` | `triageState?`, `page?`, `pageSize?` | `PagedResult<IssueDto>`; unknown `triageState` filters yield an empty page. |
 | `issue_triage` | `issueId` | Re-invokes triage (calls `StartTriageAsync`). The actual agent dispatch lands in Z2; today this is the state transition only. |
 
+The CLI mirrors the same surface (Z10):
+
+```
+andy-issues-cli issues list [--triage-state=<state>] [--page=N] [--page-size=N] [--json]
+andy-issues-cli issues get  <id> [--json]
+andy-issues-cli issues triage <id> [--json]
+```
+
 ## Artifact feeds
 
 Administrators manage the shared list of Azure DevOps artifact feeds (NuGet/NPM/Pip) that every sandbox will import. All endpoints live under `/api/artifact`:

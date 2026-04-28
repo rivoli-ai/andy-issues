@@ -42,6 +42,19 @@ public class TriageController : ControllerBase
         return Ok(dto);
     }
 
+    // Z9/Z10 — paginated list. `triageState` is case-insensitive; unknown
+    // values fail soft (empty page) so CLI/MCP typos don't 4xx.
+    [HttpGet]
+    public async Task<ActionResult<PagedResult<IssueDto>>> List(
+        [FromQuery] string? triageState,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 50,
+        CancellationToken ct = default)
+    {
+        var result = await _issues.ListAsync(GetUserId(), triageState, page, pageSize, ct);
+        return Ok(result);
+    }
+
     [HttpPost("{id:guid}/start")]
     public Task<ActionResult<IssueDto>> Start(Guid id, CancellationToken ct) =>
         Transition(_issues.StartTriageAsync(id, GetUserId(), ct));
