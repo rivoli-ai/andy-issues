@@ -20,6 +20,7 @@ rootCommand.AddGlobalOption(tokenOption);
 
 rootCommand.AddCommand(ReposCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(BacklogCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(IssuesCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(SandboxCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(McpCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(ArtifactFeedsCommand.Build(apiUrlOption, tokenOption));
