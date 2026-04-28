@@ -43,6 +43,38 @@ npm install && npm start
 | Shared | `Andy.Issues.Shared` | Shared types |
 | CLI | `Andy.Issues.Cli` | Command-line tool |
 
+## Triage Lifecycle
+
+andy-issues owns the **triage** phase: the path a freshly filed issue takes from intake to a classified, accepted/rejected work item. The triage agent is defined in [`andy-agents`](https://github.com/rivoli-ai/andy-agents) and runs headless in [`andy-containers`](https://github.com/rivoli-ai/andy-containers); andy-issues owns the lifecycle, persistence, and event emission. See [ADR 0002](docs/adr/0002-triage-belongs-to-andy-issues.md) for the full rationale.
+
+```mermaid
+stateDiagram-v2
+    [*] --> NeedsTriage
+    NeedsTriage --> Triaging : start
+    Triaging --> Triaged : complete (emits triaged)
+    Triaged --> Triaging : start (re-invoke)
+    Triaged --> Accepted : accept (emits accepted)
+    Triaged --> Rejected : reject (emits rejected)
+    Accepted --> [*]
+    Rejected --> [*]
+```
+
+Terminal transitions append outbox rows that publish to NATS as `andy.issues.events.issue.<id>.{triaged,accepted,rejected}`. The same `IIssueService` is exposed through three surfaces:
+
+| Surface | Where |
+|---|---|
+| REST | `/api/triage` — see [features.md](docs/features.md#triage-workflow) |
+| MCP | tools `issue_get`, `issue_list`, `issue_triage` (via mcp-gateway) |
+| CLI | `andy-issues-cli issues {list, get, triage}` — see [tools/Andy.Issues.Cli/README.md](tools/Andy.Issues.Cli/README.md) |
+
+Cross-service handoffs:
+
+- [`andy-tasks`](https://github.com/rivoli-ai/andy-tasks) subscribes to `andy.issues.events.issue.*.triaged` and creates a Goal from the payload (Epic AA). Never writes Issue state.
+- [`andy-docs`](https://github.com/rivoli-ai/andy-docs) stores the input/output artifacts; andy-issues holds `DocsRef`s only (Z6/Z8).
+- [`conductor`](https://github.com/rivoli-ai/conductor) renders the issue-detail UI and routes human edits back to andy-issues' REST surface (Epic AB).
+
+See [`docs/architecture.md`](docs/architecture.md#triage-lifecycle) for the runtime sequence and the full transition table.
+
 ## Documentation
 
 Full documentation available at [rivoli-ai.github.io/andy-issues](https://rivoli-ai.github.io/andy-issues/).
