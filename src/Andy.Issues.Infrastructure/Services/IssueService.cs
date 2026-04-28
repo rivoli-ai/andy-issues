@@ -8,6 +8,7 @@ using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
+using Andy.Issues.Domain.ValueTypes;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
@@ -87,8 +88,8 @@ public class IssueService : IIssueService
     public Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue => issue.StartTriage(), terminalKind: null, ct);
 
-    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
-        TransitionAsync(id, userId, issue => issue.CompleteTriage(userId), terminalKind: IssueEventKind.Triaged, ct);
+    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue => issue.CompleteTriage(userId, output), terminalKind: IssueEventKind.Triaged, ct);
 
     public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue => issue.Accept(userId), terminalKind: IssueEventKind.Accepted, ct,
@@ -123,6 +124,13 @@ public class IssueService : IIssueService
         }
         catch (InvalidOperationException ex)
         {
+            return IssueTriageResult.InvalidTransition(ex.Message);
+        }
+        catch (ArgumentException ex)
+        {
+            // Z3 — invalid TriageOutput payload (e.g. empty rationale).
+            // Surfaced as InvalidTransition so REST callers get a 409
+            // with the entity's diagnostic message rather than a 500.
             return IssueTriageResult.InvalidTransition(ex.Message);
         }
 

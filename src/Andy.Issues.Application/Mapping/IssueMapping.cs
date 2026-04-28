@@ -17,6 +17,7 @@ public static class IssueMapping
         entity.TriageState.ToString(),
         entity.TriagedAt,
         entity.TriagedBy,
+        entity.TriageOutput,
         entity.CreatedAt,
         entity.UpdatedAt);
 }

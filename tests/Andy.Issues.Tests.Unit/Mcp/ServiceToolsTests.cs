@@ -473,7 +473,7 @@ public class ServiceToolsTests
 
     private static IssueDto MakeIssueDto(string title, string state = "NeedsTriage") =>
         new(Guid.NewGuid(), "test-user", null, title, null, state, null, null,
-            DateTimeOffset.UtcNow, null);
+            null, DateTimeOffset.UtcNow, null);
 
     private static RepositoryDto MakeRepoDto(string name) =>
         new(Guid.NewGuid(), "test-user", name, null, "GitHub", "https://github.com/test/repo.git",
@@ -642,7 +642,7 @@ file class StubIssueService : IIssueService
         return Task.FromResult(StartTriageResult!);
     }
 
-    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
+    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, Andy.Issues.Domain.ValueTypes.TriageOutput? output = null, CancellationToken ct = default) =>
         Task.FromResult(IssueTriageResult.NotFound());
 
     public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
@@ -653,7 +653,7 @@ file class StubIssueService : IIssueService
 
     public Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default) =>
         Task.FromResult(new IssueDto(Guid.NewGuid(), userId, null, request.Title, request.Body,
-            "NeedsTriage", null, null, DateTimeOffset.UtcNow, null));
+            "NeedsTriage", null, null, null, DateTimeOffset.UtcNow, null));
 }
 
 file class StubDraftBacklogGenerator : IDraftBacklogGenerator

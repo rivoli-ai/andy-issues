@@ -99,7 +99,22 @@ NeedsTriage ──Start──▶ Triaging ──Complete──▶ Triaged ──
 | `Triaged → Accepted` | `Accept(by)` | `POST /api/triage/{id}/accept` | `andy.issues.events.issue.{id}.accepted` |
 | `Triaged → Rejected` | `Reject(by)` | `POST /api/triage/{id}/reject` | `andy.issues.events.issue.{id}.rejected` |
 
-Idempotency: `Accept` on `Accepted` (and `Reject` on `Rejected`) is a no-op — the call succeeds, `UpdatedAt` is bumped, and no duplicate outbox row is appended. Every other invalid transition throws `InvalidOperationException` (surfaced as HTTP 409). The full triage output schema and the `triaged` event payload land in Z3/Z4.
+Idempotency: `Accept` on `Accepted` (and `Reject` on `Rejected`) is a no-op — the call succeeds, `UpdatedAt` is bumped, and no duplicate outbox row is appended. Every other invalid transition throws `InvalidOperationException` (surfaced as HTTP 409).
+
+### Triage output (Z3)
+
+`Issue.CompleteTriage(triagedBy, output)` accepts an optional `TriageOutput` payload. When present, it is persisted as a JSON column on the `Issue` and emitted in the `andy.issues.events.issue.<id>.triaged` payload (Z4 finalises the event subject). The wire shape is frozen as v1 in [`schemas/triage-output.v1.json`](https://github.com/rivoli-ai/andy-issues/blob/main/schemas/triage-output.v1.json):
+
+| Field | Type | Notes |
+|---|---|---|
+| `template_id` | enum | `bug_fix` / `feature` / `incident_response` / `upgrade` — matches andy-tasks `WorkflowTemplate` seeds (Epic AA, AA2). |
+| `severity` | enum | `info` / `moderate` / `critical` — drives retention (andy-tasks AD7) + Epic AC gating. |
+| `suggested_repo` | string? | Repo slug (`owner/repo`); a string rather than a `Repository` GUID because triage may propose an unknown repo. |
+| `rationale` | string | Required, non-empty. Empty rationale is rejected at the entity boundary. |
+| `inputs_docs_refs` | `DocsRef[]` | Echoes Z8 attachments. Inherited as `TaskNode.Inputs[]` when andy-tasks creates the Goal. |
+| `initial_estimate` | `EstimateSlot` | Z7 estimator output; empty slot is well-formed until Z7 lands. Shape matches andy-tasks Epic AI. |
+
+The schema's snake_case property names apply to the **NATS event payload** (serialised via `EventJson.Options`). The REST `POST /api/triage/{id}/complete` endpoint accepts the same record but follows the API's default camelCase convention — Z2's run-finish handler will write output via the consumer path, not REST.
 
 ## Sandboxes and andy-containers
 

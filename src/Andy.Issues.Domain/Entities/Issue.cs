@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Domain.Enums;
+using Andy.Issues.Domain.ValueTypes;
 
 namespace Andy.Issues.Domain.Entities;
 
@@ -35,6 +36,12 @@ public class Issue
     public DateTimeOffset? TriagedAt { get; private set; }
     public string? TriagedBy { get; private set; }
 
+    // Z3 — agent-produced classification. Null until CompleteTriage is
+    // called with an output payload; persisted as JSON on the row.
+    // Stored via the EF backing field below; consumers see only the
+    // typed property.
+    public TriageOutput? TriageOutput { get; private set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; private set; }
 
@@ -61,15 +68,25 @@ public class Issue
         UpdatedAt = DateTimeOffset.UtcNow;
     }
 
-    public void CompleteTriage(string triagedBy)
+    public void CompleteTriage(string triagedBy, TriageOutput? output = null)
     {
         if (TriageState != TriageState.Triaging)
             throw new InvalidOperationException(
                 $"Invalid triage transition: {TriageState} → Triaged.");
 
+        if (output is not null)
+        {
+            // Rationale is the only required free-form field; templates
+            // and severity are enums and cannot be silently empty.
+            if (string.IsNullOrWhiteSpace(output.Rationale))
+                throw new ArgumentException(
+                    "TriageOutput.Rationale must be non-empty.", nameof(output));
+        }
+
         TriageState = TriageState.Triaged;
         TriagedAt = DateTimeOffset.UtcNow;
         TriagedBy = triagedBy;
+        TriageOutput = output;
         UpdatedAt = TriagedAt;
     }
 

@@ -3,6 +3,7 @@
 
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.ValueTypes;
 
 namespace Andy.Issues.Application.Interfaces;
 
@@ -26,7 +27,14 @@ public interface IIssueService
 
     // Z1 transition methods. See Issue.cs for the state machine.
     Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default);
-    Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default);
+
+    // Z3 — `output` is optional. Z1's tests and manual REST callers
+    // complete without an output payload (state transitions only). Z2's
+    // run-finish handler will pass the agent-produced output. When
+    // present, the output is persisted on the Issue and emitted in the
+    // `triaged` event payload.
+    Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default);
+
     Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default);
 
