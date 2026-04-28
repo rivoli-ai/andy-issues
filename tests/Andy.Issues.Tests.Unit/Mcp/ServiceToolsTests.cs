@@ -371,7 +371,109 @@ public class ServiceToolsTests
         Assert.Equal("[]", json);
     }
 
+    // ── Issues / Triage (Z9) ─────────────────────────────────────────
+
+    [Fact]
+    public async Task IssueGet_ReturnsNotFound_WhenNull()
+    {
+        var svc = new StubIssueService { GetResult = null };
+
+        var result = await ServiceTools.IssueGet(_ctx, svc, Guid.NewGuid().ToString());
+
+        Assert.Equal("Issue not found.", result);
+    }
+
+    [Fact]
+    public async Task IssueGet_ReturnsJson_WhenFound()
+    {
+        var dto = MakeIssueDto("intake");
+        var svc = new StubIssueService { GetResult = dto };
+
+        var json = await ServiceTools.IssueGet(_ctx, svc, dto.Id.ToString());
+        var roundTripped = JsonSerializer.Deserialize<IssueDto>(json, JsonOptions);
+
+        Assert.NotNull(roundTripped);
+        Assert.Equal("intake", roundTripped.Title);
+        Assert.Equal("test-user", svc.LastGetUser);
+    }
+
+    [Fact]
+    public async Task IssueList_DelegatesFilter_AndReturnsPagedResult()
+    {
+        var svc = new StubIssueService
+        {
+            ListResult = new PagedResult<IssueDto>(new List<IssueDto> { MakeIssueDto("a") }, 1, 50, 1)
+        };
+
+        var json = await ServiceTools.IssueList(_ctx, svc, "Triaged", 1, 50);
+        var result = JsonSerializer.Deserialize<PagedResult<IssueDto>>(json, JsonOptions);
+
+        Assert.NotNull(result);
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("Triaged", svc.LastListFilter);
+        Assert.Equal(1, svc.LastListPage);
+        Assert.Equal(50, svc.LastListPageSize);
+    }
+
+    [Fact]
+    public async Task IssueList_DefaultsPagingWhenOmitted()
+    {
+        var svc = new StubIssueService
+        {
+            ListResult = new PagedResult<IssueDto>(new List<IssueDto>(), 1, 50, 0)
+        };
+
+        await ServiceTools.IssueList(_ctx, svc, null, null, null);
+
+        Assert.Equal(1, svc.LastListPage);
+        Assert.Equal(50, svc.LastListPageSize);
+        Assert.Null(svc.LastListFilter);
+    }
+
+    [Fact]
+    public async Task IssueTriage_ReturnsUpdatedIssue_OnSuccess()
+    {
+        var dto = MakeIssueDto("intake", "Triaging");
+        var svc = new StubIssueService
+        {
+            StartTriageResult = IssueTriageResult.Ok(dto)
+        };
+
+        var json = await ServiceTools.IssueTriage(_ctx, svc, dto.Id.ToString());
+
+        Assert.Contains("Triaging", json);
+        Assert.Equal(dto.Id, svc.LastStartTriageId);
+    }
+
+    [Fact]
+    public async Task IssueTriage_ReturnsError_OnInvalidTransition()
+    {
+        var svc = new StubIssueService
+        {
+            StartTriageResult = IssueTriageResult.InvalidTransition(
+                "Invalid triage transition: Accepted → Triaging.")
+        };
+
+        var result = await ServiceTools.IssueTriage(_ctx, svc, Guid.NewGuid().ToString());
+
+        Assert.Contains("Accepted", result);
+    }
+
+    [Fact]
+    public async Task IssueTriage_ReturnsNotFound_WhenMissing()
+    {
+        var svc = new StubIssueService { StartTriageResult = IssueTriageResult.NotFound() };
+
+        var result = await ServiceTools.IssueTriage(_ctx, svc, Guid.NewGuid().ToString());
+
+        Assert.Equal("Issue not found.", result);
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
+
+    private static IssueDto MakeIssueDto(string title, string state = "NeedsTriage") =>
+        new(Guid.NewGuid(), "test-user", null, title, null, state, null, null,
+            DateTimeOffset.UtcNow, null);
 
     private static RepositoryDto MakeRepoDto(string name) =>
         new(Guid.NewGuid(), "test-user", name, null, "GitHub", "https://github.com/test/repo.git",
@@ -505,6 +607,53 @@ file class StubBacklogService : IBacklogService
 
     public Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default) =>
         Task.FromResult(true);
+}
+
+file class StubIssueService : IIssueService
+{
+    public IssueDto? GetResult { get; set; }
+    public PagedResult<IssueDto>? ListResult { get; set; }
+    public IssueTriageResult? StartTriageResult { get; set; }
+
+    public string? LastGetUser { get; private set; }
+    public string? LastListFilter { get; private set; }
+    public int LastListPage { get; private set; }
+    public int LastListPageSize { get; private set; }
+    public Guid LastStartTriageId { get; private set; }
+
+    public Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default)
+    {
+        LastGetUser = userId;
+        return Task.FromResult(GetResult);
+    }
+
+    public Task<PagedResult<IssueDto>> ListAsync(
+        string userId, string? triageState, int page, int pageSize, CancellationToken ct = default)
+    {
+        LastListFilter = triageState;
+        LastListPage = page;
+        LastListPageSize = pageSize;
+        return Task.FromResult(ListResult!);
+    }
+
+    public Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default)
+    {
+        LastStartTriageId = id;
+        return Task.FromResult(StartTriageResult!);
+    }
+
+    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
+        Task.FromResult(IssueTriageResult.NotFound());
+
+    public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
+        Task.FromResult(IssueTriageResult.NotFound());
+
+    public Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default) =>
+        Task.FromResult(IssueTriageResult.NotFound());
+
+    public Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default) =>
+        Task.FromResult(new IssueDto(Guid.NewGuid(), userId, null, request.Title, request.Body,
+            "NeedsTriage", null, null, DateTimeOffset.UtcNow, null));
 }
 
 file class StubDraftBacklogGenerator : IDraftBacklogGenerator

@@ -32,6 +32,43 @@ public class IssueService : IIssueService
         return issue.ToDto();
     }
 
+    public async Task<PagedResult<IssueDto>> ListAsync(
+        string userId,
+        string? triageState,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        page = Math.Max(1, page);
+        pageSize = Math.Clamp(pageSize, 1, 200);
+
+        var query = _db.Issues.AsNoTracking().Where(i => i.OwnerUserId == userId);
+
+        if (!string.IsNullOrWhiteSpace(triageState))
+        {
+            // Unknown values yield an empty page rather than throwing —
+            // the MCP/CLI surfaces parse case-insensitively and pass the
+            // literal through.
+            if (Enum.TryParse<TriageState>(triageState, ignoreCase: true, out var parsed))
+                query = query.Where(i => i.TriageState == parsed);
+            else
+                query = query.Where(_ => false);
+        }
+
+        var total = await query.CountAsync(ct);
+        var items = await query
+            .OrderByDescending(i => i.CreatedAt)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(ct);
+
+        return new PagedResult<IssueDto>(
+            items.Select(IssueMapping.ToDto).ToList(),
+            page,
+            pageSize,
+            total);
+    }
+
     public async Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default)
     {
         var issue = new Issue

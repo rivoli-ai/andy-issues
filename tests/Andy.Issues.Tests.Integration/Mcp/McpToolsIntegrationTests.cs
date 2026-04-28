@@ -4,6 +4,7 @@
 using System.Text;
 using System.Text.Json;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -58,6 +59,10 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         Assert.Contains("list_mcp_configs", names);
         Assert.Contains("list_enabled_artifact_feeds", names);
         Assert.Contains("generate_draft_backlog", names);
+        // Z9 — triage tools
+        Assert.Contains("issue_get", names);
+        Assert.Contains("issue_list", names);
+        Assert.Contains("issue_triage", names);
         // Help tools should also be present
         Assert.Contains("list_help_topics", names);
     }
@@ -207,6 +212,69 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         var result = await CallToolAsync(sessionId, "list_sandboxes", new { });
 
         Assert.NotNull(result);
+    }
+
+    // ── Issues / Triage (Z9) ────────────────────────────────────────
+
+    [Fact]
+    public async Task CallTool_IssueList_ReturnsPagedResult()
+    {
+        await SeedIssueAsync("mcp-list-issue");
+        var sessionId = await InitializeSessionAsync();
+
+        var result = await CallToolAsync(sessionId, "issue_list", new
+        {
+            triageState = (string?)null,
+            page = 1,
+            pageSize = 50
+        });
+
+        Assert.Contains("mcp-list-issue", result);
+        using var doc = JsonDocument.Parse(result);
+        Assert.True(doc.RootElement.GetProperty("totalCount").GetInt32() >= 1);
+    }
+
+    [Fact]
+    public async Task CallTool_IssueGet_ReturnsIssue()
+    {
+        var issueId = await SeedIssueAsync("mcp-get-issue");
+        var sessionId = await InitializeSessionAsync();
+
+        var result = await CallToolAsync(sessionId, "issue_get", new
+        {
+            issueId = issueId.ToString()
+        });
+
+        Assert.Contains("mcp-get-issue", result);
+    }
+
+    [Fact]
+    public async Task CallTool_IssueTriage_TransitionsToTriaging()
+    {
+        var issueId = await SeedIssueAsync("mcp-triage-issue");
+        var sessionId = await InitializeSessionAsync();
+
+        var result = await CallToolAsync(sessionId, "issue_triage", new
+        {
+            issueId = issueId.ToString()
+        });
+
+        Assert.Contains("Triaging", result);
+    }
+
+    [Fact]
+    public async Task CallTool_IssueTriage_FromInvalidState_ReturnsErrorString()
+    {
+        // Create issue in Accepted state — start_triage from there is invalid.
+        var issueId = await SeedIssueAsync("mcp-bad-triage", state: TriageState.Accepted);
+        var sessionId = await InitializeSessionAsync();
+
+        var result = await CallToolAsync(sessionId, "issue_triage", new
+        {
+            issueId = issueId.ToString()
+        });
+
+        Assert.Contains("Invalid triage transition", result);
     }
 
     [Fact]
@@ -359,6 +427,36 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         }
 
         return JsonDocument.Parse(lastData).RootElement;
+    }
+
+    private async Task<Guid> SeedIssueAsync(string title, TriageState state = TriageState.NeedsTriage)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var issue = new Issue
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = "dev-user",
+            Title = title
+        };
+        db.Issues.Add(issue);
+        await db.SaveChangesAsync();
+
+        // Drive the entity through StartTriage / CompleteTriage etc. to
+        // reach the requested state — the entity rejects illegal jumps.
+        if (state != TriageState.NeedsTriage)
+        {
+            issue.StartTriage();
+            if (state != TriageState.Triaging)
+            {
+                issue.CompleteTriage("dev-user");
+                if (state == TriageState.Accepted) issue.Accept("dev-user");
+                else if (state == TriageState.Rejected) issue.Reject("dev-user");
+            }
+            await db.SaveChangesAsync();
+        }
+
+        return issue.Id;
     }
 
     private async Task<Guid> SeedRepoAsync(string name)
