@@ -1,0 +1,98 @@
+// Copyright (c) Rivoli AI 2026. All rights reserved.
+// Licensed under the Apache License, Version 2.0.
+
+using Andy.Issues.Application.Dtos;
+using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.Mapping;
+using Andy.Issues.Application.Messaging.Events;
+using Andy.Issues.Application.Requests;
+using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
+using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Messaging;
+using Microsoft.EntityFrameworkCore;
+
+namespace Andy.Issues.Infrastructure.Services;
+
+public class IssueService : IIssueService
+{
+    private readonly AppDbContext _db;
+
+    public IssueService(AppDbContext db)
+    {
+        _db = db;
+    }
+
+    public async Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default)
+    {
+        var issue = await _db.Issues.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return null;
+        if (issue.OwnerUserId != userId) return null;
+        return issue.ToDto();
+    }
+
+    public async Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default)
+    {
+        var issue = new Issue
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = userId,
+            RepositoryId = request.RepositoryId,
+            Title = request.Title,
+            Body = request.Body
+        };
+        _db.Issues.Add(issue);
+        await _db.SaveChangesAsync(ct);
+        return issue.ToDto();
+    }
+
+    public Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue => issue.StartTriage(), terminalKind: null, ct);
+
+    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue => issue.CompleteTriage(userId), terminalKind: IssueEventKind.Triaged, ct);
+
+    public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue => issue.Accept(userId), terminalKind: IssueEventKind.Accepted, ct,
+            isIdempotentTerminal: i => i.TriageState == TriageState.Accepted);
+
+    public Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue => issue.Reject(userId), terminalKind: IssueEventKind.Rejected, ct,
+            isIdempotentTerminal: i => i.TriageState == TriageState.Rejected);
+
+    // Common shape: load issue, run the entity-level transition (which
+    // enforces the state machine), append outbox row for terminal
+    // transitions, save in one unit of work. `isIdempotentTerminal` is
+    // checked BEFORE invoking the transition so a no-op accept/reject
+    // does not write a duplicate outbox row.
+    private async Task<IssueTriageResult> TransitionAsync(
+        Guid id,
+        string userId,
+        Action<Issue> apply,
+        IssueEventKind? terminalKind,
+        CancellationToken ct,
+        Func<Issue, bool>? isIdempotentTerminal = null)
+    {
+        var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return IssueTriageResult.NotFound();
+        if (issue.OwnerUserId != userId) return IssueTriageResult.NotFound();
+
+        var idempotent = isIdempotentTerminal?.Invoke(issue) ?? false;
+
+        try
+        {
+            apply(issue);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return IssueTriageResult.InvalidTransition(ex.Message);
+        }
+
+        if (terminalKind is { } kind && !idempotent)
+            _db.AppendIssueEvent(issue, kind);
+
+        await _db.SaveChangesAsync(ct);
+        return IssueTriageResult.Ok(issue.ToDto());
+    }
+}

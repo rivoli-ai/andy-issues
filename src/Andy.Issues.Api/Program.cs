@@ -145,6 +145,7 @@ builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
+builder.Services.AddScoped<IIssueService, IssueService>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddScoped<IBacklogGitHubImportService, BacklogGitHubImportService>();
 builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();

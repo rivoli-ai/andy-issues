@@ -56,6 +56,25 @@ Clients advance a story via `PATCH /api/stories/{id}/status` with a JSON body:
   - `404 Not Found` if the story does not exist or the caller cannot see the owning repository.
 - Each successful update emits a `BoardHub` SignalR event so board views refresh live (see Story 3.4).
 
+## Triage workflow
+
+The `Issue` entity tracks an intake envelope through triage before it becomes a backlog item. Fresh issues start in `NeedsTriage`. See [architecture.md](architecture.md#triage-lifecycle) for the state diagram.
+
+| Endpoint | Allowed from | Effect |
+|---|---|---|
+| `POST /api/triage` | — | Creates a new `Issue` in `NeedsTriage`. |
+| `GET /api/triage/{id}` | any | Returns the issue (owner-scoped). |
+| `POST /api/triage/{id}/start` | `NeedsTriage`, `Triaged` | Moves to `Triaging` (initial run or Z9/Z10 re-invoke). |
+| `POST /api/triage/{id}/complete` | `Triaging` | Moves to `Triaged`; emits `andy.issues.events.issue.{id}.triaged`. |
+| `POST /api/triage/{id}/accept` | `Triaged`, `Accepted` (no-op) | Moves to `Accepted` (terminal); emits `.accepted` once. |
+| `POST /api/triage/{id}/reject` | `Triaged`, `Rejected` (no-op) | Moves to `Rejected` (terminal); emits `.rejected` once. |
+
+- `200 OK` with the updated `IssueDto` on success.
+- `409 Conflict` if the transition is forbidden by the state machine.
+- `404 Not Found` if the issue does not exist or the caller does not own it.
+
+The `TriageState` enum values: `NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected` — stored as strings on the row.
+
 ## Artifact feeds
 
 Administrators manage the shared list of Azure DevOps artifact feeds (NuGet/NPM/Pip) that every sandbox will import. All endpoints live under `/api/artifact`:
