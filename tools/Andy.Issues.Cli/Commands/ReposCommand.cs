@@ -18,6 +18,7 @@ public static class ReposCommand
         cmd.AddCommand(BuildGet(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildAdd(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildDelete(apiUrlOption, tokenOption));
+        cmd.AddCommand(BuildAvailable(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildSyncGitHub(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildSyncAzdo(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildShare(apiUrlOption, tokenOption));
@@ -306,4 +307,45 @@ public static class ReposCommand
     }
 
     private record VerifyResult(bool Success, string Message);
+
+    // #99 — list repos available at the provider that haven't been
+    // synced yet. Today only --provider=github works; AzureDevOps is
+    // a follow-up.
+    private static Command BuildAvailable(Option<string> apiUrlOption, Option<string?> tokenOption)
+    {
+        var providerOption = new Option<string>(
+            "--provider", () => "github", "Provider: github (only github supported today)");
+        var searchOption = new Option<string?>("--search", "Substring filter on full_name");
+        var pageOption = new Option<int>("--page", () => 1, "Page number");
+        var pageSizeOption = new Option<int>("--page-size", () => 20, "Page size (max 100)");
+        var jsonOption = new Option<bool>("--json", "Output raw JSON");
+
+        var cmd = new Command("available", "List repositories at the provider that haven't been synced yet")
+        {
+            providerOption, searchOption, pageOption, pageSizeOption, jsonOption
+        };
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            var provider = ctx.ParseResult.GetValueForOption(providerOption)!;
+            var search = ctx.ParseResult.GetValueForOption(searchOption);
+            var page = ctx.ParseResult.GetValueForOption(pageOption);
+            var pageSize = ctx.ParseResult.GetValueForOption(pageSizeOption);
+            var json = ctx.ParseResult.GetValueForOption(jsonOption);
+
+            using var api = CreateClient(ctx, apiUrlOption, tokenOption);
+            var query = $"api/repositories/available?provider={Uri.EscapeDataString(provider)}&page={page}&pageSize={pageSize}";
+            if (!string.IsNullOrWhiteSpace(search))
+                query += $"&search={Uri.EscapeDataString(search)}";
+
+            var result = await api.GetAsync<PagedResult<AvailableRepositoryDto>>(query);
+            if (result is null) return;
+
+            if (json) { Console.WriteLine(ApiClient.ToJson(result)); return; }
+
+            Console.WriteLine($"Available {provider} repositories (page {result.Page}, {result.Items.Count} unsynced):");
+            foreach (var r in result.Items)
+                Console.WriteLine($"  {r.FullName}  {r.CloneUrl}");
+        });
+        return cmd;
+    }
 }

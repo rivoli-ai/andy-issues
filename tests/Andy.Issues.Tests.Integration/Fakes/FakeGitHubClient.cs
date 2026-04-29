@@ -83,4 +83,29 @@ public class FakeGitHubClient : IGitHubClient
         _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
     }
+
+    private readonly List<GitHubRepositoryInfo> _userRepositories = new();
+
+    public void SetUserRepositories(IEnumerable<GitHubRepositoryInfo> repos)
+    {
+        _userRepositories.Clear();
+        _userRepositories.AddRange(repos);
+    }
+
+    public Task<IReadOnlyList<GitHubRepositoryInfo>> ListUserRepositoriesAsync(
+        string accessToken,
+        string? search,
+        int page,
+        int perPage,
+        CancellationToken ct = default)
+    {
+        var filtered = string.IsNullOrWhiteSpace(search)
+            ? _userRepositories.AsEnumerable()
+            : _userRepositories.Where(r => r.FullName.Contains(search, StringComparison.OrdinalIgnoreCase));
+        var pageSlice = filtered
+            .Skip(Math.Max(0, page - 1) * perPage)
+            .Take(perPage)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<GitHubRepositoryInfo>>(pageSlice);
+    }
 }

@@ -80,6 +80,18 @@ public interface IRepositoryService
         string ownerUserId,
         CancellationToken ct = default);
 
+    // #99 — list repos the user can access at the upstream provider
+    // that aren't yet synced into andy-issues for this owner. Today
+    // only GitHub is implemented; AzureDevOps requires org+project
+    // scoping which is a separate request shape (follow-up).
+    Task<PagedResult<AvailableRepositoryDto>?> ListAvailableAsync(
+        string userId,
+        Andy.Issues.Domain.Enums.RepositoryProvider provider,
+        string? search,
+        int page,
+        int pageSize,
+        CancellationToken ct = default);
+
     Task<SyncResult?> SyncFromGitHubAsync(
         string userId,
         IReadOnlyList<string> fullNames,

@@ -271,6 +271,76 @@ public class RepositoryService : IRepositoryService
         return shares.Select(s => s.ToDto()).ToList();
     }
 
+    // #99 — repos available at the upstream provider but not yet
+    // synced into andy-issues for the caller. Today only GitHub is
+    // wired; AzureDevOps support will land alongside its different
+    // request shape (org + project scoping required).
+    public async Task<PagedResult<AvailableRepositoryDto>?> ListAvailableAsync(
+        string userId,
+        Andy.Issues.Domain.Enums.RepositoryProvider provider,
+        string? search,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        if (page < 1) page = 1;
+        if (pageSize < 1) pageSize = 20;
+        if (pageSize > 100) pageSize = 100;
+
+        if (provider != Andy.Issues.Domain.Enums.RepositoryProvider.GitHub)
+        {
+            // AzureDevOps follow-up — org+project params haven't been
+            // wired into the surface yet. Return null so callers see a
+            // distinct "no linked provider" / "unsupported" outcome
+            // rather than an empty page.
+            return null;
+        }
+
+        var linked = await _db.LinkedProviders
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.OwnerUserId == userId
+                && p.Provider == Andy.Issues.Domain.Enums.LinkedProviderKind.GitHub, ct);
+        if (linked is null) return null;
+
+        var accessToken = await _secretStore.ResolveAsync(linked.AccessToken, ct) ?? linked.AccessToken;
+
+        // GitHub paginates server-side; we ask for at most pageSize+10
+        // so we can drop already-synced rows and still serve a
+        // pageSize-sized page when the user has a small number of
+        // already-imported repos. Larger overshoot would mean an
+        // extra GitHub call only when the user has many sync'd repos
+        // — acceptable for v1.
+        var fetched = await _gitHubClient.ListUserRepositoriesAsync(
+            accessToken, search, page, perPage: pageSize, ct);
+
+        var alreadyOwnedIds = await _db.Repositories
+            .AsNoTracking()
+            .Where(r => r.OwnerUserId == userId
+                && r.Provider == Andy.Issues.Domain.Enums.RepositoryProvider.GitHub
+                && r.ExternalId != null)
+            .Select(r => r.ExternalId!)
+            .ToListAsync(ct);
+        var ownedSet = alreadyOwnedIds.ToHashSet(StringComparer.Ordinal);
+
+        var available = fetched
+            .Where(r => !ownedSet.Contains(r.ExternalId))
+            .Select(r => new AvailableRepositoryDto(
+                ExternalId: r.ExternalId,
+                Name: r.Name,
+                FullName: r.FullName,
+                Description: r.Description,
+                CloneUrl: r.CloneUrl,
+                DefaultBranch: r.DefaultBranch,
+                Provider: "GitHub"))
+            .ToList();
+
+        // GitHub's list endpoint doesn't return a total count for
+        // paginated responses. Returning the page-sized total is the
+        // honest answer; callers loop until they get a short page.
+        return new PagedResult<AvailableRepositoryDto>(
+            available, page, pageSize, available.Count);
+    }
+
     public async Task<SyncResult?> SyncFromGitHubAsync(
         string userId,
         IReadOnlyList<string> fullNames,

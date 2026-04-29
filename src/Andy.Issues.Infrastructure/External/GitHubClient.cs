@@ -83,6 +83,59 @@ public class GitHubClient : IGitHubClient
             DefaultBranch: root.GetProperty("default_branch").GetString() ?? "main");
     }
 
+    // #99 — list repositories the authenticated user can see. GitHub
+    // exposes this at GET /user/repos with offset/per-page paging.
+    // The optional `search` is forwarded as a substring match — GitHub
+    // doesn't filter /user/repos by name natively, so we filter
+    // server-side after fetching the page (small enough to be cheap).
+    public async Task<IReadOnlyList<GitHubRepositoryInfo>> ListUserRepositoriesAsync(
+        string accessToken,
+        string? search,
+        int page,
+        int perPage,
+        CancellationToken ct = default)
+    {
+        if (page < 1) page = 1;
+        if (perPage < 1) perPage = 30;
+        if (perPage > 100) perPage = 100;
+
+        var url = $"{BaseUrl}/user/repos?per_page={perPage}&page={page}&sort=full_name";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("GitHub GET /user/repos failed with {Status}", response.StatusCode);
+            return Array.Empty<GitHubRepositoryInfo>();
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+
+        var items = new List<GitHubRepositoryInfo>();
+        foreach (var element in doc.RootElement.EnumerateArray())
+        {
+            var fullName = element.GetProperty("full_name").GetString() ?? "";
+            if (!string.IsNullOrWhiteSpace(search)
+                && !fullName.Contains(search, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            items.Add(new GitHubRepositoryInfo(
+                ExternalId: element.GetProperty("id").GetRawText(),
+                Name: element.GetProperty("name").GetString() ?? "",
+                FullName: fullName,
+                Description: element.TryGetProperty("description", out var desc)
+                    && desc.ValueKind != JsonValueKind.Null ? desc.GetString() : null,
+                CloneUrl: element.GetProperty("clone_url").GetString() ?? "",
+                DefaultBranch: element.GetProperty("default_branch").GetString() ?? "main"));
+        }
+        return items;
+    }
+
     public async Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
         string owner,
         string repo,
