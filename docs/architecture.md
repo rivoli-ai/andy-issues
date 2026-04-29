@@ -141,6 +141,14 @@ andy-issues stores **only the pointer** per the artifacts-in-andy-docs decision 
 
 `IDocsClient` is currently wired to `StubDocsClient`, which accepts any well-formed UUID pair and returns null metadata. The stub stays in place until andy-docs Epic AJ ships the real client; the interface contract is frozen, so the swap is a one-line DI change.
 
+### Triage-time estimator (Z7 — cold start)
+
+`ITriageEstimator` returns an `EstimateSlot` keyed by `(template, severity)` so the `triaged` event payload carries usable cost/time hints from day one. `IssueService.CompleteTriageAsync` calls the estimator only when the agent's `InitialEstimate` is empty (every percentile field null) — agent-populated estimates are preserved as-is.
+
+The current implementation is the **cold-start path**: per-template baselines from a JSON resource (`src/Andy.Issues.Infrastructure/Estimation/defaults.json`) modulated by a severity multiplier. Cost in USD, time in hours. The slot's `EstimatedBy` is `"cold-start"` so consumers can tell which path produced it.
+
+Per AI2a reconciliation, defaults serve until N=10 completions accumulate per `{tenant, template}`; at/above the threshold the learned model takes over. The learned-model machinery — `TriageEstimatorSample` table, `EstimateTrainingSampleConsumer` for `andy.tasks.events.goal.*.estimate_training_sample_recorded`, nightly `TriageEstimatorTrainingWorker`, and the AI6 completion-count endpoint on andy-tasks — is out of scope for this story; it ships once andy-tasks AI6 actually emits training samples.
+
 ## Sandboxes and andy-containers
 
 andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.

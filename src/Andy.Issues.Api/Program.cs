@@ -6,6 +6,7 @@ using Andy.Issues.Api.Infrastructure;
 // HostEnvironmentExtensions.IsEmbedded / IsLocalOrEmbedded
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Estimation;
 using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Messaging;
 using Andy.Issues.Infrastructure.Services;
@@ -151,6 +152,10 @@ builder.Services.AddScoped<IIssueService, IssueService>();
 // end-to-end today; real verification + metadata fetch lands when the
 // AJ contract is published.
 builder.Services.AddSingleton<IDocsClient, StubDocsClient>();
+// Z7 — cold-start triage estimator. Loads per-template seed defaults
+// from an embedded JSON file; learned-model retraining lands once
+// andy-tasks AI6 starts emitting training samples (cross-repo).
+builder.Services.AddSingleton<ITriageEstimator, TriageEstimator>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddScoped<IBacklogGitHubImportService, BacklogGitHubImportService>();
 builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();

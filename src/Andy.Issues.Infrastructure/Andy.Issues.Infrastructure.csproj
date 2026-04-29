@@ -5,6 +5,12 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Z7 — embed the cold-start estimator defaults so the assembly
+         self-contains its seed values; loaded via Assembly.GetManifestResourceStream. -->
+    <EmbeddedResource Include="Estimation\defaults.json" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Andy.Issues.Application\Andy.Issues.Application.csproj" />
     <ProjectReference Include="..\Andy.Issues.Domain\Andy.Issues.Domain.csproj" />
   </ItemGroup>

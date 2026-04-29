@@ -45,8 +45,13 @@ public class IssueServiceTests : IDisposable
     // Z8 — IssueService now depends on IDocsClient. Tests pass a stub
     // that always verifies and returns null metadata, mirroring
     // production wiring until andy-docs Epic AJ ships.
+    // Z7 — optional ITriageEstimator. Default = no estimator so tests
+    // that don't care about backfill see exactly what they pass in.
+    // The few tests that exercise backfill construct via NewServiceWithEstimator.
     private IssueService NewService(AppDbContext ctx) =>
         new(ctx, new TestDocsClient());
+    private IssueService NewServiceWithEstimator(AppDbContext ctx) =>
+        new(ctx, new TestDocsClient(), new Andy.Issues.Infrastructure.Estimation.TriageEstimator());
 
     private async Task<Guid> CreateIssueAsync(string owner = "alice")
     {
@@ -427,6 +432,45 @@ public class IssueServiceTests : IDisposable
 
         await using var ctx2 = NewContext();
         Assert.False(await NewService(ctx2).DetachAsync(id, "bob", linkId));
+    }
+
+    // ── Z7 — Estimator backfill ─────────────────────────────────────
+
+    [Fact]
+    public async Task CompleteTriage_EmptyEstimate_BackfilledByEstimator()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewServiceWithEstimator(ctx).CompleteTriageAsync(
+                id, "alice", MakeOutput()); // MakeOutput uses an empty EstimateSlot
+            Assert.Equal(IssueTriageOutcome.Updated, result.Outcome);
+            Assert.Equal("cold-start", result.Issue!.TriageOutput!.InitialEstimate.EstimatedBy);
+            Assert.NotNull(result.Issue.TriageOutput.InitialEstimate.CostP50);
+        }
+    }
+
+    [Fact]
+    public async Task CompleteTriage_AgentSuppliedEstimate_PreservedAsIs()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+
+        var agentSupplied = new Andy.Issues.Domain.ValueTypes.EstimateSlot(
+            CostP50: 999.0, EstimatedBy: "agent-v3");
+        var output = MakeOutput() with { InitialEstimate = agentSupplied };
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewServiceWithEstimator(ctx).CompleteTriageAsync(id, "alice", output);
+            // Estimator must NOT overwrite an agent-populated slot.
+            Assert.Equal(999.0, result.Issue!.TriageOutput!.InitialEstimate.CostP50);
+            Assert.Equal("agent-v3", result.Issue.TriageOutput.InitialEstimate.EstimatedBy);
+        }
     }
 
     [Fact]

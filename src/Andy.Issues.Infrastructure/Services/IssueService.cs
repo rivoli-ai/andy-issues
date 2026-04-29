@@ -19,11 +19,13 @@ public class IssueService : IIssueService
 {
     private readonly AppDbContext _db;
     private readonly IDocsClient _docs;
+    private readonly ITriageEstimator? _estimator;
 
-    public IssueService(AppDbContext db, IDocsClient docs)
+    public IssueService(AppDbContext db, IDocsClient docs, ITriageEstimator? estimator = null)
     {
         _db = db;
         _docs = docs;
+        _estimator = estimator;
     }
 
     public async Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default)
@@ -93,6 +95,16 @@ public class IssueService : IIssueService
     public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue =>
             {
+                // Z7 — backfill InitialEstimate from the cold-start
+                // estimator if the agent produced an empty slot
+                // (every percentile field null). Agent-supplied
+                // estimates are preserved as-is.
+                if (output is not null && _estimator is not null && IsEmptyEstimate(output.InitialEstimate))
+                {
+                    var seeded = _estimator.Estimate(userId, output.TemplateId, output.Severity);
+                    output = output with { InitialEstimate = seeded };
+                }
+
                 issue.CompleteTriage(userId, output);
                 // Z5 — append a revision row for every output that
                 // arrives. AuthorKind=Agent because CompleteTriage is
@@ -115,6 +127,11 @@ public class IssueService : IIssueService
                 }
             },
             terminalKind: IssueEventKind.Triaged, ct);
+
+    private static bool IsEmptyEstimate(EstimateSlot slot) =>
+        slot.CostP50 is null && slot.CostP90 is null
+            && slot.TimeP50 is null && slot.TimeP90 is null
+            && slot.EstimatedBy is null;
 
     public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue => issue.Accept(userId), terminalKind: IssueEventKind.Accepted, ct,

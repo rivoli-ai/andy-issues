@@ -1,0 +1,35 @@
+{
+  "_comment": "Z7 cold-start estimator seeds. Cost in USD, time in hours. These values are intentionally rough — they exist so EstimateSlot is non-empty before the learned model has training data. Per AI2a, defaults serve until N=10 completions accumulate per {tenant,template}; after that, the learned model takes over. Tune by editing this file (or override via configuration).",
+  "templates": {
+    "BugFix": {
+      "cost_p50": 50.0,
+      "cost_p90": 200.0,
+      "time_p50": 2.0,
+      "time_p90": 6.0
+    },
+    "Feature": {
+      "cost_p50": 200.0,
+      "cost_p90": 800.0,
+      "time_p50": 8.0,
+      "time_p90": 24.0
+    },
+    "IncidentResponse": {
+      "cost_p50": 300.0,
+      "cost_p90": 1500.0,
+      "time_p50": 4.0,
+      "time_p90": 12.0
+    },
+    "Upgrade": {
+      "cost_p50": 500.0,
+      "cost_p90": 2000.0,
+      "time_p50": 16.0,
+      "time_p90": 40.0
+    }
+  },
+  "_severity_comment": "Multiplier applied to cost AND time. Critical = riskier + slower; Info = trivial cleanup.",
+  "severity_multipliers": {
+    "Info": 0.5,
+    "Moderate": 1.0,
+    "Critical": 1.5
+  }
+}
