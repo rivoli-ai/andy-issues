@@ -1,7 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Security.Claims;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Application.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.SignalR;
@@ -34,13 +34,27 @@ public class BoardHub : Hub
 
     public static string GroupName(Guid repositoryId) => $"repo-{repositoryId}";
 
+    // Issue #65 — no silent "dev-user" fallback. The [Authorize]
+    // attribute on this Hub guarantees Context.User is set with an
+    // authenticated principal; if the claim chain still yields
+    // nothing, fail loudly so the bad token / misconfiguration is
+    // visible rather than silently attributed to a phantom user.
     private string GetUserId()
     {
-        var user = Context.User;
-        if (user is null) return "dev-user";
-        return user.FindFirst("sub")?.Value
-            ?? user.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? user.Identity?.Name
-            ?? "dev-user";
+        try
+        {
+            return (Context.User
+                ?? throw new UnauthorizedAccessException(
+                    "No authenticated user on the SignalR connection."))
+                .RequireUserId();
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            // SignalR's Authorize attribute already rejects unauthenticated
+            // connections, but if a token slips through with no `sub`,
+            // surface it as a HubException so the client sees a clear
+            // protocol-level error rather than a 500.
+            throw new HubException(ex.Message);
+        }
     }
 }

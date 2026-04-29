@@ -31,6 +31,36 @@ public class ServiceToolsTests
         _ctx = new HttpContextAccessor { HttpContext = httpContext };
     }
 
+    // ── Issue #65 — no silent dev-user fallback ─────────────────────
+
+    [Fact]
+    public async Task GetUserId_NoHttpContext_Throws()
+    {
+        // Issue #65: missing HttpContext must throw, not silently
+        // attribute writes to "dev-user".
+        var emptyAccessor = new HttpContextAccessor { HttpContext = null };
+        var svc = new StubRepositoryService { GetResult = null };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            ServiceTools.GetRepository(emptyAccessor, svc, Guid.NewGuid().ToString()));
+    }
+
+    [Fact]
+    public async Task GetUserId_PrincipalWithoutClaims_Throws()
+    {
+        // Issue #65: a principal with no usable claim chain must
+        // throw — never resolve to "dev-user".
+        var emptyHttpContext = new DefaultHttpContext
+        {
+            User = new ClaimsPrincipal(new ClaimsIdentity())
+        };
+        var emptyAccessor = new HttpContextAccessor { HttpContext = emptyHttpContext };
+        var svc = new StubRepositoryService { GetResult = null };
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(() =>
+            ServiceTools.GetRepository(emptyAccessor, svc, Guid.NewGuid().ToString()));
+    }
+
     // ── Repositories ────────────────────────────────────────────────
 
     [Fact]
