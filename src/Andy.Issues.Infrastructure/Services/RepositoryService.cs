@@ -121,6 +121,7 @@ public class RepositoryService : IRepositoryService
         RepositoryScope scope,
         int page,
         int pageSize,
+        Andy.Issues.Domain.Enums.RepositoryProvider? provider = null,
         CancellationToken ct = default)
     {
         if (page < 1) page = 1;
@@ -139,6 +140,11 @@ public class RepositoryService : IRepositoryService
                 || r.Shares.Any(s => s.SharedWithUserId == userId)),
             _ => query.Where(r => r.OwnerUserId == userId)
         };
+
+        // #100 — optional provider filter. Predicate composes on top of
+        // scope so the count + page reflect the filtered set.
+        if (provider is { } p)
+            query = query.Where(r => r.Provider == p);
 
         var total = await query.CountAsync(ct);
 

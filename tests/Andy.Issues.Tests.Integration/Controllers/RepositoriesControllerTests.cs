@@ -64,6 +64,58 @@ public class RepositoriesControllerTests : IClassFixture<TestWebApplicationFacto
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
+    // ── #100 — provider filter ──────────────────────────────────────
+
+    private async Task<Guid> SeedRepoWithProviderAsync(
+        string owner, string name, Andy.Issues.Domain.Enums.RepositoryProvider provider)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var repo = new Andy.Issues.Domain.Entities.Repository
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = owner,
+            Name = name,
+            CloneUrl = $"https://example.com/{name}.git",
+            Provider = provider
+        };
+        db.Repositories.Add(repo);
+        await db.SaveChangesAsync();
+        return repo.Id;
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_GitHub_ExcludesOtherProviders()
+    {
+        await SeedRepoWithProviderAsync("dev-user", "gh-repo", Andy.Issues.Domain.Enums.RepositoryProvider.GitHub);
+        await SeedRepoWithProviderAsync("dev-user", "azdo-repo", Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps);
+
+        var response = await _client.GetAsync("/api/repositories?provider=github");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var body = await response.Content.ReadFromJsonAsync<PagedResult<RepositoryDto>>(JsonOptions);
+        Assert.Contains(body!.Items, r => r.Name == "gh-repo");
+        Assert.DoesNotContain(body.Items, r => r.Name == "azdo-repo");
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_CaseInsensitive()
+    {
+        await SeedRepoWithProviderAsync("dev-user", "azdo-mixed", Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps);
+
+        var response = await _client.GetAsync("/api/repositories?provider=AZUREDEVOPS");
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await response.Content.ReadFromJsonAsync<PagedResult<RepositoryDto>>(JsonOptions);
+        Assert.Contains(body!.Items, r => r.Name == "azdo-mixed");
+    }
+
+    [Fact]
+    public async Task List_InvalidProvider_Returns400()
+    {
+        var response = await _client.GetAsync("/api/repositories?provider=bitbucket");
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task Get_ExistingRepoOwnedByCaller_ReturnsOk()
     {

@@ -27,8 +27,13 @@ public class RepositoriesGrpcService : RepositoriesService.RepositoriesServiceBa
         if (!System.Enum.TryParse<RepositoryScope>(request.Scope, ignoreCase: true, out var scope))
             scope = RepositoryScope.Mine;
 
+        // #100 — gRPC parity for the provider filter is deferred per
+        // the issue spec ("follow-up, low priority"). Pass `null`
+        // explicitly so the new optional param doesn't take the
+        // CancellationToken slot positionally.
         var result = await _service.ListAsync(
-            GetUserId(context), scope, request.Page, request.PageSize, context.CancellationToken);
+            GetUserId(context), scope, request.Page, request.PageSize,
+            provider: null, ct: context.CancellationToken);
 
         var response = new ListRepositoriesResponse
         {
