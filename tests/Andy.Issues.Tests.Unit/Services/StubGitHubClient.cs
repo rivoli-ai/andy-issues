@@ -63,6 +63,34 @@ public class StubGitHubClient : IGitHubClient
         return this;
     }
 
+    // #99 — list user repositories. Tests can preload the result via
+    // `UserRepositories` and the stub will paginate that list with
+    // optional substring search.
+    public List<GitHubRepositoryInfo> UserRepositories { get; } = new();
+    public string? LastUserReposSearch { get; private set; }
+    public int LastUserReposPage { get; private set; }
+    public int LastUserReposPerPage { get; private set; }
+
+    public Task<IReadOnlyList<GitHubRepositoryInfo>> ListUserRepositoriesAsync(
+        string accessToken,
+        string? search,
+        int page,
+        int perPage,
+        CancellationToken ct = default)
+    {
+        LastUserReposSearch = search;
+        LastUserReposPage = page;
+        LastUserReposPerPage = perPage;
+        var filtered = string.IsNullOrWhiteSpace(search)
+            ? UserRepositories.AsEnumerable()
+            : UserRepositories.Where(r => r.FullName.Contains(search, StringComparison.OrdinalIgnoreCase));
+        var pageSlice = filtered
+            .Skip(Math.Max(0, page - 1) * perPage)
+            .Take(perPage)
+            .ToList();
+        return Task.FromResult<IReadOnlyList<GitHubRepositoryInfo>>(pageSlice);
+    }
+
     public Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
         string owner,
         string repo,

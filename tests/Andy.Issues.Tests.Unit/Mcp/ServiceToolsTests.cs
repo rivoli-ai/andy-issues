@@ -92,6 +92,34 @@ public class ServiceToolsTests
         Assert.Equal(Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps, svc.LastListProvider);
     }
 
+    // #99 — list-available tool
+    [Fact]
+    public async Task ListAvailableRepositories_ForwardsProviderAndSearch()
+    {
+        var svc = new StubRepositoryService
+        {
+            AvailableResult = new PagedResult<AvailableRepositoryDto>(
+                new List<AvailableRepositoryDto>(), 1, 20, 0)
+        };
+
+        await ServiceTools.ListAvailableRepositories(_ctx, svc,
+            provider: "github", search: "platform", page: 1, pageSize: 20);
+
+        Assert.Equal(Andy.Issues.Domain.Enums.RepositoryProvider.GitHub, svc.LastAvailableProvider);
+        Assert.Equal("platform", svc.LastAvailableSearch);
+    }
+
+    [Fact]
+    public async Task ListAvailableRepositories_NoLinkedProvider_ReturnsHelpfulMessage()
+    {
+        var svc = new StubRepositoryService { AvailableResult = null };
+
+        var result = await ServiceTools.ListAvailableRepositories(_ctx, svc,
+            provider: "github", search: null, page: 1, pageSize: 20);
+
+        Assert.Contains("No linked provider", result);
+    }
+
     [Fact]
     public async Task ListRepositories_UnknownProvider_SoftFailsToNoFilter()
     {
@@ -610,6 +638,23 @@ file class StubRepositoryService : IRepositoryService
     {
         LastListProvider = provider;
         return Task.FromResult(ListResult!);
+    }
+
+    public PagedResult<AvailableRepositoryDto>? AvailableResult { get; set; }
+    public Andy.Issues.Domain.Enums.RepositoryProvider? LastAvailableProvider { get; private set; }
+    public string? LastAvailableSearch { get; private set; }
+
+    public Task<PagedResult<AvailableRepositoryDto>?> ListAvailableAsync(
+        string userId,
+        Andy.Issues.Domain.Enums.RepositoryProvider provider,
+        string? search,
+        int page,
+        int pageSize,
+        CancellationToken ct = default)
+    {
+        LastAvailableProvider = provider;
+        LastAvailableSearch = search;
+        return Task.FromResult<PagedResult<AvailableRepositoryDto>?>(AvailableResult);
     }
 
     public Task<RepositoryDto?> GetAsync(Guid id, string userId, CancellationToken ct = default) =>

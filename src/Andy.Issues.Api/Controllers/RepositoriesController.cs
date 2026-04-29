@@ -123,6 +123,27 @@ public class RepositoriesController : ControllerBase
         return Ok(result);
     }
 
+    // #99 — list repos accessible at the upstream provider that the
+    // caller has not yet synced. 404 covers both "no linked provider"
+    // and "provider not implemented yet" (AzureDevOps follow-up).
+    [HttpGet("available")]
+    public async Task<ActionResult<PagedResult<AvailableRepositoryDto>>> ListAvailable(
+        [FromQuery] string provider = "github",
+        [FromQuery] string? search = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        CancellationToken ct = default)
+    {
+        if (!Enum.TryParse<Andy.Issues.Domain.Enums.RepositoryProvider>(provider, ignoreCase: true, out var parsed))
+            return BadRequest(new { error = $"Unknown provider '{provider}'. Use github|azuredevops." });
+
+        var result = await _repositoryService.ListAvailableAsync(GetUserId(), parsed, search, page, pageSize, ct);
+        if (result is null)
+            return NotFound(new { error = "No linked provider for the caller, or provider is not yet supported." });
+
+        return Ok(result);
+    }
+
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<RepositoryDto>> Get(Guid id, CancellationToken ct)
     {

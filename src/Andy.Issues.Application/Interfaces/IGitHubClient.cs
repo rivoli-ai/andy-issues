@@ -72,6 +72,21 @@ public interface IGitHubClient
         string accessToken,
         CancellationToken ct = default);
 
+    /// <summary>
+    /// Lists repositories accessible to the authenticated user via
+    /// <c>GET /user/repos</c>. The optional <paramref name="search"/>
+    /// is a substring match against full_name on the server side
+    /// (GitHub's own search syntax — `q=user:&lt;login&gt; foo`),
+    /// scoped to repos the user can see. Pagination is offset/per-page;
+    /// callers loop until they get a short page.
+    /// </summary>
+    Task<IReadOnlyList<GitHubRepositoryInfo>> ListUserRepositoriesAsync(
+        string accessToken,
+        string? search,
+        int page,
+        int perPage,
+        CancellationToken ct = default);
+
     Task<GitHubPullRequestInfo?> CreatePullRequestAsync(
         string owner,
         string repo,

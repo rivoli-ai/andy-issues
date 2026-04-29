@@ -64,6 +64,27 @@ public static class ServiceTools
         return dto is null ? "Repository not found." : Serialize(dto);
     }
 
+    [McpServerTool, Description(
+        "List repositories accessible at the upstream provider that the current user has not yet synced. " +
+        "Provider must be 'github' (azuredevops is a follow-up). Optional search filter is a substring match on full_name.")]
+    public static async Task<string> ListAvailableRepositories(
+        IHttpContextAccessor ctx,
+        IRepositoryService svc,
+        [Description("Provider: github (only github supported today)")] string? provider,
+        [Description("Optional substring filter on full_name")] string? search,
+        [Description("Page number (default 1)")] int? page,
+        [Description("Page size (default 20, max 100)")] int? pageSize)
+    {
+        if (!Enum.TryParse<Andy.Issues.Domain.Enums.RepositoryProvider>(
+                provider ?? "github", ignoreCase: true, out var parsed))
+            return $"Unknown provider '{provider}'. Use 'github'.";
+
+        var result = await svc.ListAvailableAsync(GetUserId(ctx), parsed, search, page ?? 1, pageSize ?? 20);
+        return result is null
+            ? "No linked provider for the caller, or provider is not yet supported."
+            : Serialize(result);
+    }
+
     [McpServerTool, Description("Sync repositories from GitHub. Provide a comma-separated list of full repo names (e.g. owner/repo).")]
     public static async Task<string> SyncGitHubRepositories(
         IHttpContextAccessor ctx,

@@ -163,4 +163,85 @@ public class RepositoryGitHubSyncTests : IDisposable
         Assert.Single(result.Errors);
         Assert.Contains("acme/missing", result.Errors[0]);
     }
+
+    // ── #99 — ListAvailableAsync ────────────────────────────────────
+
+    [Fact]
+    public async Task ListAvailable_GitHub_NoLinkedProvider_ReturnsNull()
+    {
+        await using var ctx = NewContext();
+        var service = NewService(ctx, new StubGitHubClient());
+
+        var result = await service.ListAvailableAsync("alice", RepositoryProvider.GitHub,
+            search: null, page: 1, pageSize: 20);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ListAvailable_AzureDevOps_ReturnsNull_FollowUpScope()
+    {
+        await SeedLinkedProviderAsync("alice");
+        await using var ctx = NewContext();
+        var service = NewService(ctx, new StubGitHubClient());
+
+        var result = await service.ListAvailableAsync("alice", RepositoryProvider.AzureDevOps,
+            search: null, page: 1, pageSize: 20);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ListAvailable_GitHub_FiltersOutAlreadySynced()
+    {
+        await SeedLinkedProviderAsync("alice");
+
+        // Pre-existing repo with ExternalId="42" — should be filtered out.
+        await using (var ctx = NewContext())
+        {
+            ctx.Repositories.Add(new Repository
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Name = "existing",
+                CloneUrl = "https://github.com/acme/existing.git",
+                ExternalId = "42",
+                Provider = RepositoryProvider.GitHub
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        var gh = new StubGitHubClient();
+        gh.UserRepositories.AddRange(new[]
+        {
+            new GitHubRepositoryInfo("42", "existing", "acme/existing", null, "https://github.com/acme/existing.git", "main"),
+            new GitHubRepositoryInfo("43", "fresh", "acme/fresh", null, "https://github.com/acme/fresh.git", "main"),
+        });
+
+        await using var ctx2 = NewContext();
+        var service = NewService(ctx2, gh);
+        var result = await service.ListAvailableAsync("alice", RepositoryProvider.GitHub,
+            search: null, page: 1, pageSize: 20);
+
+        Assert.NotNull(result);
+        Assert.Single(result!.Items);
+        Assert.Equal("acme/fresh", result.Items[0].FullName);
+    }
+
+    [Fact]
+    public async Task ListAvailable_GitHub_ForwardsSearchToClient()
+    {
+        await SeedLinkedProviderAsync("alice");
+
+        var gh = new StubGitHubClient();
+        await using var ctx = NewContext();
+        var service = NewService(ctx, gh);
+
+        await service.ListAvailableAsync("alice", RepositoryProvider.GitHub,
+            search: "platform", page: 2, pageSize: 50);
+
+        Assert.Equal("platform", gh.LastUserReposSearch);
+        Assert.Equal(2, gh.LastUserReposPage);
+        Assert.Equal(50, gh.LastUserReposPerPage);
+    }
 }
