@@ -44,6 +44,10 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     [InlineData("/api/triage/{id}/output", OperationType.Patch, new[] { "200", "400", "401", "404", "409" })]
     [InlineData("/api/triage/{id}/revisions", OperationType.Get, new[] { "200", "401", "404" })]
     [InlineData("/api/triage/{id}/revert", OperationType.Post, new[] { "200", "401", "404", "409" })]
+    // Z8 — attachments surface
+    [InlineData("/api/triage/{id}/attachments", OperationType.Get, new[] { "200", "401", "404" })]
+    [InlineData("/api/triage/{id}/attachments", OperationType.Post, new[] { "200", "201", "400", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/attachments/{linkId}", OperationType.Delete, new[] { "204", "401", "404" })]
     public void TriageOperation_DeclaresExpectedResponseCodes(
         string path, OperationType verb, string[] expectedCodes)
     {

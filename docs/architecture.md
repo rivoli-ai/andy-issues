@@ -129,6 +129,18 @@ The `Issue.TriageOutput` field is the materialised "current" view; `TriageOutput
 
 Per the AB6 reconciliation in the Z5 spec, the planning-side handoff (andy-tasks AA4) subscribes to `andy.issues.events.issue.*.accepted`, **not** `triaged` or `revised` — so AI-driven editing during human review never triggers premature Goal creation downstream.
 
+### Input-resource attachments (Z8)
+
+Users attach supporting documents (specs, incident dumps, screenshots, PDFs) to an issue as pointers into [`andy-docs`](https://github.com/rivoli-ai/andy-docs). The flow:
+
+1. Conductor uploads the file payload directly to andy-docs (Epic AJ); andy-docs returns `(documentId, linkId)` where `linkId` is the typed `DocumentLink` row scoped to this issue with role `input`.
+2. Conductor POSTs the pair to `andy-issues` at `POST /api/triage/{id}/attachments`. The `IDocsClient.VerifyLinkAsync` check confirms the link exists in andy-docs and targets this issue before the row is persisted.
+3. The attachment is exposed on `GET /api/triage/{id}/attachments` so the UI renders inline metadata (filename, MIME) fetched via `IDocsClient.GetMetadataAsync`.
+
+andy-issues stores **only the pointer** per the artifacts-in-andy-docs decision — the file payload never lands in this database. State gate: attachments cannot be added or removed once the issue is `Accepted` or `Rejected` (locks the input set at the handoff point).
+
+`IDocsClient` is currently wired to `StubDocsClient`, which accepts any well-formed UUID pair and returns null metadata. The stub stays in place until andy-docs Epic AJ ships the real client; the interface contract is frozen, so the swap is a one-line DI change.
+
 ## Sandboxes and andy-containers
 
 andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.

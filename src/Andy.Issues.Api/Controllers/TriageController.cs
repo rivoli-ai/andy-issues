@@ -150,6 +150,64 @@ public class TriageController : ControllerBase
         CancellationToken ct) =>
         Transition(_issues.RevertAsync(id, GetUserId(), request.TargetRevisionId, ct));
 
+    // ── Z8 — Attachments ────────────────────────────────────────────
+    //
+    // Routes nested under /api/triage/{id}/attachments to keep the
+    // Issue surface in one place — the Z8 spec used /api/issues/...
+    // but this codebase exposes the Issue under /api/triage/{id}
+    // already (Z1's TriageController). One route prefix is clearer
+    // than two for the same entity.
+
+    [HttpGet("{id:guid}/attachments")]
+    [ProducesResponseType(typeof(IReadOnlyList<IssueAttachmentDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<IssueAttachmentDto>>> ListAttachments(
+        Guid id, CancellationToken ct)
+    {
+        var rows = await _issues.ListAttachmentsAsync(id, GetUserId(), ct);
+        if (rows is null) return NotFound();
+        return Ok(rows);
+    }
+
+    [HttpPost("{id:guid}/attachments")]
+    [ProducesResponseType(typeof(IssueAttachmentDto), StatusCodes.Status201Created)]
+    [ProducesResponseType(typeof(IssueAttachmentDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status409Conflict)]
+    public async Task<ActionResult<IssueAttachmentDto>> Attach(
+        Guid id,
+        [FromBody] AttachIssueRequest request,
+        CancellationToken ct)
+    {
+        var result = await _issues.AttachAsync(id, GetUserId(), request, ct);
+        return result.Outcome switch
+        {
+            IssueAttachmentOutcome.Attached =>
+                CreatedAtAction(nameof(ListAttachments), new { id }, result.Attachment),
+            IssueAttachmentOutcome.AlreadyAttached =>
+                Ok(result.Attachment),
+            IssueAttachmentOutcome.NotFound => NotFound(),
+            IssueAttachmentOutcome.InvalidState =>
+                Conflict(new TriageConflictResponse(result.Error ?? string.Empty)),
+            IssueAttachmentOutcome.LinkRejected =>
+                BadRequest(new TriageConflictResponse(result.Error ?? string.Empty)),
+            _ => StatusCode(StatusCodes.Status500InternalServerError)
+        };
+    }
+
+    [HttpDelete("{id:guid}/attachments/{linkId:guid}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> Detach(Guid id, Guid linkId, CancellationToken ct)
+    {
+        var ok = await _issues.DetachAsync(id, GetUserId(), linkId, ct);
+        return ok ? NoContent() : NotFound();
+    }
+
     private async Task<ActionResult<IssueDto>> Transition(Task<IssueTriageResult> task)
     {
         var result = await task;

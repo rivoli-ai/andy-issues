@@ -71,6 +71,9 @@ The `Issue` entity tracks an intake envelope through triage before it becomes a 
 | `PATCH /api/triage/{id}/output` | `Triaged` | Human edit (Z5). Replaces the latest output, appends a revision (`AuthorKind=Human`), emits `andy.issues.events.issue.{id}.revised`. Body: `{ output, diffSummary? }`. |
 | `GET /api/triage/{id}/revisions` | any | Newest-first revision history (Z5). Owner-scoped. |
 | `POST /api/triage/{id}/revert` | `Triaged` | Restore a prior revision as a new human-authored revision (Z5). Body: `{ targetRevisionId }`. |
+| `GET /api/triage/{id}/attachments` | any | List input-resource attachments (Z8). Owner-scoped. |
+| `POST /api/triage/{id}/attachments` | not `Accepted`, not `Rejected` | Pin a `(documentId, linkId)` pair to the issue (Z8). Body: `{ documentId, linkId }`. Duplicate link returns 200 with the existing row. Returns 400 when `IDocsClient.VerifyLinkAsync` rejects the pair (e.g., empty UUIDs); real verification arrives with andy-docs Epic AJ. |
+| `DELETE /api/triage/{id}/attachments/{linkId}` | any | Remove a pinned attachment. 204 on success. |
 
 - `200 OK` with the updated `IssueDto` on success.
 - `409 Conflict` (body: `TriageConflictResponse { error: string }`) if the transition is forbidden by the state machine.

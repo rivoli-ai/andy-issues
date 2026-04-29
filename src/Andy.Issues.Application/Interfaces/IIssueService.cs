@@ -51,6 +51,14 @@ public interface IIssueService
     // Z5 — paginated history for the issue, newest first.
     Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(Guid id, string userId, CancellationToken ct = default);
 
+    // Z8 — issue input-resource attachments. Pinning happens AFTER
+    // Conductor uploads the file directly to andy-docs; andy-issues
+    // only stores the pointer. The state gate rejects pins after
+    // accept/reject — locking the input set at the handoff point.
+    Task<IssueAttachmentResult> AttachAsync(Guid id, string userId, AttachIssueRequest request, CancellationToken ct = default);
+    Task<bool> DetachAsync(Guid id, string userId, Guid linkId, CancellationToken ct = default);
+    Task<IReadOnlyList<IssueAttachmentDto>?> ListAttachmentsAsync(Guid id, string userId, CancellationToken ct = default);
+
     // Minimal create — needed to drive the state machine end-to-end. The
     // production intake path (which is out of scope for Z1) will likely
     // come from external sources (GitHub webhooks, conductor) once

@@ -308,4 +308,90 @@ public class TriageControllerTests : IClassFixture<TestWebApplicationFactory>
             $"/api/triage/{id}/revert", new { targetRevisionId = Guid.NewGuid() });
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
+
+    // ── Z8 — Attachments ────────────────────────────────────────────
+
+    [Fact]
+    public async Task PostAttachment_HappyPath_Returns201AndAppearsInList()
+    {
+        var issue = await CreateIssueAsync();
+        var docId = Guid.NewGuid();
+        var linkId = Guid.NewGuid();
+
+        var attachResp = await _client.PostAsJsonAsync(
+            $"/api/triage/{issue.Id}/attachments",
+            new { documentId = docId, linkId });
+        Assert.Equal(HttpStatusCode.Created, attachResp.StatusCode);
+        var dto = await attachResp.Content.ReadFromJsonAsync<IssueAttachmentDto>(JsonOptions);
+        Assert.Equal(docId, dto!.DocumentId);
+        Assert.Equal(linkId, dto.LinkId);
+
+        var listResp = await _client.GetAsync($"/api/triage/{issue.Id}/attachments");
+        Assert.Equal(HttpStatusCode.OK, listResp.StatusCode);
+        var list = await listResp.Content.ReadFromJsonAsync<List<IssueAttachmentDto>>(JsonOptions);
+        Assert.Single(list!);
+    }
+
+    [Fact]
+    public async Task PostAttachment_DuplicateLink_Returns200_NotDuplicated()
+    {
+        var issue = await CreateIssueAsync();
+        var body = new { documentId = Guid.NewGuid(), linkId = Guid.NewGuid() };
+
+        var first = await _client.PostAsJsonAsync($"/api/triage/{issue.Id}/attachments", body);
+        Assert.Equal(HttpStatusCode.Created, first.StatusCode);
+
+        var second = await _client.PostAsJsonAsync($"/api/triage/{issue.Id}/attachments", body);
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+        var list = await (await _client.GetAsync($"/api/triage/{issue.Id}/attachments"))
+            .Content.ReadFromJsonAsync<List<IssueAttachmentDto>>(JsonOptions);
+        Assert.Single(list!);
+    }
+
+    [Fact]
+    public async Task PostAttachment_AfterAccept_Returns409()
+    {
+        var id = await CreateAndCompleteAsync();
+        await _client.PostAsync($"/api/triage/{id}/accept", null);
+
+        var resp = await _client.PostAsJsonAsync(
+            $"/api/triage/{id}/attachments",
+            new { documentId = Guid.NewGuid(), linkId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task PostAttachment_EmptyLinkId_Returns400()
+    {
+        var issue = await CreateIssueAsync();
+        var resp = await _client.PostAsJsonAsync(
+            $"/api/triage/{issue.Id}/attachments",
+            new { documentId = Guid.NewGuid(), linkId = Guid.Empty });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_RemovesRowAnd204()
+    {
+        var issue = await CreateIssueAsync();
+        var linkId = Guid.NewGuid();
+        await _client.PostAsJsonAsync($"/api/triage/{issue.Id}/attachments",
+            new { documentId = Guid.NewGuid(), linkId });
+
+        var deleteResp = await _client.DeleteAsync($"/api/triage/{issue.Id}/attachments/{linkId}");
+        Assert.Equal(HttpStatusCode.NoContent, deleteResp.StatusCode);
+
+        var list = await (await _client.GetAsync($"/api/triage/{issue.Id}/attachments"))
+            .Content.ReadFromJsonAsync<List<IssueAttachmentDto>>(JsonOptions);
+        Assert.Empty(list!);
+    }
+
+    [Fact]
+    public async Task DeleteAttachment_UnknownLink_Returns404()
+    {
+        var issue = await CreateIssueAsync();
+        var resp = await _client.DeleteAsync($"/api/triage/{issue.Id}/attachments/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
 }

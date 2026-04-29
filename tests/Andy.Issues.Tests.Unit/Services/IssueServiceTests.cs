@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using Andy.Issues.Application.Dtos;
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Enums;
@@ -41,7 +42,11 @@ public class IssueServiceTests : IDisposable
     }
 
     private AppDbContext NewContext() => new(_options);
-    private IssueService NewService(AppDbContext ctx) => new(ctx);
+    // Z8 — IssueService now depends on IDocsClient. Tests pass a stub
+    // that always verifies and returns null metadata, mirroring
+    // production wiring until andy-docs Epic AJ ships.
+    private IssueService NewService(AppDbContext ctx) =>
+        new(ctx, new TestDocsClient());
 
     private async Task<Guid> CreateIssueAsync(string owner = "alice")
     {
@@ -327,4 +332,131 @@ public class IssueServiceTests : IDisposable
         var fromBob = await NewService(ctx2).ListRevisionsAsync(id, "bob");
         Assert.Null(fromBob);
     }
+
+    // ── Z8 — Attachments ────────────────────────────────────────────
+
+    [Fact]
+    public async Task Attach_HappyPath_PersistsRowAndReturnsAttached()
+    {
+        var id = await CreateIssueAsync();
+
+        await using var ctx = NewContext();
+        var result = await NewService(ctx).AttachAsync(id, "alice",
+            new AttachIssueRequest(Guid.NewGuid(), Guid.NewGuid()));
+
+        Assert.Equal(IssueAttachmentOutcome.Attached, result.Outcome);
+        Assert.NotNull(result.Attachment);
+
+        await using var verify = NewContext();
+        var stored = await verify.IssueAttachments.SingleAsync(a => a.IssueId == id);
+        Assert.Equal("alice", stored.CreatedBy);
+    }
+
+    [Fact]
+    public async Task Attach_DuplicateLink_ReturnsAlreadyAttached_NoDuplicateRow()
+    {
+        var id = await CreateIssueAsync();
+        var docId = Guid.NewGuid();
+        var linkId = Guid.NewGuid();
+
+        await using (var ctx = NewContext())
+            await NewService(ctx).AttachAsync(id, "alice",
+                new AttachIssueRequest(docId, linkId));
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).AttachAsync(id, "alice",
+                new AttachIssueRequest(docId, linkId));
+            Assert.Equal(IssueAttachmentOutcome.AlreadyAttached, result.Outcome);
+        }
+
+        await using var verify = NewContext();
+        Assert.Equal(1, await verify.IssueAttachments.CountAsync(a => a.IssueId == id));
+    }
+
+    [Fact]
+    public async Task Attach_AfterAccept_ReturnsInvalidState()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext()) await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext()) await NewService(ctx).CompleteTriageAsync(id, "alice");
+        await using (var ctx = NewContext()) await NewService(ctx).AcceptAsync(id, "alice");
+
+        await using var ctx2 = NewContext();
+        var result = await NewService(ctx2).AttachAsync(id, "alice",
+            new AttachIssueRequest(Guid.NewGuid(), Guid.NewGuid()));
+        Assert.Equal(IssueAttachmentOutcome.InvalidState, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Attach_LinkRejected_WhenDocsClientReturnsFalse()
+    {
+        var id = await CreateIssueAsync();
+
+        // Empty Guids fail TestDocsClient.VerifyLinkAsync's well-formed
+        // check (mirrors the production stub).
+        await using var ctx = NewContext();
+        var result = await NewService(ctx).AttachAsync(id, "alice",
+            new AttachIssueRequest(DocumentId: Guid.NewGuid(), LinkId: Guid.Empty));
+        Assert.Equal(IssueAttachmentOutcome.LinkRejected, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Detach_RemovesRow()
+    {
+        var id = await CreateIssueAsync();
+        var linkId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+            await NewService(ctx).AttachAsync(id, "alice",
+                new AttachIssueRequest(Guid.NewGuid(), linkId));
+
+        await using (var ctx = NewContext())
+            Assert.True(await NewService(ctx).DetachAsync(id, "alice", linkId));
+
+        await using var verify = NewContext();
+        Assert.Equal(0, await verify.IssueAttachments.CountAsync(a => a.IssueId == id));
+    }
+
+    [Fact]
+    public async Task Detach_OtherOwner_ReturnsFalse()
+    {
+        var id = await CreateIssueAsync(owner: "alice");
+        var linkId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+            await NewService(ctx).AttachAsync(id, "alice",
+                new AttachIssueRequest(Guid.NewGuid(), linkId));
+
+        await using var ctx2 = NewContext();
+        Assert.False(await NewService(ctx2).DetachAsync(id, "bob", linkId));
+    }
+
+    [Fact]
+    public async Task ListAttachments_ReturnsRowsForOwner_NullForStranger()
+    {
+        var id = await CreateIssueAsync(owner: "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).AttachAsync(id, "alice",
+                new AttachIssueRequest(Guid.NewGuid(), Guid.NewGuid()));
+
+        await using var ctx2 = NewContext();
+        var rows = await NewService(ctx2).ListAttachmentsAsync(id, "alice");
+        Assert.NotNull(rows);
+        Assert.Single(rows!);
+
+        var bobRows = await NewService(ctx2).ListAttachmentsAsync(id, "bob");
+        Assert.Null(bobRows);
+    }
+}
+
+// Test-local IDocsClient. Verifies any well-formed UUID pair (matches
+// the production stub) and returns null metadata so tests assert on
+// the persisted row, not on andy-docs hydration.
+file class TestDocsClient : IDocsClient
+{
+    public Task<bool> VerifyLinkAsync(Guid linkId, string expectedTargetType, Guid expectedTargetId, CancellationToken ct = default) =>
+        Task.FromResult(linkId != Guid.Empty
+            && !string.IsNullOrWhiteSpace(expectedTargetType)
+            && expectedTargetId != Guid.Empty);
+
+    public Task<DocsMetadata?> GetMetadataAsync(Guid documentId, CancellationToken ct = default) =>
+        Task.FromResult<DocsMetadata?>(null);
 }

@@ -18,10 +18,12 @@ namespace Andy.Issues.Infrastructure.Services;
 public class IssueService : IIssueService
 {
     private readonly AppDbContext _db;
+    private readonly IDocsClient _docs;
 
-    public IssueService(AppDbContext db)
+    public IssueService(AppDbContext db, IDocsClient docs)
     {
         _db = db;
+        _docs = docs;
     }
 
     public async Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default)
@@ -153,6 +155,100 @@ public class IssueService : IIssueService
 
         return await EditOutputAsync(id, userId, target.TriageOutput,
             diffSummary: $"Reverted to revision {target.Id}", ct);
+    }
+
+    // ── Z8 — Attachments ────────────────────────────────────────────
+
+    public async Task<IssueAttachmentResult> AttachAsync(
+        Guid id, string userId, AttachIssueRequest request, CancellationToken ct = default)
+    {
+        var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return IssueAttachmentResult.NotFound();
+        if (issue.OwnerUserId != userId) return IssueAttachmentResult.NotFound();
+
+        // Lock the input set at the handoff point: once a human has
+        // accepted or rejected the triage, attachments stop changing.
+        if (issue.TriageState is TriageState.Accepted or TriageState.Rejected)
+            return IssueAttachmentResult.InvalidState(
+                $"Cannot attach to an issue in {issue.TriageState}; allowed only before terminal acceptance.");
+
+        var verified = await _docs.VerifyLinkAsync(
+            request.LinkId,
+            expectedTargetType: "issue",
+            expectedTargetId: id,
+            ct);
+        if (!verified)
+            return IssueAttachmentResult.LinkRejected(
+                $"DocumentLink {request.LinkId} not found in andy-docs or does not target this issue.");
+
+        // Composite key (IssueId, LinkId) — re-attaching the same link
+        // is a no-op rather than a duplicate insert.
+        var existing = await _db.IssueAttachments.AsNoTracking()
+            .FirstOrDefaultAsync(a => a.IssueId == id && a.LinkId == request.LinkId, ct);
+        if (existing is not null)
+        {
+            var dto = await ToDtoAsync(existing, ct);
+            return IssueAttachmentResult.AlreadyAttached(dto);
+        }
+
+        var attachment = new IssueAttachment
+        {
+            IssueId = id,
+            DocumentId = request.DocumentId,
+            LinkId = request.LinkId,
+            CreatedBy = userId,
+            CreatedAt = DateTimeOffset.UtcNow
+        };
+        _db.IssueAttachments.Add(attachment);
+        await _db.SaveChangesAsync(ct);
+
+        return IssueAttachmentResult.Ok(await ToDtoAsync(attachment, ct));
+    }
+
+    public async Task<bool> DetachAsync(
+        Guid id, string userId, Guid linkId, CancellationToken ct = default)
+    {
+        var issue = await _db.Issues.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return false;
+        if (issue.OwnerUserId != userId) return false;
+
+        var attachment = await _db.IssueAttachments
+            .FirstOrDefaultAsync(a => a.IssueId == id && a.LinkId == linkId, ct);
+        if (attachment is null) return false;
+
+        _db.IssueAttachments.Remove(attachment);
+        await _db.SaveChangesAsync(ct);
+        return true;
+    }
+
+    public async Task<IReadOnlyList<IssueAttachmentDto>?> ListAttachmentsAsync(
+        Guid id, string userId, CancellationToken ct = default)
+    {
+        var issue = await _db.Issues.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return null;
+        if (issue.OwnerUserId != userId) return null;
+
+        var rows = await _db.IssueAttachments.AsNoTracking()
+            .Where(a => a.IssueId == id)
+            .OrderBy(a => a.CreatedAt)
+            .ToListAsync(ct);
+
+        var dtos = new List<IssueAttachmentDto>(rows.Count);
+        foreach (var r in rows)
+            dtos.Add(await ToDtoAsync(r, ct));
+        return dtos;
+    }
+
+    private async Task<IssueAttachmentDto> ToDtoAsync(IssueAttachment a, CancellationToken ct)
+    {
+        // Hydrate andy-docs metadata. Stubbed today (returns null);
+        // real client fills filename + MIME when AJ ships.
+        var metadata = await _docs.GetMetadataAsync(a.DocumentId, ct);
+        return new IssueAttachmentDto(
+            a.IssueId, a.DocumentId, a.LinkId, a.CreatedBy, a.CreatedAt,
+            metadata?.FileName, metadata?.ContentType, metadata?.SizeBytes);
     }
 
     public async Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(
