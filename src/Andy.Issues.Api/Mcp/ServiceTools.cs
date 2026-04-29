@@ -3,6 +3,7 @@
 
 using System.ComponentModel;
 using System.Security.Claims;
+using Andy.Issues.Api.Auth;
 using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
@@ -393,13 +394,17 @@ public static class ServiceTools
 
     // ── Helpers ──────────────────────────────────────────────────────
 
+    // Issue #65 — no silent "dev-user" fallback. The MCP transport
+    // always carries an authenticated principal in production (the
+    // mcp-gateway forwards the caller's token). If the principal is
+    // missing or has no `sub`/NameIdentifier/Identity.Name, throw —
+    // never silently attribute writes to a phantom user.
     private static string GetUserId(IHttpContextAccessor ctx)
     {
-        var user = ctx.HttpContext?.User;
-        return user?.FindFirst("sub")?.Value
-            ?? user?.FindFirst(ClaimTypes.NameIdentifier)?.Value
-            ?? user?.Identity?.Name
-            ?? "dev-user";
+        var user = ctx.HttpContext?.User
+            ?? throw new UnauthorizedAccessException(
+                "No HttpContext available for the MCP call. Cannot resolve user id.");
+        return user.RequireUserId();
     }
 
     private static string Serialize<T>(T value) =>

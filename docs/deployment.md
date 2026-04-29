@@ -125,3 +125,25 @@ dotnet ef migrations add <Name> \
   --startup-project src/Andy.Issues.Infrastructure \
   --output-dir Data/Migrations
 ```
+
+## One-time data cleanup: dev-user attribution (issue #65)
+
+Before issue #65 was fixed, every API/gRPC/MCP/SignalR call where the JWT lacked a `sub` claim silently attributed writes to a phantom `"dev-user"` identity. After the fix those code paths throw 401 / `Unauthenticated` / `HubException` instead — so no new rows can land with `OwnerUserId = "dev-user"`. Existing dev databases may carry rows from before the fix; the simplest cleanup paths:
+
+```sql
+-- PostgreSQL: inspect, then either rebrand or wipe.
+SELECT COUNT(*) FROM "Repositories"     WHERE "OwnerUserId" = 'dev-user';
+SELECT COUNT(*) FROM "Issues"           WHERE "OwnerUserId" = 'dev-user';
+SELECT COUNT(*) FROM "Sandboxes"        WHERE "OwnerUserId" = 'dev-user';
+SELECT COUNT(*) FROM "LinkedProviders"  WHERE "OwnerUserId" = 'dev-user';
+
+-- Option A — reassign to a real user (replace <real-user-id>):
+UPDATE "Repositories"    SET "OwnerUserId" = '<real-user-id>' WHERE "OwnerUserId" = 'dev-user';
+-- ...repeat per owner-bearing table.
+
+-- Option B — wipe (dev-only, destructive):
+TRUNCATE TABLE "Repositories" CASCADE;
+-- ...etc.
+```
+
+For SQLite/embedded mode, `Database.EnsureCreatedAsync` materialises a fresh schema each startup if the file is missing — easiest cleanup is just deleting the SQLite file.
