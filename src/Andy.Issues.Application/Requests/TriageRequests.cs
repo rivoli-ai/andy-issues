@@ -15,3 +15,8 @@ public record EditTriageOutputRequest(
 // Z5 — body for POST /api/triage/{id}/revert.
 public record RevertTriageRequest(
     Guid TargetRevisionId);
+
+// Z8 — body for POST /api/triage/{id}/attachments.
+public record AttachIssueRequest(
+    Guid DocumentId,
+    Guid LinkId);

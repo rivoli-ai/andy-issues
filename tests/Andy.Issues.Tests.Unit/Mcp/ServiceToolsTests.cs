@@ -660,6 +660,15 @@ file class StubIssueService : IIssueService
     public Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(Guid id, string userId, CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<TriageOutputRevisionDto>?>(null);
 
+    public Task<IssueAttachmentResult> AttachAsync(Guid id, string userId, AttachIssueRequest request, CancellationToken ct = default) =>
+        Task.FromResult(IssueAttachmentResult.NotFound());
+
+    public Task<bool> DetachAsync(Guid id, string userId, Guid linkId, CancellationToken ct = default) =>
+        Task.FromResult(false);
+
+    public Task<IReadOnlyList<IssueAttachmentDto>?> ListAttachmentsAsync(Guid id, string userId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<IssueAttachmentDto>?>(null);
+
     public Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default) =>
         Task.FromResult(new IssueDto(Guid.NewGuid(), userId, null, request.Title, request.Body,
             "NeedsTriage", null, null, null, DateTimeOffset.UtcNow, null));

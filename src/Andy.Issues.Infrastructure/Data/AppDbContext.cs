@@ -35,6 +35,7 @@ public class AppDbContext : DbContext
     public DbSet<UserStory> UserStories => Set<UserStory>();
     public DbSet<Issue> Issues => Set<Issue>();
     public DbSet<TriageOutputRevision> TriageOutputRevisions => Set<TriageOutputRevision>();
+    public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
@@ -180,6 +181,20 @@ public class AppDbContext : DbContext
                     v => v == null ? null : JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
                     v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.TriageOutput>(v, Andy.Issues.Application.Messaging.EventJson.Options))
                 .HasColumnName("TriageOutputJson");
+        });
+
+        // Z8 — input-resource attachments. Composite key prevents
+        // duplicate pins of the same DocumentLink; cascade delete with
+        // the Issue so the table never carries orphan rows.
+        modelBuilder.Entity<IssueAttachment>(e =>
+        {
+            e.HasKey(x => new { x.IssueId, x.LinkId });
+            e.Property(x => x.CreatedBy).IsRequired().HasMaxLength(256);
+            e.HasIndex(x => x.IssueId);
+            e.HasOne<Issue>()
+                .WithMany()
+                .HasForeignKey(x => x.IssueId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Z5 — versioned audit table for triage output. Cascade delete
