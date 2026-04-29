@@ -116,6 +116,8 @@ Idempotency: `Accept` on `Accepted` (and `Reject` on `Rejected`) is a no-op — 
 
 The schema's snake_case property names apply to the **NATS event payload** (serialised via `EventJson.Options`). The REST `POST /api/triage/{id}/complete` endpoint accepts the same record but follows the API's default camelCase convention — Z2's run-finish handler will write output via the consumer path, not REST.
 
+`IssueEventOutbox.AppendIssueEvent` accepts optional `causationId` and `parentGeneration` parameters (Z4). When the transition is driven by an upstream message — Z2's `ContainerRunEventConsumer` reacting to a `run.finished` — the consumer passes the parent message's `msg-id` as `causationId` and its `generation` as `parentGeneration`; the resulting outbox row carries `causation-id = parent.msg-id` and `generation = parent.generation + 1` per ADR-0001 §5. User-driven transitions (REST/CLI/MCP) leave both at the default; the row is the root of its causation chain.
+
 ## Sandboxes and andy-containers
 
 andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.

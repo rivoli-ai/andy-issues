@@ -6,7 +6,7 @@ using Andy.Issues.Domain.ValueTypes;
 namespace Andy.Issues.Application.Messaging.Events;
 
 // Payload for andy.issues.events.issue.{issueId}.{kind} events per
-// ADR 0001 §2 (Z1) + Z3.
+// ADR 0001 §2 (Z1) + Z3 + Z4.
 //
 // Z3 — `TriageOutput` carries the full agent-produced classification
 // when the issue reaches `Triaged`/`Accepted`/`Rejected`. Null on
@@ -15,6 +15,13 @@ namespace Andy.Issues.Application.Messaging.Events;
 // existing fields are unchanged; the new field is additive and
 // optional, so consumers built against the Z1 envelope deserialize
 // cleanly.
+//
+// Z4 — this type IS what the Z4 spec calls `IssueTriagedPayload`.
+// The codebase keeps the broader name (`IssueEventPayload`) because
+// the same shape is reused for accepted/rejected subjects, mirroring
+// `StoryEventPayload`'s convention. The wire schema for the
+// `triaged` subject specifically is published in
+// schemas/triage-output.v1.json (Z3) — the embedded `TriageOutput`.
 public sealed record IssueEventPayload(
     Guid IssueId,
     Guid? RepositoryId,
