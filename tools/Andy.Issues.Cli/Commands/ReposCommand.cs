@@ -31,21 +31,26 @@ public static class ReposCommand
     private static Command BuildList(Option<string> apiUrlOption, Option<string?> tokenOption)
     {
         var scopeOption = new Option<string>("--scope", () => "mine", "Filter scope: mine, shared, or all");
+        var providerOption = new Option<string?>("--provider", "Optional provider filter: github or azuredevops");
         var jsonOption = new Option<bool>("--json", "Output raw JSON");
         var pageOption = new Option<int>("--page", () => 1, "Page number");
         var pageSizeOption = new Option<int>("--page-size", () => 20, "Page size");
 
-        var cmd = new Command("list", "List repositories") { scopeOption, jsonOption, pageOption, pageSizeOption };
+        var cmd = new Command("list", "List repositories") { scopeOption, providerOption, jsonOption, pageOption, pageSizeOption };
         cmd.SetHandler(async (InvocationContext ctx) =>
         {
             var scope = ctx.ParseResult.GetValueForOption(scopeOption)!;
+            var provider = ctx.ParseResult.GetValueForOption(providerOption);
             var json = ctx.ParseResult.GetValueForOption(jsonOption);
             var page = ctx.ParseResult.GetValueForOption(pageOption);
             var pageSize = ctx.ParseResult.GetValueForOption(pageSizeOption);
 
             using var api = CreateClient(ctx, apiUrlOption, tokenOption);
-            var result = await api.GetAsync<PagedResult<RepositoryDto>>(
-                $"api/repositories?scope={scope}&page={page}&pageSize={pageSize}");
+            var query = $"api/repositories?scope={scope}&page={page}&pageSize={pageSize}";
+            if (!string.IsNullOrWhiteSpace(provider))
+                query += $"&provider={Uri.EscapeDataString(provider)}";
+
+            var result = await api.GetAsync<PagedResult<RepositoryDto>>(query);
             if (result is null) return;
 
             if (json)

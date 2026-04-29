@@ -78,6 +78,35 @@ public class ServiceToolsTests
         Assert.Equal(0, result.TotalCount);
     }
 
+    // #100 — provider arg forwarding
+    [Fact]
+    public async Task ListRepositories_ProviderArg_ForwardedToService()
+    {
+        var svc = new StubRepositoryService
+        {
+            ListResult = new PagedResult<RepositoryDto>(new List<RepositoryDto>(), 1, 50, 0)
+        };
+
+        await ServiceTools.ListRepositories(_ctx, svc, "mine", 1, 50, provider: "AzureDevOps");
+
+        Assert.Equal(Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps, svc.LastListProvider);
+    }
+
+    [Fact]
+    public async Task ListRepositories_UnknownProvider_SoftFailsToNoFilter()
+    {
+        var svc = new StubRepositoryService
+        {
+            ListResult = new PagedResult<RepositoryDto>(new List<RepositoryDto>(), 1, 50, 0)
+        };
+
+        // MCP path is intentionally lenient: typos drop the filter
+        // rather than 4xx-ing. The REST controller is strict.
+        await ServiceTools.ListRepositories(_ctx, svc, "mine", 1, 50, provider: "bitbucket");
+
+        Assert.Null(svc.LastListProvider);
+    }
+
     [Fact]
     public async Task GetRepository_ReturnsNotFound_WhenNull()
     {
@@ -541,8 +570,16 @@ file class StubRepositoryService : IRepositoryService
     public CreateRepositoryRequest? LastCreateRequest { get; private set; }
     public string? LastCreateOwner { get; private set; }
 
-    public Task<PagedResult<RepositoryDto>> ListAsync(string userId, RepositoryScope scope, int page, int pageSize, CancellationToken ct = default) =>
-        Task.FromResult(ListResult!);
+    public Andy.Issues.Domain.Enums.RepositoryProvider? LastListProvider { get; private set; }
+
+    public Task<PagedResult<RepositoryDto>> ListAsync(
+        string userId, RepositoryScope scope, int page, int pageSize,
+        Andy.Issues.Domain.Enums.RepositoryProvider? provider = null,
+        CancellationToken ct = default)
+    {
+        LastListProvider = provider;
+        return Task.FromResult(ListResult!);
+    }
 
     public Task<RepositoryDto?> GetAsync(Guid id, string userId, CancellationToken ct = default) =>
         Task.FromResult(GetResult);

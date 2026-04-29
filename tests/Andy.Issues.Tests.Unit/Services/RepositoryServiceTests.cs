@@ -347,6 +347,107 @@ public class RepositoryServiceTests : IDisposable
         Assert.DoesNotContain(result.Items, r => r.Name == "carol-repo");
     }
 
+    // ── #100 — provider filter ──────────────────────────────────────
+
+    private async Task SeedMixedProvidersAsync()
+    {
+        await using var ctx = NewContext();
+        ctx.Repositories.AddRange(
+            new Repository
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Name = "alice-gh",
+                CloneUrl = "https://github.com/alice/gh.git",
+                Provider = Andy.Issues.Domain.Enums.RepositoryProvider.GitHub
+            },
+            new Repository
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Name = "alice-azdo",
+                CloneUrl = "https://dev.azure.com/alice/_git/azdo",
+                Provider = Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps
+            });
+        await ctx.SaveChangesAsync();
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_GitHub_OnlyReturnsGitHubRepos()
+    {
+        await SeedMixedProvidersAsync();
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var result = await service.ListAsync("alice", RepositoryScope.Mine, 1, 20,
+            provider: Andy.Issues.Domain.Enums.RepositoryProvider.GitHub);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("alice-gh", result.Items[0].Name);
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_AzureDevOps_OnlyReturnsAzureRepos()
+    {
+        await SeedMixedProvidersAsync();
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var result = await service.ListAsync("alice", RepositoryScope.Mine, 1, 20,
+            provider: Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps);
+
+        Assert.Equal(1, result.TotalCount);
+        Assert.Equal("alice-azdo", result.Items[0].Name);
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_Null_ReturnsAllProviders()
+    {
+        await SeedMixedProvidersAsync();
+        await using var ctx = NewContext();
+        var service = NewService(ctx);
+
+        var result = await service.ListAsync("alice", RepositoryScope.Mine, 1, 20, provider: null);
+
+        Assert.Equal(2, result.TotalCount);
+    }
+
+    [Fact]
+    public async Task List_ProviderFilter_ComposesWithScope()
+    {
+        // Seed: alice owns GH; bob owns AzDO and shares it with alice.
+        await using (var ctx = NewContext())
+        {
+            ctx.Repositories.AddRange(
+                new Repository
+                {
+                    Id = Guid.NewGuid(), OwnerUserId = "alice",
+                    Name = "alice-gh",
+                    CloneUrl = "https://github.com/alice/gh.git",
+                    Provider = Andy.Issues.Domain.Enums.RepositoryProvider.GitHub
+                });
+            var bobAzdo = new Repository
+            {
+                Id = Guid.NewGuid(), OwnerUserId = "bob",
+                Name = "bob-azdo",
+                CloneUrl = "https://dev.azure.com/bob/_git/azdo",
+                Provider = Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps
+            };
+            bobAzdo.AddShare("alice", "bob");
+            ctx.Repositories.Add(bobAzdo);
+            await ctx.SaveChangesAsync();
+        }
+
+        await using var ctx2 = NewContext();
+        var service = NewService(ctx2);
+
+        // All scope + AzDO filter → only the shared bob-azdo.
+        var azdo = await service.ListAsync("alice", RepositoryScope.All, 1, 20,
+            provider: Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps);
+        Assert.Single(azdo.Items);
+        Assert.Equal("bob-azdo", azdo.Items[0].Name);
+    }
+
     [Fact]
     public async Task Get_OwnerCanView()
     {

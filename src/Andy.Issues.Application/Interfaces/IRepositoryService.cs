@@ -48,11 +48,15 @@ public interface IRepositoryService
         string ownerUserId,
         CancellationToken ct = default);
 
+    // `provider` is an optional filter (#100). Null = no filter.
+    // Unknown string values are rejected at the controller boundary,
+    // not silently coerced — keeps the wire contract honest.
     Task<PagedResult<RepositoryDto>> ListAsync(
         string userId,
         RepositoryScope scope,
         int page,
         int pageSize,
+        Andy.Issues.Domain.Enums.RepositoryProvider? provider = null,
         CancellationToken ct = default);
 
     Task<RepositoryDto?> GetAsync(Guid id, string userId, CancellationToken ct = default);

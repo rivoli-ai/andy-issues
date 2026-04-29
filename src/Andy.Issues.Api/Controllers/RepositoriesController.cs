@@ -99,15 +99,27 @@ public class RepositoriesController : ControllerBase
     [HttpGet]
     public async Task<ActionResult<PagedResult<RepositoryDto>>> List(
         [FromQuery] string scope = "mine",
+        [FromQuery] string? provider = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 20,
         CancellationToken ct = default)
     {
-        if (!Enum.TryParse<RepositoryScope>(scope, ignoreCase: true, out var parsed))
+        if (!Enum.TryParse<RepositoryScope>(scope, ignoreCase: true, out var parsedScope))
             return BadRequest(new { error = $"Unknown scope '{scope}'. Use mine|shared|all." });
 
+        // #100 — optional provider filter. Reject unknown values
+        // explicitly (rather than silently dropping the filter) so
+        // typos surface as 400 instead of "all the things".
+        Andy.Issues.Domain.Enums.RepositoryProvider? parsedProvider = null;
+        if (!string.IsNullOrWhiteSpace(provider))
+        {
+            if (!Enum.TryParse<Andy.Issues.Domain.Enums.RepositoryProvider>(provider, ignoreCase: true, out var p))
+                return BadRequest(new { error = $"Unknown provider '{provider}'. Use github|azuredevops." });
+            parsedProvider = p;
+        }
+
         var userId = GetUserId();
-        var result = await _repositoryService.ListAsync(userId, parsed, page, pageSize, ct);
+        var result = await _repositoryService.ListAsync(userId, parsedScope, page, pageSize, parsedProvider, ct);
         return Ok(result);
     }
 

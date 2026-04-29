@@ -23,22 +23,34 @@ public static class ServiceTools
 
     // ── Repositories ────────────────────────────────────────────────
 
-    [McpServerTool, Description("List repositories accessible to the current user. Scope: mine (default), shared, or all.")]
+    [McpServerTool, Description("List repositories accessible to the current user. Scope: mine (default), shared, or all. Optional provider filter: github or azuredevops.")]
     public static async Task<string> ListRepositories(
         IHttpContextAccessor ctx,
         IRepositoryService svc,
         [Description("Filter scope: mine, shared, or all")] string? scope,
         [Description("Page number (default 1)")] int? page,
-        [Description("Page size (default 50)")] int? pageSize)
+        [Description("Page size (default 50)")] int? pageSize,
+        [Description("Optional provider filter: github or azuredevops")] string? provider = null)
     {
         var userId = GetUserId(ctx);
-        var parsed = scope?.ToLowerInvariant() switch
+        var parsedScope = scope?.ToLowerInvariant() switch
         {
             "shared" => RepositoryScope.Shared,
             "all" => RepositoryScope.All,
             _ => RepositoryScope.Mine
         };
-        var result = await svc.ListAsync(userId, parsed, page ?? 1, pageSize ?? 50);
+        // #100 — Optional provider filter. Unknown values silently
+        // ignored on the MCP path (the REST endpoint rejects them)
+        // because tool-call ergonomics favour soft-fail over a
+        // confusing tool error response.
+        Andy.Issues.Domain.Enums.RepositoryProvider? parsedProvider = null;
+        if (!string.IsNullOrWhiteSpace(provider)
+            && Enum.TryParse<Andy.Issues.Domain.Enums.RepositoryProvider>(provider, ignoreCase: true, out var p))
+        {
+            parsedProvider = p;
+        }
+
+        var result = await svc.ListAsync(userId, parsedScope, page ?? 1, pageSize ?? 50, parsedProvider);
         return Serialize(result);
     }
 
