@@ -19,6 +19,9 @@ This document records what is **specific to andy-issues**: the subjects it owns,
 | `andy.issues.events.story.<id>.readied` | `BacklogService` | On transition to `Ready`. |
 | `andy.issues.events.story.<id>.done` | `BacklogService` | On transition to `Done`. |
 | `andy.issues.events.story.<id>.updated` | `BacklogService` | On any other change. |
+| `andy.issues.events.issue.<id>.triaged` | `IssueService` | Z4 — on `Triaging → Triaged` transition. Payload includes the full `TriageOutput` (Z3). Causation chain populated when triggered by a `run.finished` (Z2). |
+| `andy.issues.events.issue.<id>.accepted` | `IssueService` | On `Triaged → Accepted` transition (terminal). |
+| `andy.issues.events.issue.<id>.rejected` | `IssueService` | On `Triaged → Rejected` transition (terminal). |
 | `andy.issues.events.repository.<id>.registered` | `RepositoryService` | On `Repository` creation via any surface. |
 | `andy.issues.events.repository.<id>.synced` | `BacklogGitHubImportService`, AzDo sync | On successful sync only. Failures stay in the REST response DTO. |
 | `andy.issues.events.sandbox.<id>.attached` | `SandboxService` | Local projection of an andy-containers container attached to a story. |
