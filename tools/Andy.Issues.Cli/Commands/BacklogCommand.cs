@@ -21,6 +21,7 @@ public static class BacklogCommand
         cmd.AddCommand(BuildSetStatus(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildSyncAzdo(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildDraft(apiUrlOption, tokenOption));
+        cmd.AddCommand(BuildBulkDelete(apiUrlOption, tokenOption));
 
         return cmd;
     }
@@ -196,6 +197,58 @@ public static class BacklogCommand
 
             var storyCount = backlog.Epics.Sum(e => e.Features.Sum(f => f.Stories.Count));
             Console.WriteLine($"Draft backlog generated: {backlog.Epics.Count} epics, {storyCount} stories.");
+        });
+        return cmd;
+    }
+
+    // #101 — bulk delete across kinds. Each --epic/--feature/--story
+    // flag accepts multiple values. Per-id failures land in the
+    // response and print after the success summary so the operator
+    // sees what landed and what didn't in one block.
+    private static Command BuildBulkDelete(Option<string> apiUrlOption, Option<string?> tokenOption)
+    {
+        var epicOption = new Option<string[]>("--epic", "Epic ID (GUID). Repeatable.")
+        { AllowMultipleArgumentsPerToken = true };
+        var featureOption = new Option<string[]>("--feature", "Feature ID (GUID). Repeatable.")
+        { AllowMultipleArgumentsPerToken = true };
+        var storyOption = new Option<string[]>("--story", "Story ID (GUID). Repeatable.")
+        { AllowMultipleArgumentsPerToken = true };
+        var jsonOption = new Option<bool>("--json", "Output raw JSON");
+
+        var cmd = new Command("delete", "Bulk delete backlog items across kinds")
+        {
+            epicOption, featureOption, storyOption, jsonOption
+        };
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            var epicIds = (ctx.ParseResult.GetValueForOption(epicOption) ?? Array.Empty<string>())
+                .Select(Guid.Parse).ToList();
+            var featureIds = (ctx.ParseResult.GetValueForOption(featureOption) ?? Array.Empty<string>())
+                .Select(Guid.Parse).ToList();
+            var storyIds = (ctx.ParseResult.GetValueForOption(storyOption) ?? Array.Empty<string>())
+                .Select(Guid.Parse).ToList();
+            var json = ctx.ParseResult.GetValueForOption(jsonOption);
+
+            if (epicIds.Count + featureIds.Count + storyIds.Count == 0)
+            {
+                Console.Error.WriteLine("Specify at least one --epic, --feature, or --story.");
+                return;
+            }
+
+            using var api = CreateClient(ctx, apiUrlOption, tokenOption);
+            var result = await api.PostAsync<BulkDeleteResult>("api/backlog/bulk-delete",
+                new BulkDeleteRequest(epicIds, featureIds, storyIds));
+            if (result is null) return;
+
+            if (json) { Console.WriteLine(ApiClient.ToJson(result)); return; }
+
+            Console.WriteLine($"Deleted: {result.Deleted.Epics.Count} epics, {result.Deleted.Features.Count} features, {result.Deleted.Stories.Count} stories.");
+            if (result.Failed.Count > 0)
+            {
+                Console.WriteLine($"Failed: {result.Failed.Count}");
+                foreach (var f in result.Failed)
+                    Console.WriteLine($"  {f.Kind} {f.Id}: {f.Reason}");
+            }
         });
         return cmd;
     }

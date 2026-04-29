@@ -213,4 +213,78 @@ public class BacklogControllerTests : IClassFixture<TestWebApplicationFactory>
         var resp = await _client.GetAsync($"/api/repositories/{repo.Id}/backlog");
         Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
     }
+
+    // ── #101 — Bulk delete ──────────────────────────────────────────
+
+    [Fact]
+    public async Task BulkDelete_HappyPath_DeletesAcrossKindsAndReturns200()
+    {
+        var repoId = await SeedRepoAsync();
+        var (epicId, featureId, storyId) = await SeedBacklogHierarchyAsync(repoId);
+
+        var resp = await _client.PostAsJsonAsync(
+            "/api/backlog/bulk-delete",
+            new { storyIds = new[] { storyId } },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<BulkDeleteResult>(JsonOptions);
+        Assert.Single(body!.Deleted.Stories);
+        Assert.Empty(body.Failed);
+
+        // Verify the story is gone but feature + epic remain.
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        Assert.Null(await db.UserStories.FindAsync(storyId));
+        Assert.NotNull(await db.Features.FindAsync(featureId));
+        Assert.NotNull(await db.Epics.FindAsync(epicId));
+    }
+
+    [Fact]
+    public async Task BulkDelete_PartialFailure_Returns200WithFailedList()
+    {
+        var repoId = await SeedRepoAsync();
+        var (_, _, storyId) = await SeedBacklogHierarchyAsync(repoId);
+        var unknown = Guid.NewGuid();
+
+        var resp = await _client.PostAsJsonAsync(
+            "/api/backlog/bulk-delete",
+            new { storyIds = new[] { storyId, unknown } },
+            JsonOptions);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var body = await resp.Content.ReadFromJsonAsync<BulkDeleteResult>(JsonOptions);
+        Assert.Single(body!.Deleted.Stories);
+        Assert.Single(body.Failed);
+        Assert.Equal("NotFound", body.Failed[0].Reason);
+    }
+
+    [Fact]
+    public async Task BulkDelete_EmptyBody_Returns400()
+    {
+        var resp = await _client.PostAsJsonAsync("/api/backlog/bulk-delete", new { });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    private async Task<(Guid epicId, Guid featureId, Guid storyId)> SeedBacklogHierarchyAsync(Guid repoId)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var seq = DateTime.UtcNow.Ticks; // unique enough across tests
+        var epic = new Andy.Issues.Domain.Entities.Epic
+        {
+            Id = Guid.NewGuid(), Seq = seq, RepositoryId = repoId, Title = "E", Order = 1
+        };
+        db.Epics.Add(epic);
+        var feature = new Andy.Issues.Domain.Entities.Feature
+        {
+            Id = Guid.NewGuid(), Seq = seq + 1, EpicId = epic.Id, Title = "F", Order = 1
+        };
+        db.Features.Add(feature);
+        var story = new Andy.Issues.Domain.Entities.UserStory
+        {
+            Id = Guid.NewGuid(), Seq = seq + 2, FeatureId = feature.Id, Title = "S", Order = 1
+        };
+        db.UserStories.Add(story);
+        await db.SaveChangesAsync();
+        return (epic.Id, feature.Id, story.Id);
+    }
 }

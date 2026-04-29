@@ -215,5 +215,25 @@ public class BacklogController : ControllerBase
         return NoContent();
     }
 
+    // #101 — bulk delete across kinds. Reject empty bodies as 400 so
+    // accidental no-ops surface immediately. Per-id failures are
+    // collected on the response (200 OK with `failed[]`), not turned
+    // into 4xx — matches the wire contract that ships partial
+    // success.
+    [HttpPost("api/backlog/bulk-delete")]
+    [ProducesResponseType(typeof(BulkDeleteResult), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<BulkDeleteResult>> BulkDelete(
+        [FromBody] BulkDeleteRequest request,
+        CancellationToken ct)
+    {
+        if (request.IsEmpty)
+            return BadRequest(new { error = "At least one of epicIds/featureIds/storyIds must be non-empty." });
+
+        var result = await _backlog.BulkDeleteAsync(request, GetUserId(), ct);
+        return Ok(result);
+    }
+
     private string GetUserId() => User.RequireUserId();
 }

@@ -41,4 +41,12 @@ public interface IBacklogService
     Task<UserStoryDto?> UpdateStoryAsync(Guid storyId, UpdateUserStoryRequest request, string userId, CancellationToken ct = default);
     Task<UserStoryStatusUpdateResult> UpdateStoryStatusAsync(Guid storyId, UpdateUserStoryStatusRequest request, string userId, CancellationToken ct = default);
     Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default);
+
+    // #101 — bulk delete across kinds. Per-item authorisation matches
+    // single-delete semantics; partial success returns per-id failures
+    // (NotFound, Forbidden). Cascading follows existing single-delete
+    // (deleting an epic deletes its features + stories; deleting a
+    // feature deletes its stories) — EF cascade rules at the DbContext
+    // mapping handle this.
+    Task<BulkDeleteResult> BulkDeleteAsync(BulkDeleteRequest request, string userId, CancellationToken ct = default);
 }

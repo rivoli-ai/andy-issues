@@ -340,6 +340,118 @@ public class BacklogService : IBacklogService
         return UserStoryStatusUpdateResult.Ok(dto);
     }
 
+    // #101 — bulk delete across kinds. Single SaveChangesAsync so the
+    // operation is atomic; per-item authorisation reuses the existing
+    // owner-scope guard. Failures (not found / forbidden) are
+    // collected per id rather than aborting the batch — matches the
+    // wire contract that ships partial-success responses.
+    //
+    // Notifier fires per deleted entity (matches single-delete
+    // behavior). NATS `.deleted` outbox events are not emitted —
+    // the codebase doesn't publish delete events on the outbox today
+    // for any kind; adding them is a separate enhancement (see PR
+    // notes for #101).
+    public async Task<BulkDeleteResult> BulkDeleteAsync(
+        BulkDeleteRequest request, string userId, CancellationToken ct = default)
+    {
+        var deletedEpics = new List<Guid>();
+        var deletedFeatures = new List<Guid>();
+        var deletedStories = new List<Guid>();
+        var failed = new List<BulkDeleteFailure>();
+        var notifications = new List<Func<Task>>();
+
+        var epicIds = request.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request.StoryIds ?? Array.Empty<Guid>();
+
+        // Resolve everything we touch in one pass; ids missing from
+        // the DB land in the failure list as NotFound.
+        var epics = await _db.Epics
+            .Where(e => epicIds.Contains(e.Id))
+            .ToListAsync(ct);
+        var features = await _db.Features
+            .Include(f => f.Epic)
+            .Where(f => featureIds.Contains(f.Id))
+            .ToListAsync(ct);
+        var stories = await _db.UserStories
+            .Include(s => s.Feature).ThenInclude(f => f.Epic)
+            .Where(s => storyIds.Contains(s.Id))
+            .ToListAsync(ct);
+
+        // Stories first → features → epics. Within EF, parents cascade
+        // to children automatically, but we delete leaves first so the
+        // per-item authorisation only sees the unit explicitly named
+        // by the caller.
+        foreach (var id in storyIds)
+        {
+            var story = stories.FirstOrDefault(s => s.Id == id);
+            if (story is null)
+            {
+                failed.Add(new BulkDeleteFailure(id, "story", "NotFound"));
+                continue;
+            }
+            var repoId = story.Feature.Epic.RepositoryId;
+            if (!await _guard.CanViewAsync(repoId, userId, ct))
+            {
+                failed.Add(new BulkDeleteFailure(id, "story", "Forbidden"));
+                continue;
+            }
+            _db.UserStories.Remove(story);
+            deletedStories.Add(id);
+            notifications.Add(() => _notifier.StoryDeletedAsync(repoId, id, ct));
+        }
+
+        foreach (var id in featureIds)
+        {
+            var feature = features.FirstOrDefault(f => f.Id == id);
+            if (feature is null)
+            {
+                failed.Add(new BulkDeleteFailure(id, "feature", "NotFound"));
+                continue;
+            }
+            var repoId = feature.Epic.RepositoryId;
+            if (!await _guard.CanViewAsync(repoId, userId, ct))
+            {
+                failed.Add(new BulkDeleteFailure(id, "feature", "Forbidden"));
+                continue;
+            }
+            _db.Features.Remove(feature);
+            deletedFeatures.Add(id);
+            notifications.Add(() => _notifier.FeatureDeletedAsync(repoId, id, ct));
+        }
+
+        foreach (var id in epicIds)
+        {
+            var epic = epics.FirstOrDefault(e => e.Id == id);
+            if (epic is null)
+            {
+                failed.Add(new BulkDeleteFailure(id, "epic", "NotFound"));
+                continue;
+            }
+            if (!await _guard.CanViewAsync(epic.RepositoryId, userId, ct))
+            {
+                failed.Add(new BulkDeleteFailure(id, "epic", "Forbidden"));
+                continue;
+            }
+            var repoId = epic.RepositoryId;
+            _db.Epics.Remove(epic);
+            deletedEpics.Add(id);
+            notifications.Add(() => _notifier.EpicDeletedAsync(repoId, id, ct));
+        }
+
+        await _db.SaveChangesAsync(ct);
+
+        // Fire notifications after the commit so observers don't see a
+        // delete that later rolls back. SignalR is fire-and-forget;
+        // failures here don't affect the caller's response.
+        foreach (var notify in notifications)
+            await notify();
+
+        return new BulkDeleteResult(
+            new BulkDeleteSuccess(deletedEpics, deletedFeatures, deletedStories),
+            failed);
+    }
+
     public async Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default)
     {
         var story = await _db.UserStories
