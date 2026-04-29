@@ -329,6 +329,37 @@ public class ServiceToolsTests
         Assert.Contains("BadStatus", result);
     }
 
+    // #101 — bulk delete tool
+    [Fact]
+    public async Task BulkDeleteBacklogItems_ForwardsParsedGuidsToService()
+    {
+        var svc = new StubBacklogService();
+        var epicId = Guid.NewGuid();
+        var storyId = Guid.NewGuid();
+
+        await ServiceTools.BulkDeleteBacklogItems(_ctx, svc,
+            epicIds: epicId.ToString(),
+            featureIds: null,
+            storyIds: storyId.ToString());
+
+        Assert.NotNull(svc.LastBulkDeleteRequest);
+        Assert.Equal(epicId, svc.LastBulkDeleteRequest!.EpicIds!.Single());
+        Assert.Null(svc.LastBulkDeleteRequest.FeatureIds);
+        Assert.Equal(storyId, svc.LastBulkDeleteRequest.StoryIds!.Single());
+    }
+
+    [Fact]
+    public async Task BulkDeleteBacklogItems_EmptyArgs_ReturnsErrorString()
+    {
+        var svc = new StubBacklogService();
+
+        var result = await ServiceTools.BulkDeleteBacklogItems(_ctx, svc,
+            epicIds: null, featureIds: null, storyIds: null);
+
+        Assert.Contains("At least one of", result);
+        Assert.Null(svc.LastBulkDeleteRequest);
+    }
+
     [Fact]
     public async Task GenerateDraftBacklog_ReturnsBacklog()
     {
@@ -674,6 +705,18 @@ file class StubBacklogService : IBacklogService
 
     public Task<bool> DeleteStoryAsync(Guid storyId, string userId, CancellationToken ct = default) =>
         Task.FromResult(true);
+
+    public BulkDeleteRequest? LastBulkDeleteRequest { get; private set; }
+    public BulkDeleteResult? BulkDeleteResult { get; set; }
+
+    public Task<BulkDeleteResult> BulkDeleteAsync(BulkDeleteRequest request, string userId, CancellationToken ct = default)
+    {
+        LastBulkDeleteRequest = request;
+        return Task.FromResult(BulkDeleteResult ??
+            new BulkDeleteResult(
+                new BulkDeleteSuccess(Array.Empty<Guid>(), Array.Empty<Guid>(), Array.Empty<Guid>()),
+                Array.Empty<BulkDeleteFailure>()));
+    }
 }
 
 file class StubIssueService : IIssueService

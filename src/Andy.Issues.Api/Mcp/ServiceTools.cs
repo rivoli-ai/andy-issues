@@ -195,6 +195,37 @@ public static class ServiceTools
         };
     }
 
+    [McpServerTool, Description(
+        "Bulk delete backlog items across kinds. Each list takes comma-separated GUIDs. " +
+        "At least one of epicIds/featureIds/storyIds must be non-empty. Per-id failures are " +
+        "returned in the response, not raised as errors — partial success is allowed.")]
+    public static async Task<string> BulkDeleteBacklogItems(
+        IHttpContextAccessor ctx,
+        IBacklogService svc,
+        [Description("Comma-separated epic GUIDs (optional)")] string? epicIds,
+        [Description("Comma-separated feature GUIDs (optional)")] string? featureIds,
+        [Description("Comma-separated story GUIDs (optional)")] string? storyIds)
+    {
+        var request = new BulkDeleteRequest(
+            EpicIds: ParseGuidList(epicIds),
+            FeatureIds: ParseGuidList(featureIds),
+            StoryIds: ParseGuidList(storyIds));
+
+        if (request.IsEmpty)
+            return "At least one of epicIds, featureIds, or storyIds must be supplied.";
+
+        var result = await svc.BulkDeleteAsync(request, GetUserId(ctx));
+        return Serialize(result);
+    }
+
+    private static IReadOnlyList<Guid>? ParseGuidList(string? csv)
+    {
+        if (string.IsNullOrWhiteSpace(csv)) return null;
+        return csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(s => Guid.Parse(s))
+            .ToList();
+    }
+
     [McpServerTool, Description("Generate a draft backlog (epics, features, stories) for a repository using AI. Requires a linked LLM setting and code index.")]
     public static async Task<string> GenerateDraftBacklog(
         IHttpContextAccessor ctx,
