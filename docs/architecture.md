@@ -118,6 +118,17 @@ The schema's snake_case property names apply to the **NATS event payload** (seri
 
 `IssueEventOutbox.AppendIssueEvent` accepts optional `causationId` and `parentGeneration` parameters (Z4). When the transition is driven by an upstream message — Z2's `ContainerRunEventConsumer` reacting to a `run.finished` — the consumer passes the parent message's `msg-id` as `causationId` and its `generation` as `parentGeneration`; the resulting outbox row carries `causation-id = parent.msg-id` and `generation = parent.generation + 1` per ADR-0001 §5. User-driven transitions (REST/CLI/MCP) leave both at the default; the row is the root of its causation chain.
 
+### Revisions (Z5)
+
+Every change to `Issue.TriageOutput` appends a `TriageOutputRevision` row to the audit history. Two callers produce revisions:
+
+- `CompleteTriage(output, by)` — agent-produced output; `AuthorKind = Agent`. Emits `triaged` event.
+- `EditOutput(output, by)` / `Revert(targetId, by)` — human edits via `PATCH /api/triage/{id}/output` and `POST /api/triage/{id}/revert`; `AuthorKind = Human`. Emits `andy.issues.events.issue.{id}.revised`.
+
+The `Issue.TriageOutput` field is the materialised "current" view; `TriageOutputRevisions` is the history. Human edits are allowed only while `Triaged` (rejected with HTTP 409 in any other state). Reverts produce a new revision with the target revision's content and `DiffSummary = "Reverted to revision <id>"`.
+
+Per the AB6 reconciliation in the Z5 spec, the planning-side handoff (andy-tasks AA4) subscribes to `andy.issues.events.issue.*.accepted`, **not** `triaged` or `revised` — so AI-driven editing during human review never triggers premature Goal creation downstream.
+
 ## Sandboxes and andy-containers
 
 andy-issues never creates, execs into, or destroys containers itself. Every container operation is delegated to the sibling `andy-containers` service via its published client library.

@@ -90,6 +90,26 @@ public class Issue
         UpdatedAt = TriagedAt;
     }
 
+    // Z5 — human edit of the latest triage output. Allowed only while
+    // Triaged (not while the agent is still running, not after a
+    // terminal accept/reject). The service is responsible for
+    // appending a TriageOutputRevision row for this change; the
+    // entity just enforces the transition constraint and validation.
+    public void EditOutput(TriageOutput output, string editedBy)
+    {
+        if (TriageState != TriageState.Triaged)
+            throw new InvalidOperationException(
+                $"Cannot edit triage output while in {TriageState}; allowed only in Triaged.");
+
+        if (string.IsNullOrWhiteSpace(output.Rationale))
+            throw new ArgumentException(
+                "TriageOutput.Rationale must be non-empty.", nameof(output));
+
+        TriageOutput = output;
+        TriagedBy = editedBy;
+        UpdatedAt = DateTimeOffset.UtcNow;
+    }
+
     public void Accept(string acceptedBy)
     {
         if (TriageState == TriageState.Accepted)

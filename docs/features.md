@@ -68,6 +68,9 @@ The `Issue` entity tracks an intake envelope through triage before it becomes a 
 | `POST /api/triage/{id}/complete` | `Triaging` | Moves to `Triaged`; emits `andy.issues.events.issue.{id}.triaged`. |
 | `POST /api/triage/{id}/accept` | `Triaged`, `Accepted` (no-op) | Moves to `Accepted` (terminal); emits `.accepted` once. |
 | `POST /api/triage/{id}/reject` | `Triaged`, `Rejected` (no-op) | Moves to `Rejected` (terminal); emits `.rejected` once. |
+| `PATCH /api/triage/{id}/output` | `Triaged` | Human edit (Z5). Replaces the latest output, appends a revision (`AuthorKind=Human`), emits `andy.issues.events.issue.{id}.revised`. Body: `{ output, diffSummary? }`. |
+| `GET /api/triage/{id}/revisions` | any | Newest-first revision history (Z5). Owner-scoped. |
+| `POST /api/triage/{id}/revert` | `Triaged` | Restore a prior revision as a new human-authored revision (Z5). Body: `{ targetRevisionId }`. |
 
 - `200 OK` with the updated `IssueDto` on success.
 - `409 Conflict` (body: `TriageConflictResponse { error: string }`) if the transition is forbidden by the state machine.

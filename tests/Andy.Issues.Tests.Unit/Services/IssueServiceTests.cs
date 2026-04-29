@@ -189,4 +189,142 @@ public class IssueServiceTests : IDisposable
         var dto = await NewService(ctx).GetAsync(id, "bob");
         Assert.Null(dto);
     }
+
+    // ── Z5 — Revisions ──────────────────────────────────────────────
+
+    private static Andy.Issues.Domain.ValueTypes.TriageOutput MakeOutput(string rationale = "Repro.") =>
+        new(Andy.Issues.Domain.Enums.TriageTemplateId.BugFix,
+            Andy.Issues.Domain.Enums.TriageSeverity.Critical,
+            "rivoli-ai/andy-tasks", rationale,
+            Array.Empty<Andy.Issues.Domain.ValueTypes.DocsRef>(),
+            new Andy.Issues.Domain.ValueTypes.EstimateSlot());
+
+    [Fact]
+    public async Task CompleteTriage_WithOutput_AppendsAgentRevision()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput());
+
+        await using var verify = NewContext();
+        var revisions = await verify.TriageOutputRevisions
+            .Where(r => r.IssueId == id).ToListAsync();
+        Assert.Single(revisions);
+        Assert.Equal(Andy.Issues.Domain.Enums.TriageRevisionAuthorKind.Agent,
+            revisions[0].AuthorKind);
+        Assert.Equal("alice", revisions[0].Author);
+    }
+
+    [Fact]
+    public async Task EditOutput_AppendsHumanRevisionAndEmitsRevisedEvent()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput("First."));
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).EditOutputAsync(
+                id, "alice", MakeOutput("Reclassified."), diffSummary: "Severity bumped.");
+            Assert.Equal(IssueTriageOutcome.Updated, result.Outcome);
+        }
+
+        await using var verify = NewContext();
+        var revisions = await verify.TriageOutputRevisions
+            .Where(r => r.IssueId == id).OrderBy(r => r.CreatedAt).ToListAsync();
+        Assert.Equal(2, revisions.Count);
+        Assert.Equal(Andy.Issues.Domain.Enums.TriageRevisionAuthorKind.Human, revisions[1].AuthorKind);
+        Assert.Equal("Severity bumped.", revisions[1].DiffSummary);
+
+        var revisedRows = await verify.Outbox.CountAsync(e => e.Subject.EndsWith(".revised"));
+        Assert.Equal(1, revisedRows);
+    }
+
+    [Fact]
+    public async Task EditOutput_FromNonTriagedState_ReturnsInvalidTransition()
+    {
+        var id = await CreateIssueAsync();
+        // Issue is NeedsTriage — edit not allowed.
+        await using var ctx = NewContext();
+        var result = await NewService(ctx).EditOutputAsync(id, "alice", MakeOutput());
+        Assert.Equal(IssueTriageOutcome.InvalidTransition, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Revert_ToPriorRevision_AppendsHumanRevisionWithThatContent()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput("First."));
+        await using (var ctx = NewContext())
+            await NewService(ctx).EditOutputAsync(id, "alice", MakeOutput("Second."));
+
+        Guid firstRevisionId;
+        await using (var ctx = NewContext())
+        {
+            firstRevisionId = (await ctx.TriageOutputRevisions
+                .Where(r => r.IssueId == id).OrderBy(r => r.CreatedAt).FirstAsync()).Id;
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var result = await NewService(ctx).RevertAsync(id, "alice", firstRevisionId);
+            Assert.Equal(IssueTriageOutcome.Updated, result.Outcome);
+            Assert.Equal("First.", result.Issue!.TriageOutput!.Rationale);
+        }
+
+        await using var verify = NewContext();
+        // Three revisions total: agent-First, human-Second, human-Reverted.
+        var count = await verify.TriageOutputRevisions
+            .Where(r => r.IssueId == id).CountAsync();
+        Assert.Equal(3, count);
+
+        // Revert emits a `revised` event (same kind as edit).
+        var revisedRows = await verify.Outbox.CountAsync(e => e.Subject.EndsWith(".revised"));
+        Assert.Equal(2, revisedRows);
+    }
+
+    [Fact]
+    public async Task Revert_UnknownTargetRevision_ReturnsNotFound()
+    {
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput());
+
+        await using var ctx2 = NewContext();
+        var result = await NewService(ctx2).RevertAsync(id, "alice", Guid.NewGuid());
+        Assert.Equal(IssueTriageOutcome.NotFound, result.Outcome);
+    }
+
+    [Fact]
+    public async Task ListRevisions_ReturnsNewestFirst_OwnerScoped()
+    {
+        var id = await CreateIssueAsync(owner: "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        await using (var ctx = NewContext())
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput("v1"));
+        await Task.Delay(10);
+        await using (var ctx = NewContext())
+            await NewService(ctx).EditOutputAsync(id, "alice", MakeOutput("v2"));
+
+        await using var ctx2 = NewContext();
+        var rows = await NewService(ctx2).ListRevisionsAsync(id, "alice");
+        Assert.NotNull(rows);
+        Assert.Equal(2, rows!.Count);
+        Assert.Equal("v2", rows[0].TriageOutput.Rationale); // newest first
+        Assert.Equal("v1", rows[1].TriageOutput.Rationale);
+
+        // Different owner — null.
+        var fromBob = await NewService(ctx2).ListRevisionsAsync(id, "bob");
+        Assert.Null(fromBob);
+    }
 }

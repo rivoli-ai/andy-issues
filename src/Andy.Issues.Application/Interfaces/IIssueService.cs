@@ -38,6 +38,19 @@ public interface IIssueService
     Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default);
 
+    // Z5 — human edit of the latest triage output. Allowed only while
+    // Triaged. Appends a new revision (AuthorKind=Human) and emits
+    // andy.issues.events.issue.{id}.revised.
+    Task<IssueTriageResult> EditOutputAsync(Guid id, string userId, TriageOutput output, string? diffSummary = null, CancellationToken ct = default);
+
+    // Z5 — restore a prior revision. Looks up the target revision,
+    // applies its content as a new (Human-authored) revision. Same
+    // event subject as EditOutput.
+    Task<IssueTriageResult> RevertAsync(Guid id, string userId, Guid targetRevisionId, CancellationToken ct = default);
+
+    // Z5 — paginated history for the issue, newest first.
+    Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(Guid id, string userId, CancellationToken ct = default);
+
     // Minimal create — needed to drive the state machine end-to-end. The
     // production intake path (which is out of scope for Z1) will likely
     // come from external sources (GitHub webhooks, conductor) once

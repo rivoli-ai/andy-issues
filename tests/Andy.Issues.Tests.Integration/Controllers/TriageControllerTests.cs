@@ -202,4 +202,110 @@ public class TriageControllerTests : IClassFixture<TestWebApplicationFactory>
         var dto = await reStart.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
         Assert.Equal("Triaging", dto!.TriageState);
     }
+
+    // ── Z5 — Revisions ──────────────────────────────────────────────
+
+    private static object MakeOutputBody(string rationale = "Repro confirmed.") => new
+    {
+        templateId = "BugFix",
+        severity = "Critical",
+        suggestedRepo = "rivoli-ai/andy-tasks",
+        rationale,
+        inputsDocsRefs = Array.Empty<object>(),
+        initialEstimate = new { }
+    };
+
+    private async Task<Guid> CreateAndCompleteAsync(string rationale = "First.")
+    {
+        var issue = await CreateIssueAsync();
+        await _client.PostAsync($"/api/triage/{issue.Id}/start", null);
+        var resp = await _client.PostAsJsonAsync(
+            $"/api/triage/{issue.Id}/complete", MakeOutputBody(rationale));
+        resp.EnsureSuccessStatusCode();
+        return issue.Id;
+    }
+
+    [Fact]
+    public async Task PatchOutput_FromTriaged_AppendsRevisionAndEmitsRevised()
+    {
+        var id = await CreateAndCompleteAsync();
+
+        var resp = await _client.PatchAsJsonAsync(
+            $"/api/triage/{id}/output",
+            new
+            {
+                output = MakeOutputBody("Reclassified."),
+                diffSummary = "Severity bumped."
+            });
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var dto = await resp.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
+        Assert.Equal("Reclassified.", dto!.TriageOutput!.Rationale);
+
+        var subjects = await GetOutboxSubjectsAsync(id);
+        Assert.Contains(subjects, s => s.EndsWith(".triaged"));
+        Assert.Contains(subjects, s => s.EndsWith(".revised"));
+    }
+
+    [Fact]
+    public async Task PatchOutput_FromNeedsTriage_Returns409()
+    {
+        var issue = await CreateIssueAsync();
+        var resp = await _client.PatchAsJsonAsync(
+            $"/api/triage/{issue.Id}/output",
+            new { output = MakeOutputBody(), diffSummary = (string?)null });
+        Assert.Equal(HttpStatusCode.Conflict, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetRevisions_ReturnsNewestFirst()
+    {
+        var id = await CreateAndCompleteAsync(rationale: "v1");
+
+        // Edit twice so we have three revisions total.
+        await _client.PatchAsJsonAsync($"/api/triage/{id}/output",
+            new { output = MakeOutputBody("v2"), diffSummary = (string?)null });
+        await _client.PatchAsJsonAsync($"/api/triage/{id}/output",
+            new { output = MakeOutputBody("v3"), diffSummary = (string?)null });
+
+        var resp = await _client.GetAsync($"/api/triage/{id}/revisions");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var rows = await resp.Content.ReadFromJsonAsync<List<TriageOutputRevisionDto>>(JsonOptions);
+        Assert.Equal(3, rows!.Count);
+        Assert.Equal("v3", rows[0].TriageOutput.Rationale);
+        Assert.Equal("v2", rows[1].TriageOutput.Rationale);
+        Assert.Equal("v1", rows[2].TriageOutput.Rationale);
+    }
+
+    [Fact]
+    public async Task PostRevert_RestoresPriorRevisionAsNewRevision()
+    {
+        var id = await CreateAndCompleteAsync(rationale: "first");
+        await _client.PatchAsJsonAsync($"/api/triage/{id}/output",
+            new { output = MakeOutputBody("second"), diffSummary = (string?)null });
+
+        var revsResp = await _client.GetAsync($"/api/triage/{id}/revisions");
+        var revs = await revsResp.Content.ReadFromJsonAsync<List<TriageOutputRevisionDto>>(JsonOptions);
+        var firstRevisionId = revs!.Single(r => r.TriageOutput.Rationale == "first").Id;
+
+        var revertResp = await _client.PostAsJsonAsync(
+            $"/api/triage/{id}/revert", new { targetRevisionId = firstRevisionId });
+        Assert.Equal(HttpStatusCode.OK, revertResp.StatusCode);
+        var dto = await revertResp.Content.ReadFromJsonAsync<IssueDto>(JsonOptions);
+        Assert.Equal("first", dto!.TriageOutput!.Rationale);
+
+        // Final revision count: agent-first, human-second, human-revert = 3.
+        var revs2 = await (await _client.GetAsync($"/api/triage/{id}/revisions"))
+            .Content.ReadFromJsonAsync<List<TriageOutputRevisionDto>>(JsonOptions);
+        Assert.Equal(3, revs2!.Count);
+        Assert.StartsWith("Reverted to revision", revs2[0].DiffSummary);
+    }
+
+    [Fact]
+    public async Task PostRevert_UnknownRevision_Returns404()
+    {
+        var id = await CreateAndCompleteAsync();
+        var resp = await _client.PostAsJsonAsync(
+            $"/api/triage/{id}/revert", new { targetRevisionId = Guid.NewGuid() });
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
 }

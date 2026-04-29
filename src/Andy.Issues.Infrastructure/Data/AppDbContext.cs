@@ -34,6 +34,7 @@ public class AppDbContext : DbContext
     public DbSet<Feature> Features => Set<Feature>();
     public DbSet<UserStory> UserStories => Set<UserStory>();
     public DbSet<Issue> Issues => Set<Issue>();
+    public DbSet<TriageOutputRevision> TriageOutputRevisions => Set<TriageOutputRevision>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
@@ -179,6 +180,30 @@ public class AppDbContext : DbContext
                     v => v == null ? null : JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
                     v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.TriageOutput>(v, Andy.Issues.Application.Messaging.EventJson.Options))
                 .HasColumnName("TriageOutputJson");
+        });
+
+        // Z5 — versioned audit table for triage output. Cascade delete
+        // with the parent Issue: revisions don't outlive their issue.
+        modelBuilder.Entity<TriageOutputRevision>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.IssueId).IsRequired();
+            e.Property(x => x.Author).IsRequired().HasMaxLength(256);
+            e.Property(x => x.AuthorKind).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.DiffSummary).HasMaxLength(2048);
+            e.Property(x => x.TriageOutput)
+                .HasConversion(
+                    v => JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
+                    v => JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.TriageOutput>(v, Andy.Issues.Application.Messaging.EventJson.Options)!)
+                .HasColumnName("TriageOutputJson")
+                .IsRequired();
+            // Composite index for the GET /revisions hot query:
+            //   WHERE IssueId = ? ORDER BY CreatedAt DESC
+            e.HasIndex(x => new { x.IssueId, x.CreatedAt });
+            e.HasOne<Issue>()
+                .WithMany()
+                .HasForeignKey(x => x.IssueId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Counter row backing the per-type short-id sequences. Seeded

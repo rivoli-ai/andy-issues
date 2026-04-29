@@ -40,6 +40,10 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     [InlineData("/api/triage/{id}/complete", OperationType.Post, new[] { "200", "401", "404", "409" })]
     [InlineData("/api/triage/{id}/accept", OperationType.Post, new[] { "200", "401", "404", "409" })]
     [InlineData("/api/triage/{id}/reject", OperationType.Post, new[] { "200", "401", "404", "409" })]
+    // Z5 — human-edit + revisions surface
+    [InlineData("/api/triage/{id}/output", OperationType.Patch, new[] { "200", "400", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/revisions", OperationType.Get, new[] { "200", "401", "404" })]
+    [InlineData("/api/triage/{id}/revert", OperationType.Post, new[] { "200", "401", "404", "409" })]
     public void TriageOperation_DeclaresExpectedResponseCodes(
         string path, OperationType verb, string[] expectedCodes)
     {
