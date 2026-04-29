@@ -110,6 +110,46 @@ public class TriageController : ControllerBase
     public Task<ActionResult<IssueDto>> Reject(Guid id, CancellationToken ct) =>
         Transition(_issues.RejectAsync(id, GetUserId(), ct));
 
+    // Z5 — human edit of the latest triage output. Conductor's AB6
+    // chat panel hits this; allowed only while Triaged.
+    [HttpPatch("{id:guid}/output")]
+    [ProducesResponseType(typeof(IssueDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status409Conflict)]
+    public Task<ActionResult<IssueDto>> EditOutput(
+        Guid id,
+        [FromBody] EditTriageOutputRequest request,
+        CancellationToken ct) =>
+        Transition(_issues.EditOutputAsync(id, GetUserId(), request.Output, request.DiffSummary, ct));
+
+    // Z5 — list revisions newest-first. Conductor's AB5 version
+    // timeline consumes this.
+    [HttpGet("{id:guid}/revisions")]
+    [ProducesResponseType(typeof(IReadOnlyList<TriageOutputRevisionDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<IReadOnlyList<TriageOutputRevisionDto>>> ListRevisions(
+        Guid id, CancellationToken ct)
+    {
+        var rows = await _issues.ListRevisionsAsync(id, GetUserId(), ct);
+        if (rows is null) return NotFound();
+        return Ok(rows);
+    }
+
+    // Z5 — restore a prior revision as a new (Human-authored) revision.
+    [HttpPost("{id:guid}/revert")]
+    [ProducesResponseType(typeof(IssueDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status409Conflict)]
+    public Task<ActionResult<IssueDto>> Revert(
+        Guid id,
+        [FromBody] RevertTriageRequest request,
+        CancellationToken ct) =>
+        Transition(_issues.RevertAsync(id, GetUserId(), request.TargetRevisionId, ct));
+
     private async Task<ActionResult<IssueDto>> Transition(Task<IssueTriageResult> task)
     {
         var result = await task;

@@ -651,6 +651,15 @@ file class StubIssueService : IIssueService
     public Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default) =>
         Task.FromResult(IssueTriageResult.NotFound());
 
+    public Task<IssueTriageResult> EditOutputAsync(Guid id, string userId, Andy.Issues.Domain.ValueTypes.TriageOutput output, string? diffSummary = null, CancellationToken ct = default) =>
+        Task.FromResult(IssueTriageResult.NotFound());
+
+    public Task<IssueTriageResult> RevertAsync(Guid id, string userId, Guid targetRevisionId, CancellationToken ct = default) =>
+        Task.FromResult(IssueTriageResult.NotFound());
+
+    public Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(Guid id, string userId, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<TriageOutputRevisionDto>?>(null);
+
     public Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default) =>
         Task.FromResult(new IssueDto(Guid.NewGuid(), userId, null, request.Title, request.Body,
             "NeedsTriage", null, null, null, DateTimeOffset.UtcNow, null));

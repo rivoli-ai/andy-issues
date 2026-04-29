@@ -89,7 +89,30 @@ public class IssueService : IIssueService
         TransitionAsync(id, userId, issue => issue.StartTriage(), terminalKind: null, ct);
 
     public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default) =>
-        TransitionAsync(id, userId, issue => issue.CompleteTriage(userId, output), terminalKind: IssueEventKind.Triaged, ct);
+        TransitionAsync(id, userId, issue =>
+            {
+                issue.CompleteTriage(userId, output);
+                // Z5 — append a revision row for every output that
+                // arrives. AuthorKind=Agent because CompleteTriage is
+                // the path that delivers agent-produced output (Z2's
+                // run.finished consumer). Revisions list null outputs
+                // skipped — Z1 still allows manual completion without
+                // an output payload for testing.
+                if (output is not null)
+                {
+                    _db.TriageOutputRevisions.Add(new TriageOutputRevision
+                    {
+                        Id = Guid.NewGuid(),
+                        IssueId = issue.Id,
+                        Author = userId,
+                        AuthorKind = TriageRevisionAuthorKind.Agent,
+                        TriageOutput = output,
+                        DiffSummary = null,
+                        CreatedAt = DateTimeOffset.UtcNow
+                    });
+                }
+            },
+            terminalKind: IssueEventKind.Triaged, ct);
 
     public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue => issue.Accept(userId), terminalKind: IssueEventKind.Accepted, ct,
@@ -98,6 +121,59 @@ public class IssueService : IIssueService
     public Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue => issue.Reject(userId), terminalKind: IssueEventKind.Rejected, ct,
             isIdempotentTerminal: i => i.TriageState == TriageState.Rejected);
+
+    // Z5 — human edit. EditOutput throws InvalidOperationException
+    // if the issue is not Triaged; the shared TransitionAsync helper
+    // catches that and returns InvalidTransition (HTTP 409).
+    public Task<IssueTriageResult> EditOutputAsync(
+        Guid id, string userId, TriageOutput output, string? diffSummary = null, CancellationToken ct = default) =>
+        TransitionAsync(id, userId, issue =>
+            {
+                issue.EditOutput(output, userId);
+                _db.TriageOutputRevisions.Add(new TriageOutputRevision
+                {
+                    Id = Guid.NewGuid(),
+                    IssueId = issue.Id,
+                    Author = userId,
+                    AuthorKind = TriageRevisionAuthorKind.Human,
+                    TriageOutput = output,
+                    DiffSummary = diffSummary,
+                    CreatedAt = DateTimeOffset.UtcNow
+                });
+            },
+            terminalKind: IssueEventKind.Revised, ct);
+
+    public async Task<IssueTriageResult> RevertAsync(
+        Guid id, string userId, Guid targetRevisionId, CancellationToken ct = default)
+    {
+        var target = await _db.TriageOutputRevisions
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.Id == targetRevisionId && r.IssueId == id, ct);
+        if (target is null) return IssueTriageResult.NotFound();
+
+        return await EditOutputAsync(id, userId, target.TriageOutput,
+            diffSummary: $"Reverted to revision {target.Id}", ct);
+    }
+
+    public async Task<IReadOnlyList<TriageOutputRevisionDto>?> ListRevisionsAsync(
+        Guid id, string userId, CancellationToken ct = default)
+    {
+        // Owner-scope check via Issues so revisions don't leak across
+        // users even with a guessed Issue id.
+        var issue = await _db.Issues.AsNoTracking()
+            .FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return null;
+        if (issue.OwnerUserId != userId) return null;
+
+        var rows = await _db.TriageOutputRevisions.AsNoTracking()
+            .Where(r => r.IssueId == id)
+            .OrderByDescending(r => r.CreatedAt)
+            .ToListAsync(ct);
+
+        return rows.Select(r => new TriageOutputRevisionDto(
+            r.Id, r.IssueId, r.Author, r.AuthorKind.ToString(),
+            r.TriageOutput, r.DiffSummary, r.CreatedAt)).ToList();
+    }
 
     // Common shape: load issue, run the entity-level transition (which
     // enforces the state machine), append outbox row for terminal

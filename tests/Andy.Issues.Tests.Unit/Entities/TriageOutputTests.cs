@@ -133,6 +133,83 @@ public class TriageOutputTests
         Assert.Null(issue.TriageOutput);
     }
 
+    // ── Z5 — EditOutput ─────────────────────────────────────────────
+
+    [Fact]
+    public void EditOutput_FromTriaged_ReplacesOutputAndUpdatesAuthor()
+    {
+        var issue = new Issue { Title = "x" };
+        issue.StartTriage();
+        issue.CompleteTriage("agent-1", MakeValidOutput());
+
+        var revised = new TriageOutput(
+            TriageTemplateId.Feature, TriageSeverity.Moderate,
+            SuggestedRepo: null, Rationale: "Reclassified by reviewer.",
+            InputsDocsRefs: Array.Empty<DocsRef>(), InitialEstimate: new EstimateSlot());
+        issue.EditOutput(revised, "alice");
+
+        Assert.Equal(TriageState.Triaged, issue.TriageState);
+        Assert.Equal(TriageTemplateId.Feature, issue.TriageOutput!.TemplateId);
+        Assert.Equal("alice", issue.TriagedBy);
+    }
+
+    [Theory]
+    [InlineData(TriageState.NeedsTriage)]
+    [InlineData(TriageState.Triaging)]
+    [InlineData(TriageState.Accepted)]
+    [InlineData(TriageState.Rejected)]
+    public void EditOutput_FromInvalidState_Throws(TriageState start)
+    {
+        var issue = AtState(start);
+        Assert.Throws<InvalidOperationException>(() =>
+            issue.EditOutput(MakeValidOutput(), "alice"));
+    }
+
+    [Fact]
+    public void EditOutput_EmptyRationale_Throws()
+    {
+        var issue = new Issue { Title = "x" };
+        issue.StartTriage();
+        issue.CompleteTriage("agent-1", MakeValidOutput());
+
+        var bad = new TriageOutput(
+            TriageTemplateId.BugFix, TriageSeverity.Info,
+            SuggestedRepo: null, Rationale: "  ",
+            InputsDocsRefs: Array.Empty<DocsRef>(), InitialEstimate: new EstimateSlot());
+
+        Assert.Throws<ArgumentException>(() => issue.EditOutput(bad, "alice"));
+        // Failed validation leaves the prior output intact.
+        Assert.Equal("Repro confirmed.", issue.TriageOutput!.Rationale);
+    }
+
+    private static Issue AtState(TriageState state)
+    {
+        var issue = new Issue { Title = "x" };
+        switch (state)
+        {
+            case TriageState.NeedsTriage:
+                break;
+            case TriageState.Triaging:
+                issue.StartTriage();
+                break;
+            case TriageState.Triaged:
+                issue.StartTriage();
+                issue.CompleteTriage("agent-1");
+                break;
+            case TriageState.Accepted:
+                issue.StartTriage();
+                issue.CompleteTriage("agent-1");
+                issue.Accept("alice");
+                break;
+            case TriageState.Rejected:
+                issue.StartTriage();
+                issue.CompleteTriage("agent-1");
+                issue.Reject("alice");
+                break;
+        }
+        return issue;
+    }
+
     private static TriageOutput MakeValidOutput() => new(
         TriageTemplateId.BugFix,
         TriageSeverity.Critical,

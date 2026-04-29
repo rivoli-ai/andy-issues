@@ -41,7 +41,11 @@ public enum IssueEventKind
 {
     Triaged,
     Accepted,
-    Rejected
+    Rejected,
+    // Z5 — human edits to the triage output (PATCH /output, POST
+    // /revert). NOT emitted when the agent produces a new revision —
+    // that path goes through CompleteTriage which fires `triaged`.
+    Revised
 }
 
 public static class IssueEventKindExtensions
@@ -51,6 +55,7 @@ public static class IssueEventKindExtensions
         IssueEventKind.Triaged => "triaged",
         IssueEventKind.Accepted => "accepted",
         IssueEventKind.Rejected => "rejected",
+        IssueEventKind.Revised => "revised",
         _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null)
     };
 }
