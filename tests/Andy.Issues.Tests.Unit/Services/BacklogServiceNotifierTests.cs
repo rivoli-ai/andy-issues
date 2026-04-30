@@ -133,5 +133,6 @@ public class BacklogServiceNotifierTests : IDisposable
         public Task StoryAddedAsync(Guid r, UserStoryDto s, CancellationToken ct = default) => Record("StoryAdded", r, s);
         public Task StoryUpdatedAsync(Guid r, UserStoryDto s, CancellationToken ct = default) => Record("StoryUpdated", r, s);
         public Task StoryDeletedAsync(Guid r, Guid id, CancellationToken ct = default) => Record("StoryDeleted", r, id);
+        public Task BacklogGenerationProgressAsync(Guid r, BacklogGenerationDto g, CancellationToken ct = default) => Record("BacklogGenerationProgress", r, g);
     }
 }
