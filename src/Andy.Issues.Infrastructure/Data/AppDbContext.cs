@@ -36,6 +36,7 @@ public class AppDbContext : DbContext
     public DbSet<Issue> Issues => Set<Issue>();
     public DbSet<TriageOutputRevision> TriageOutputRevisions => Set<TriageOutputRevision>();
     public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
+    public DbSet<BacklogGeneration> BacklogGenerations => Set<BacklogGeneration>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
@@ -181,6 +182,24 @@ public class AppDbContext : DbContext
                     v => v == null ? null : JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
                     v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.TriageOutput>(v, Andy.Issues.Application.Messaging.EventJson.Options))
                 .HasColumnName("TriageOutputJson");
+        });
+
+        // #103 — durable record of a draft-backlog generation run.
+        // Indexed on RepositoryId + UpdatedAt so the GET /generations
+        // late-join path is a fast point lookup; cascade with the
+        // owning Repository so old runs disappear when the repo is
+        // deleted.
+        modelBuilder.Entity<BacklogGeneration>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Phase).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.Detail).HasMaxLength(2048);
+            e.HasIndex(x => new { x.RepositoryId, x.UpdatedAt });
+            e.HasOne<Repository>()
+                .WithMany()
+                .HasForeignKey(x => x.RepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // Z8 — input-resource attachments. Composite key prevents

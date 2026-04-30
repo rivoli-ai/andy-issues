@@ -18,6 +18,13 @@ public interface IBoardNotifier
     Task StoryAddedAsync(Guid repositoryId, UserStoryDto story, CancellationToken ct = default);
     Task StoryUpdatedAsync(Guid repositoryId, UserStoryDto story, CancellationToken ct = default);
     Task StoryDeletedAsync(Guid repositoryId, Guid storyId, CancellationToken ct = default);
+
+    // #103 — push a backlog-generation phase update to the repo
+    // group so connected clients can drive a live progress UI.
+    Task BacklogGenerationProgressAsync(
+        Guid repositoryId,
+        BacklogGenerationDto generation,
+        CancellationToken ct = default);
 }
 
 public sealed class NullBoardNotifier : IBoardNotifier
@@ -31,4 +38,5 @@ public sealed class NullBoardNotifier : IBoardNotifier
     public Task StoryAddedAsync(Guid repositoryId, UserStoryDto story, CancellationToken ct = default) => Task.CompletedTask;
     public Task StoryUpdatedAsync(Guid repositoryId, UserStoryDto story, CancellationToken ct = default) => Task.CompletedTask;
     public Task StoryDeletedAsync(Guid repositoryId, Guid storyId, CancellationToken ct = default) => Task.CompletedTask;
+    public Task BacklogGenerationProgressAsync(Guid repositoryId, BacklogGenerationDto generation, CancellationToken ct = default) => Task.CompletedTask;
 }

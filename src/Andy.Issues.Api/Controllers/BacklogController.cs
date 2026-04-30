@@ -215,6 +215,26 @@ public class BacklogController : ControllerBase
         return NoContent();
     }
 
+    // #103 — late-join resync for the live progress UI. The
+    // SignalR push from BacklogGenerationTracker.AdvanceAsync drives
+    // the foreground update path; this endpoint covers the case
+    // where the client missed an event (reconnect, page refresh
+    // mid-run). Owner-scoped — generation rows aren't shared even
+    // when the underlying repository is.
+    [HttpGet("api/generations/{id:guid}")]
+    [ProducesResponseType(typeof(BacklogGenerationDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<BacklogGenerationDto>> GetGeneration(
+        Guid id,
+        [FromServices] IBacklogGenerationTracker tracker,
+        CancellationToken ct)
+    {
+        var dto = await tracker.GetAsync(id, GetUserId(), ct);
+        if (dto is null) return NotFound();
+        return Ok(dto);
+    }
+
     // #101 — bulk delete across kinds. Reject empty bodies as 400 so
     // accidental no-ops surface immediately. Per-id failures are
     // collected on the response (200 OK with `failed[]`), not turned

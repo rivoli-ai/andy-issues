@@ -16,10 +16,15 @@ public enum DraftBacklogOutcome
     ParseFailed = 6
 }
 
+// #103 — `GenerationId` references the BacklogGeneration row that
+// the IBacklogGenerationTracker created at the start of this run.
+// Null only when the run failed before the row was created (e.g.,
+// repository not found / not owner).
 public record DraftBacklogResult(
     DraftBacklogOutcome Outcome,
     BacklogDto? Backlog,
-    string? Error);
+    string? Error,
+    Guid? GenerationId = null);
 
 /// <summary>
 /// Generates a draft backlog (epics / features / stories) for a repository

@@ -43,6 +43,11 @@ public class SignalRBoardNotifier : IBoardNotifier
     public Task StoryDeletedAsync(Guid repositoryId, Guid storyId, CancellationToken ct = default) =>
         Group(repositoryId).SendAsync("StoryDeleted", storyId, ct);
 
+    // #103 — phase update for the live progress UI.
+    public Task BacklogGenerationProgressAsync(
+        Guid repositoryId, BacklogGenerationDto generation, CancellationToken ct = default) =>
+        Group(repositoryId).SendAsync("BacklogGenerationProgress", generation, ct);
+
     private IClientProxy Group(Guid repositoryId) =>
         _hub.Clients.Group(BoardHub.GroupName(repositoryId));
 }

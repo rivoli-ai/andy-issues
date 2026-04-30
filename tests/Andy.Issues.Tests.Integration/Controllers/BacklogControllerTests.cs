@@ -264,6 +264,69 @@ public class BacklogControllerTests : IClassFixture<TestWebApplicationFactory>
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    // ── #103 — GET /api/generations/{id} ────────────────────────────
+
+    [Fact]
+    public async Task GetGeneration_ExistingOwned_Returns200WithDto()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid genId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var row = new Andy.Issues.Domain.Entities.BacklogGeneration
+            {
+                Id = Guid.NewGuid(),
+                RepositoryId = repoId,
+                UserId = "dev-user",
+                Phase = Andy.Issues.Domain.Enums.BacklogGenerationPhase.CallingLlm,
+                Detail = "calling gpt-4o",
+                StartedAt = DateTimeOffset.UtcNow,
+                UpdatedAt = DateTimeOffset.UtcNow
+            };
+            db.BacklogGenerations.Add(row);
+            await db.SaveChangesAsync();
+            genId = row.Id;
+        }
+
+        var resp = await _client.GetAsync($"/api/generations/{genId}");
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        var dto = await resp.Content.ReadFromJsonAsync<BacklogGenerationDto>(JsonOptions);
+        Assert.Equal("CallingLlm", dto!.Phase);
+        Assert.Equal("calling gpt-4o", dto.Detail);
+    }
+
+    [Fact]
+    public async Task GetGeneration_OtherOwner_Returns404()
+    {
+        var repoId = await SeedRepoAsync();
+        Guid genId;
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var row = new Andy.Issues.Domain.Entities.BacklogGeneration
+            {
+                Id = Guid.NewGuid(),
+                RepositoryId = repoId,
+                UserId = "stranger",
+                Phase = Andy.Issues.Domain.Enums.BacklogGenerationPhase.Pending
+            };
+            db.BacklogGenerations.Add(row);
+            await db.SaveChangesAsync();
+            genId = row.Id;
+        }
+
+        var resp = await _client.GetAsync($"/api/generations/{genId}");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task GetGeneration_Unknown_Returns404()
+    {
+        var resp = await _client.GetAsync($"/api/generations/{Guid.NewGuid()}");
+        Assert.Equal(HttpStatusCode.NotFound, resp.StatusCode);
+    }
+
     private async Task<(Guid epicId, Guid featureId, Guid storyId)> SeedBacklogHierarchyAsync(Guid repoId)
     {
         using var scope = _factory.Services.CreateScope();

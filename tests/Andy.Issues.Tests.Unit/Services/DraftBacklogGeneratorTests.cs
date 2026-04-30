@@ -175,11 +175,50 @@ public class DraftBacklogGeneratorTests : IDisposable
         Assert.Equal(DraftBacklogOutcome.CodeIndexNotReady, result.Outcome);
     }
 
+    // ── #103 — generation tracking ──────────────────────────────────
+
+    [Fact]
+    public async Task Generate_CodeIndexNotReady_RecordsFailedPhase_AndReturnsGenerationId()
+    {
+        var repoId = await SeedRepoWithLlmAsync();
+        await using var ctx = NewContext();
+        var tracker = new BacklogGenerationTracker(ctx, null);
+        var gen = CreateGenerator(ctx, codeIndex: new NotReadyCodeIndexClient(), tracker: tracker);
+
+        var result = await gen.GenerateAsync(repoId, "alice");
+
+        Assert.Equal(DraftBacklogOutcome.CodeIndexNotReady, result.Outcome);
+        Assert.NotNull(result.GenerationId);
+
+        await using var verify = NewContext();
+        var row = await verify.BacklogGenerations.SingleAsync(g => g.Id == result.GenerationId);
+        Assert.Equal(BacklogGenerationPhase.Failed, row.Phase);
+        Assert.NotNull(row.CompletedAt);
+    }
+
+    [Fact]
+    public async Task Generate_NotOwner_DoesNotCreateGenerationRow()
+    {
+        var repoId = await SeedRepoWithLlmAsync();
+        await using var ctx = NewContext();
+        var tracker = new BacklogGenerationTracker(ctx, null);
+        var gen = CreateGenerator(ctx, tracker: tracker);
+
+        var result = await gen.GenerateAsync(repoId, "stranger");
+
+        Assert.Equal(DraftBacklogOutcome.NotOwner, result.Outcome);
+        Assert.Null(result.GenerationId);
+
+        await using var verify = NewContext();
+        Assert.Equal(0, await verify.BacklogGenerations.CountAsync());
+    }
+
     // Helpers
 
     private DraftBacklogGenerator CreateGenerator(
         AppDbContext ctx,
-        ICodeIndexClient? codeIndex = null)
+        ICodeIndexClient? codeIndex = null,
+        IBacklogGenerationTracker? tracker = null)
     {
         var guard = new RepositoryAccessGuard(ctx);
         var ci = codeIndex ?? new ReadyCodeIndexClient();
@@ -188,7 +227,8 @@ public class DraftBacklogGeneratorTests : IDisposable
         // by integration tests. The guard/parse tests here never reach it.
         return new DraftBacklogGenerator(ctx, guard, ci, null!,
             new BacklogSequenceAllocator(ctx),
-            NullLogger<DraftBacklogGenerator>.Instance);
+            NullLogger<DraftBacklogGenerator>.Instance,
+            tracker);
     }
 
     private async Task<Guid> SeedRepoWithLlmAsync()

@@ -27,6 +27,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
     private readonly ICodeIndexClient _codeIndex;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IBacklogSequenceAllocator _sequence;
+    private readonly IBacklogGenerationTracker? _tracker;
     private readonly ILogger<DraftBacklogGenerator> _logger;
 
     public DraftBacklogGenerator(
@@ -35,13 +36,15 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         ICodeIndexClient codeIndex,
         IHttpClientFactory httpClientFactory,
         IBacklogSequenceAllocator sequence,
-        ILogger<DraftBacklogGenerator> logger)
+        ILogger<DraftBacklogGenerator> logger,
+        IBacklogGenerationTracker? tracker = null)
     {
         _db = db;
         _guard = guard;
         _codeIndex = codeIndex;
         _httpClientFactory = httpClientFactory;
         _sequence = sequence;
+        _tracker = tracker;
         _logger = logger;
     }
 
@@ -64,13 +67,30 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
             return new DraftBacklogResult(DraftBacklogOutcome.NoLlmSetting, null,
                 "Repository has no LLM setting configured. Link one via PATCH /api/repositories/{id}/llm-setting.");
 
+        // #103 — once authorisation passes, create a generation row so
+        // the rest of the run is observable. The tracker is optional
+        // (legacy callers without DI registration get a no-op flow).
+        Guid? generationId = null;
+        if (_tracker is not null)
+        {
+            var started = await _tracker.StartAsync(repositoryId, userId, ct);
+            generationId = started.Id;
+        }
+
         // Fetch code summary from andy-code-index
+        await AdvanceAsync(generationId, BacklogGenerationPhase.FetchingCodeIndex, "Querying andy-code-index", ct);
         var indexStatus = await _codeIndex.GetStatusAsync(repo.CloneUrl, ct);
         if (indexStatus.Outcome != CodeIndexQueryOutcome.Ok || string.IsNullOrEmpty(indexStatus.Summary))
+        {
+            await AdvanceAsync(generationId, BacklogGenerationPhase.Failed,
+                indexStatus.Error ?? "Code index has no summary available yet.", ct);
             return new DraftBacklogResult(DraftBacklogOutcome.CodeIndexNotReady, null,
-                indexStatus.Error ?? "Code index has no summary available yet.");
+                indexStatus.Error ?? "Code index has no summary available yet.", generationId);
+        }
 
         // Call LLM
+        await AdvanceAsync(generationId, BacklogGenerationPhase.CallingLlm,
+            $"Calling {repo.LlmSetting.Provider}/{repo.LlmSetting.Model}", ct);
         string llmResponse;
         try
         {
@@ -79,10 +99,12 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             _logger.LogWarning(ex, "LLM call failed for repository {RepositoryId}.", repositoryId);
-            return new DraftBacklogResult(DraftBacklogOutcome.LlmCallFailed, null, ex.Message);
+            await AdvanceAsync(generationId, BacklogGenerationPhase.Failed, ex.Message, ct);
+            return new DraftBacklogResult(DraftBacklogOutcome.LlmCallFailed, null, ex.Message, generationId);
         }
 
         // Parse structured backlog from LLM response
+        await AdvanceAsync(generationId, BacklogGenerationPhase.ParsingDraft, "Parsing structured response", ct);
         List<DraftEpic> draft;
         try
         {
@@ -91,11 +113,15 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to parse LLM backlog response for repository {RepositoryId}.", repositoryId);
+            await AdvanceAsync(generationId, BacklogGenerationPhase.Failed,
+                $"Could not parse LLM response: {ex.Message}", ct);
             return new DraftBacklogResult(DraftBacklogOutcome.ParseFailed, null,
-                $"Could not parse LLM response: {ex.Message}");
+                $"Could not parse LLM response: {ex.Message}", generationId);
         }
 
         // Persist the draft items
+        await AdvanceAsync(generationId, BacklogGenerationPhase.Persisting,
+            $"Saving {draft.Count} epic(s)", ct);
         var epicOrder = await NextEpicOrderAsync(repositoryId, ct);
         foreach (var de in draft)
         {
@@ -152,10 +178,19 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
             .Include(r => r.Epics).ThenInclude(e => e.Features).ThenInclude(f => f.Stories)
             .FirstAsync(r => r.Id == repositoryId, ct);
 
+        await AdvanceAsync(generationId, BacklogGenerationPhase.Completed, null, ct);
+
         return new DraftBacklogResult(
             DraftBacklogOutcome.Generated,
             reloaded.ToBacklogDto(),
-            null);
+            null,
+            generationId);
+    }
+
+    private async Task AdvanceAsync(Guid? generationId, BacklogGenerationPhase phase, string? detail, CancellationToken ct)
+    {
+        if (_tracker is null || generationId is null) return;
+        await _tracker.AdvanceAsync(generationId.Value, phase, detail, ct);
     }
 
     private async Task<string> CallLlmAsync(
