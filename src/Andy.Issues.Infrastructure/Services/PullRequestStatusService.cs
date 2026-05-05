@@ -158,6 +158,27 @@ public class PullRequestStatusService : IPullRequestStatusService
             UpdatedStories: updates);
     }
 
+    public async Task<(HeadBranchOutcome Outcome, string? Branch)> GetHeadBranchByUrlAsync(
+        string? url,
+        string callerUserId,
+        CancellationToken ct = default)
+    {
+        var parsed = PullRequestUrlParser.TryParse(url);
+        if (parsed is null) return (HeadBranchOutcome.BadUrl, null);
+
+        var status = parsed switch
+        {
+            ParsedGitHubPullRequestUrl gh => await ResolveGitHubAsync(gh, callerUserId, ct),
+            ParsedAzureDevOpsPullRequestUrl ado => await ResolveAzureDevOpsAsync(ado, callerUserId, ct),
+            _ => null
+        };
+
+        if (status is null || string.IsNullOrEmpty(status.HeadBranch))
+            return (HeadBranchOutcome.NotFound, null);
+
+        return (HeadBranchOutcome.Ok, status.HeadBranch);
+    }
+
     private void ApplyDoneTransition(UserStory story)
     {
         story.SetStatus(UserStoryStatus.Done);
