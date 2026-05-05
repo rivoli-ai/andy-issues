@@ -45,6 +45,7 @@ public class AppDbContext : DbContext
     public DbSet<UserDirectoryEntry> UserDirectory => Set<UserDirectoryEntry>();
     public DbSet<OutboxEntry> Outbox => Set<OutboxEntry>();
     public DbSet<BacklogSequence> BacklogSequences => Set<BacklogSequence>();
+    public DbSet<AuditLogEntry> AuditLog => Set<AuditLogEntry>();
 
     /// <summary>
     /// Value converter + comparer for the <c>Labels</c> property on
@@ -87,6 +88,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.AzureOrganization).HasMaxLength(256);
             e.Property(x => x.AzureProject).HasMaxLength(256);
             e.Property(x => x.AzurePat).HasMaxLength(1024);
+            e.Property(x => x.AgentRules).HasMaxLength(65536);
             e.HasIndex(x => x.OwnerUserId);
             e.HasOne(x => x.LlmSetting)
                 .WithMany()
@@ -337,6 +339,21 @@ public class AppDbContext : DbContext
             // Plain (non-filtered) so the same DDL works on Postgres and SQLite.
             e.HasIndex(x => new { x.PublishedAt, x.CreatedAt });
             e.HasIndex(x => x.CorrelationId);
+        });
+
+        modelBuilder.Entity<AuditLogEntry>(e =>
+        {
+            e.ToTable("AuditLog");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Action).IsRequired().HasMaxLength(128);
+            e.Property(x => x.ResourceType).IsRequired().HasMaxLength(64);
+            e.Property(x => x.ResourceId).IsRequired().HasMaxLength(256);
+            e.Property(x => x.Details).HasMaxLength(2048);
+            // Hot query is "show recent activity for resource X":
+            //   WHERE ResourceType = ? AND ResourceId = ? ORDER BY CreatedAt DESC
+            e.HasIndex(x => new { x.ResourceType, x.ResourceId, x.CreatedAt });
+            e.HasIndex(x => x.UserId);
         });
     }
 }

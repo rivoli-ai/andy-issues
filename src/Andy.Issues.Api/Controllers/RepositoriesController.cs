@@ -19,17 +19,20 @@ public class RepositoriesController : ControllerBase
     private readonly IPullRequestService _pullRequestService;
     private readonly IDraftBacklogGenerator _draftBacklogGenerator;
     private readonly IBacklogGitHubImportService _backlogGitHubImportService;
+    private readonly IAgentRulesService _agentRulesService;
 
     public RepositoriesController(
         IRepositoryService repositoryService,
         IPullRequestService pullRequestService,
         IDraftBacklogGenerator draftBacklogGenerator,
-        IBacklogGitHubImportService backlogGitHubImportService)
+        IBacklogGitHubImportService backlogGitHubImportService,
+        IAgentRulesService agentRulesService)
     {
         _repositoryService = repositoryService;
         _pullRequestService = pullRequestService;
         _draftBacklogGenerator = draftBacklogGenerator;
         _backlogGitHubImportService = backlogGitHubImportService;
+        _agentRulesService = agentRulesService;
     }
 
     [HttpPost("{id:guid}/generate-backlog")]
@@ -308,6 +311,51 @@ public class RepositoriesController : ControllerBase
         var result = await _repositoryService.VerifyAzureIdentityAsync(id, userId, ct);
         if (result is null) return NotFound();
         return Ok(result);
+    }
+
+    // #91 — fetch the per-repo agent-rules blob. Returns the same
+    // {"rules": ""} shape whether the repo has rules or not so the
+    // editor doesn't need a special "no rules" branch. Share-or-owner
+    // can read; the write counterpart below is owner-only.
+    [HttpGet("{id:guid}/agent-rules")]
+    [ProducesResponseType(typeof(AgentRulesDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<AgentRulesDto>> GetAgentRules(Guid id, CancellationToken ct)
+    {
+        var (outcome, dto) = await _agentRulesService.GetAsync(id, GetUserId(), ct);
+        return outcome switch
+        {
+            AgentRulesGetOutcome.Ok => Ok(dto),
+            AgentRulesGetOutcome.NotFound => NotFound(),
+            _ => StatusCode(500)
+        };
+    }
+
+    // #92 — full-replacement write. Owner-only because rules affect
+    // every agent run on the repo, including runs initiated by people
+    // the repo is shared with. NotOwner is mapped to 404 to match the
+    // ownership-hiding rule used elsewhere in this controller.
+    [HttpPut("{id:guid}/agent-rules")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateAgentRules(
+        Guid id,
+        [FromBody] UpdateAgentRulesRequest request,
+        CancellationToken ct)
+    {
+        var outcome = await _agentRulesService.UpdateAsync(id, request.Rules ?? string.Empty, GetUserId(), ct);
+        return outcome switch
+        {
+            AgentRulesUpdateOutcome.Updated => NoContent(),
+            AgentRulesUpdateOutcome.NotFound => NotFound(),
+            AgentRulesUpdateOutcome.NotOwner => NotFound(),
+            AgentRulesUpdateOutcome.TooLarge => BadRequest(new
+            {
+                error = $"Rules exceed the {Andy.Issues.Infrastructure.Services.AgentRulesService.MaxRulesLength}-character limit."
+            }),
+            _ => StatusCode(500)
+        };
     }
 
     [HttpPost("sync-azure")]

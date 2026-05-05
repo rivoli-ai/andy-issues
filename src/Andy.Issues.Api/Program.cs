@@ -143,6 +143,8 @@ else
 // --- Services ---
 builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<IAgentRulesService, AgentRulesService>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
