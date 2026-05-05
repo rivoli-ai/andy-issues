@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 
 namespace Andy.Issues.Tests.Integration.Fakes;
 
@@ -122,6 +123,27 @@ public class FakeAzureDevOpsClient : IAzureDevOpsClient
         FeedResponses.TryGetValue(organization, out var feeds);
         return Task.FromResult<IReadOnlyList<AzureDevOpsFeedInfo>>(
             feeds ?? Array.Empty<AzureDevOpsFeedInfo>());
+    }
+
+    private readonly ConcurrentDictionary<string, PullRequestStatusInfo> _prStatuses = new();
+
+    public void SetPullRequestStatus(
+        string organization, string project, string repository, int pullRequestId, PullRequestStatusInfo status)
+    {
+        _prStatuses[$"{organization}|{project}|{repository}|{pullRequestId}"] = status;
+    }
+
+    public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string organization,
+        string project,
+        string repository,
+        int pullRequestId,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        _prStatuses.TryGetValue(
+            $"{organization}|{project}|{repository}|{pullRequestId}", out var status);
+        return Task.FromResult<PullRequestStatusInfo?>(status);
     }
 
     private static string Key(string org, string project, string repoId) =>

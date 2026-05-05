@@ -1,6 +1,8 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application.PullRequests;
+
 namespace Andy.Issues.Application.Interfaces;
 
 public record AzureDevOpsRepositoryInfo(
@@ -91,6 +93,20 @@ public interface IAzureDevOpsClient
 
     Task<IReadOnlyList<AzureDevOpsFeedInfo>> ListFeedsAsync(
         string organization,
+        string personalAccessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches a pull request's lifecycle state via
+    /// <c>GET /{org}/{project}/_apis/git/repositories/{repo}/pullrequests/{n}</c>.
+    /// Returns null when the PR is not visible. State is normalised to
+    /// "open" | "closed" | "merged".
+    /// </summary>
+    Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string organization,
+        string project,
+        string repository,
+        int pullRequestId,
         string personalAccessToken,
         CancellationToken ct = default);
 }

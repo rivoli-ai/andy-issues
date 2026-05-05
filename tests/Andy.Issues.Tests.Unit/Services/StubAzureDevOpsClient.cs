@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 
 namespace Andy.Issues.Tests.Unit.Services;
 
@@ -122,6 +123,21 @@ public class StubAzureDevOpsClient : IAzureDevOpsClient
         FeedResponses.TryGetValue(organization, out var feeds);
         return Task.FromResult<IReadOnlyList<AzureDevOpsFeedInfo>>(
             feeds ?? Array.Empty<AzureDevOpsFeedInfo>());
+    }
+
+    public Dictionary<string, PullRequestStatusInfo?> PrStatuses { get; } = new();
+
+    public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string organization,
+        string project,
+        string repository,
+        int pullRequestId,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        PrStatuses.TryGetValue(
+            $"{organization}|{project}|{repository}|{pullRequestId}", out var status);
+        return Task.FromResult(status);
     }
 
     private static string Key(string org, string project, string repoId) =>

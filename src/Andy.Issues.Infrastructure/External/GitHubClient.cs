@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 using Microsoft.Extensions.Logging;
 
 namespace Andy.Issues.Infrastructure.External;
@@ -318,5 +319,60 @@ public class GitHubClient : IGitHubClient
         var number = root.TryGetProperty("number", out var n) ? n.GetInt32() : 0;
         var url = root.TryGetProperty("html_url", out var u) ? u.GetString() ?? "" : "";
         return new GitHubPullRequestInfo(number, url);
+    }
+
+    public async Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string owner,
+        string repo,
+        int number,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        using var request = new HttpRequestMessage(
+            HttpMethod.Get, $"{BaseUrl}/repos/{owner}/{repo}/pulls/{number}");
+        if (!string.IsNullOrEmpty(accessToken))
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+        using var response = await _http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("GitHub GET /repos/{Owner}/{Repo}/pulls/{Number} failed with {Status}",
+                owner, repo, number, response.StatusCode);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = doc.RootElement;
+
+        var rawState = root.TryGetProperty("state", out var st)
+            ? st.GetString() ?? "open" : "open";
+        var merged = root.TryGetProperty("merged", out var mEl)
+            && mEl.ValueKind == JsonValueKind.True;
+        DateTimeOffset? mergedAt = null;
+        if (root.TryGetProperty("merged_at", out var mAt)
+            && mAt.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(mAt.GetString(), out var parsed))
+        {
+            mergedAt = parsed;
+        }
+
+        // GitHub's wire shape is `state` ∈ {open, closed} plus a
+        // separate `merged` boolean. Collapse into "merged" when both
+        // closed and merged so the rest of the codebase has a single
+        // tri-state to reason about.
+        var normalisedState = merged ? "merged" : rawState;
+
+        var headBranch = root.TryGetProperty("head", out var head)
+            && head.TryGetProperty("ref", out var refEl)
+                ? refEl.GetString() ?? string.Empty
+                : string.Empty;
+
+        return new PullRequestStatusInfo(normalisedState, merged, mergedAt, headBranch);
     }
 }

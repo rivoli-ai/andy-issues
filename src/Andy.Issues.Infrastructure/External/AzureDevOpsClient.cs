@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 using Microsoft.Extensions.Logging;
 
 namespace Andy.Issues.Infrastructure.External;
@@ -322,6 +323,84 @@ public class AzureDevOpsClient : IAzureDevOpsClient
             results.Add(new AzureDevOpsFeedInfo(id, name, description, feedUrl));
         }
         return results;
+    }
+
+    public async Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string organization,
+        string project,
+        string repository,
+        int pullRequestId,
+        string personalAccessToken,
+        CancellationToken ct = default)
+    {
+        // Project-scoped PR endpoint. Repository can be referenced by
+        // name or by GUID; the parsed PR URL gives us the name segment
+        // so we pass that through.
+        var url =
+            $"https://dev.azure.com/{Uri.EscapeDataString(organization)}/{Uri.EscapeDataString(project)}/" +
+            $"_apis/git/repositories/{Uri.EscapeDataString(repository)}/" +
+            $"pullrequests/{pullRequestId}?api-version={ApiVersion}";
+
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue(
+            "Basic",
+            Convert.ToBase64String(Encoding.ASCII.GetBytes($":{personalAccessToken}")));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+        using var response = await _http.SendAsync(request, ct);
+        if (response.StatusCode == HttpStatusCode.NotFound)
+            return null;
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning(
+                "Azure DevOps GET pullrequest {Org}/{Project}/{Repo}/{Id} failed with {Status}",
+                organization, project, repository, pullRequestId, response.StatusCode);
+            return null;
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = doc.RootElement;
+
+        // ADO statuses: "active" / "completed" / "abandoned". Map to
+        // the unified state vocabulary used elsewhere in the service.
+        var statusRaw = root.TryGetProperty("status", out var s) && s.ValueKind == JsonValueKind.String
+            ? s.GetString() ?? "active"
+            : "active";
+        var merged = string.Equals(statusRaw, "completed", StringComparison.OrdinalIgnoreCase);
+        var normalisedState = statusRaw.ToLowerInvariant() switch
+        {
+            "active" => "open",
+            "completed" => "merged",
+            "abandoned" => "closed",
+            _ => statusRaw.ToLowerInvariant()
+        };
+
+        DateTimeOffset? mergedAt = null;
+        if (merged
+            && root.TryGetProperty("closedDate", out var cd)
+            && cd.ValueKind == JsonValueKind.String
+            && DateTimeOffset.TryParse(cd.GetString(), out var parsed))
+        {
+            mergedAt = parsed;
+        }
+
+        var headBranch = root.TryGetProperty("sourceRefName", out var srcRef)
+            && srcRef.ValueKind == JsonValueKind.String
+                ? StripRefsHeads(srcRef.GetString() ?? string.Empty)
+                : string.Empty;
+
+        return new PullRequestStatusInfo(normalisedState, merged, mergedAt, headBranch);
+    }
+
+    // ADO returns refs as `refs/heads/feature-x`. Callers want just
+    // `feature-x` so the same value can be passed straight to git.
+    private static string StripRefsHeads(string @ref)
+    {
+        const string prefix = "refs/heads/";
+        return @ref.StartsWith(prefix, StringComparison.Ordinal)
+            ? @ref.Substring(prefix.Length)
+            : @ref;
     }
 
     private static AzureDevOpsWorkItemSnapshot? ReadSnapshot(JsonElement root)
