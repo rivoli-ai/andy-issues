@@ -33,6 +33,12 @@ public class Repository
 
     public CodeIndexStatus CodeIndexStatus { get; set; } = CodeIndexStatus.NotIndexed;
 
+    // Markdown/YAML blob injected as system context for any agent run
+    // operating in this repo's sandbox (#91/#92). Null = no rules set.
+    // Size capped at the column-definition layer (64 KB) so an
+    // editor-side bug can't blow up the row.
+    public string? AgentRules { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; set; }
 
