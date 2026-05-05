@@ -18,15 +18,18 @@ public class BacklogController : ControllerBase
     private readonly IBacklogService _backlog;
     private readonly IBacklogAzureDevOpsSyncService _azureSync;
     private readonly IBacklogAiService _ai;
+    private readonly IPullRequestStatusService _prStatus;
 
     public BacklogController(
         IBacklogService backlog,
         IBacklogAzureDevOpsSyncService azureSync,
-        IBacklogAiService ai)
+        IBacklogAiService ai,
+        IPullRequestStatusService prStatus)
     {
         _backlog = backlog;
         _azureSync = azureSync;
         _ai = ai;
+        _prStatus = prStatus;
     }
 
     /// <summary>
@@ -253,6 +256,33 @@ public class BacklogController : ControllerBase
 
         var result = await _backlog.BulkDeleteAsync(request, GetUserId(), ct);
         return Ok(result);
+    }
+
+    // #88 — repo-wide PR status sync. Idempotent; safe to call on
+    // every backlog load. Per-story failures don't abort the batch.
+    [HttpPost("api/repositories/{repositoryId:guid}/sync-pr-statuses")]
+    [ProducesResponseType(typeof(SyncPullRequestStatusesResultDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<SyncPullRequestStatusesResultDto>> SyncPrStatuses(
+        Guid repositoryId, CancellationToken ct)
+    {
+        var result = await _prStatus.SyncRepositoryAsync(repositoryId, GetUserId(), ct);
+        if (result is null) return NotFound();
+        return Ok(result);
+    }
+
+    // #89 — single-story PR status check. Auto-transitions to Done
+    // on a merged PR (status_updated=true) the same way the batch
+    // endpoint does.
+    [HttpGet("api/stories/{storyId:guid}/pr-status")]
+    [ProducesResponseType(typeof(StoryPullRequestStatusDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<StoryPullRequestStatusDto>> GetStoryPrStatus(
+        Guid storyId, CancellationToken ct)
+    {
+        var dto = await _prStatus.CheckStoryAsync(storyId, GetUserId(), ct);
+        if (dto is null) return NotFound();
+        return Ok(dto);
     }
 
     private string GetUserId() => User.RequireUserId();

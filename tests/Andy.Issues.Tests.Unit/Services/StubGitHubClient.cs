@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 
 namespace Andy.Issues.Tests.Unit.Services;
 
@@ -103,5 +104,18 @@ public class StubGitHubClient : IGitHubClient
             throw ListIssuesException;
         _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
+    }
+
+    public Dictionary<string, PullRequestStatusInfo?> PrStatuses { get; } = new();
+
+    public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string owner,
+        string repo,
+        int number,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        PrStatuses.TryGetValue($"{owner}/{repo}/{number}", out var status);
+        return Task.FromResult(status);
     }
 }

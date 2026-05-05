@@ -1,6 +1,8 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Application.PullRequests;
+
 namespace Andy.Issues.Application.Interfaces;
 
 public record GitHubRepositoryInfo(
@@ -106,6 +108,21 @@ public interface IGitHubClient
     Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
         string owner,
         string repo,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Fetches a pull request's lifecycle state via
+    /// <c>GET /repos/{owner}/{repo}/pulls/{number}</c>. Returns null if
+    /// the PR is not visible (404). State is normalised to
+    /// "open" | "closed" | "merged" — GitHub returns "open" / "closed"
+    /// with a separate <c>merged</c> flag, which this method collapses
+    /// into the merged state when both are true.
+    /// </summary>
+    Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string owner,
+        string repo,
+        int number,
         string accessToken,
         CancellationToken ct = default);
 }

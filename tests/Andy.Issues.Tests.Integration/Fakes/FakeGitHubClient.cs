@@ -3,6 +3,7 @@
 
 using System.Collections.Concurrent;
 using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Application.PullRequests;
 
 namespace Andy.Issues.Tests.Integration.Fakes;
 
@@ -107,5 +108,23 @@ public class FakeGitHubClient : IGitHubClient
             .Take(perPage)
             .ToList();
         return Task.FromResult<IReadOnlyList<GitHubRepositoryInfo>>(pageSlice);
+    }
+
+    private readonly ConcurrentDictionary<string, PullRequestStatusInfo> _prStatuses = new();
+
+    public void SetPullRequestStatus(string owner, string repo, int number, PullRequestStatusInfo status)
+    {
+        _prStatuses[$"{owner}/{repo}/{number}"] = status;
+    }
+
+    public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(
+        string owner,
+        string repo,
+        int number,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _prStatuses.TryGetValue($"{owner}/{repo}/{number}", out var status);
+        return Task.FromResult<PullRequestStatusInfo?>(status);
     }
 }
