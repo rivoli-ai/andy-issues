@@ -25,6 +25,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeCodeIndexClient FakeCodeIndexClient { get; } = new();
     public FakeAndySettingsClient FakeAndySettingsClient { get; } = new();
     public FakeSecretStore FakeSecretStore { get; } = new();
+    public FakeAgentsClient FakeAgentsClient { get; } = new();
 
     public void ResetPermissions() => PermissionCheckerFake.Reset();
 
@@ -100,6 +101,12 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (secretStoreDescriptor is not null)
                 services.Remove(secretStoreDescriptor);
             services.AddSingleton<ISecretStore>(FakeSecretStore);
+
+            var agentsDescriptor = services.FirstOrDefault(
+                d => d.ServiceType == typeof(IAgentsClient));
+            if (agentsDescriptor is not null)
+                services.Remove(agentsDescriptor);
+            services.AddSingleton<IAgentsClient>(FakeAgentsClient);
 
             // Replace whatever auth Program.cs wired up with a test handler that
             // always authenticates as `dev-user`. This is independent of the

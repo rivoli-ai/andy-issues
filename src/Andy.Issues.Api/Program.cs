@@ -159,6 +159,10 @@ builder.Services.AddSingleton<IDocsClient, StubDocsClient>();
 // from an embedded JSON file; learned-model retraining lands once
 // andy-tasks AI6 starts emitting training samples (cross-repo).
 builder.Services.AddSingleton<ITriageEstimator, TriageEstimator>();
+// Z2 — config-backed triage agent resolver. Reads `Triage:AgentId`
+// from configuration; dynamic discovery against andy-agents lands
+// once Epic W is fully ramped.
+builder.Services.AddSingleton<IAgentsClient, ConfigAgentsClient>();
 builder.Services.AddScoped<IBacklogAzureDevOpsSyncService, BacklogAzureDevOpsSyncService>();
 builder.Services.AddScoped<IBacklogGitHubImportService, BacklogGitHubImportService>();
 builder.Services.AddSingleton<IBoardNotifier, SignalRBoardNotifier>();

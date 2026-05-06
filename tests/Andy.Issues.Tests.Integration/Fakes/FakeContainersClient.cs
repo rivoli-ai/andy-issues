@@ -16,6 +16,22 @@ public class FakeContainersClient : IContainersClient
     public List<string> DestroyCalls { get; } = new();
     public List<(string name, string templateCode, IReadOnlyDictionary<string, string>? environmentVariables)> CreateCalls { get; } = new();
     public List<(string containerId, string command)> ExecCalls { get; } = new();
+    public List<HeadlessRunRequest> HeadlessRunCalls { get; } = new();
+
+    /// <summary>
+    /// What <see cref="RunHeadlessAsync"/> returns. Defaults to a
+    /// fresh <see cref="HeadlessRunResponse"/> with a generated id —
+    /// tests asserting the failure path can set this to null.
+    /// </summary>
+    public HeadlessRunResponse? HeadlessRunResult { get; set; } =
+        new HeadlessRunResponse(Guid.NewGuid());
+
+    /// <summary>
+    /// When non-null, <see cref="RunHeadlessAsync"/> throws this
+    /// exception — simulates network/HTTP failures from
+    /// andy-containers.
+    /// </summary>
+    public Exception? HeadlessRunException { get; set; }
 
     public void Reset()
     {
@@ -23,6 +39,9 @@ public class FakeContainersClient : IContainersClient
         DestroyCalls.Clear();
         CreateCalls.Clear();
         ExecCalls.Clear();
+        HeadlessRunCalls.Clear();
+        HeadlessRunResult = new HeadlessRunResponse(Guid.NewGuid());
+        HeadlessRunException = null;
         _nextId = 0;
     }
 
@@ -70,5 +89,14 @@ public class FakeContainersClient : IContainersClient
     {
         ExecCalls.Add((containerId, command));
         return Task.FromResult(new ContainerExecResult(0, "ok", null));
+    }
+
+    public Task<HeadlessRunResponse?> RunHeadlessAsync(
+        HeadlessRunRequest request, CancellationToken ct = default)
+    {
+        HeadlessRunCalls.Add(request);
+        if (HeadlessRunException is not null)
+            throw HeadlessRunException;
+        return Task.FromResult(HeadlessRunResult);
     }
 }

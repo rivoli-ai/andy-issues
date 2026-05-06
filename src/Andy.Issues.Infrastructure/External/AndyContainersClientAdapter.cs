@@ -131,6 +131,58 @@ public class AndyContainersClientAdapter : IContainersClient
         return new ContainerExecResult(dto?.ExitCode ?? -1, dto?.StdOut, dto?.StdErr);
     }
 
+    public async Task<HeadlessRunResponse?> RunHeadlessAsync(
+        HeadlessRunRequest request, CancellationToken ct = default)
+    {
+        // Wire shape is match-ahead with andy-containers; the upstream
+        // endpoint may not be live yet. Treat any non-2xx as a soft
+        // failure so the caller (#111 IssueService.StartTriageAsync)
+        // can leave the issue in `Triaging` for human re-invocation.
+        var payload = new
+        {
+            agentId = request.AgentId,
+            agentVersion = request.AgentVersion,
+            issueId = request.IssueId,
+            storyId = request.StoryId,
+            tenantId = request.TenantId,
+            inputDocRefs = request.InputDocRefs,
+            environmentVariables = request.EnvironmentVariables
+        };
+
+        HttpResponseMessage response;
+        try
+        {
+            response = await _http.PostAsJsonAsync("api/runs", payload, JsonOptions, ct);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "andy-containers POST api/runs network failure");
+            return null;
+        }
+
+        try
+        {
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning(
+                    "andy-containers POST api/runs failed: {Status} {Body}",
+                    response.StatusCode, body);
+                return null;
+            }
+
+            var dto = await response.Content.ReadFromJsonAsync<RunDto>(JsonOptions, ct);
+            if (dto is null || dto.RunId == Guid.Empty) return null;
+            return new HeadlessRunResponse(dto.RunId);
+        }
+        finally
+        {
+            response.Dispose();
+        }
+    }
+
+    private sealed record RunDto(Guid RunId);
+
     private static ContainerInfo ToInfo(ContainerDto dto) =>
         new(dto.Id ?? "", dto.Name ?? "", dto.Status ?? "", dto.IdeEndpoint, dto.VncEndpoint);
 

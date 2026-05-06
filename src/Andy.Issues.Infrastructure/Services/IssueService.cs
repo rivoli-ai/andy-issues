@@ -12,6 +12,7 @@ using Andy.Issues.Domain.ValueTypes;
 using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace Andy.Issues.Infrastructure.Services;
 
@@ -20,12 +21,24 @@ public class IssueService : IIssueService
     private readonly AppDbContext _db;
     private readonly IDocsClient _docs;
     private readonly ITriageEstimator? _estimator;
+    private readonly IAgentsClient? _agents;
+    private readonly IContainersClient? _containers;
+    private readonly ILogger<IssueService>? _logger;
 
-    public IssueService(AppDbContext db, IDocsClient docs, ITriageEstimator? estimator = null)
+    public IssueService(
+        AppDbContext db,
+        IDocsClient docs,
+        ITriageEstimator? estimator = null,
+        IAgentsClient? agents = null,
+        IContainersClient? containers = null,
+        ILogger<IssueService>? logger = null)
     {
         _db = db;
         _docs = docs;
         _estimator = estimator;
+        _agents = agents;
+        _containers = containers;
+        _logger = logger;
     }
 
     public async Task<IssueDto?> GetAsync(Guid id, string userId, CancellationToken ct = default)
@@ -89,8 +102,120 @@ public class IssueService : IIssueService
         return issue.ToDto();
     }
 
-    public Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default) =>
-        TransitionAsync(id, userId, issue => issue.StartTriage(), terminalKind: null, ct);
+    // Z2 — start triage. Two responsibilities:
+    //   (1) state transition — NeedsTriage|Triaged → Triaging
+    //   (2) best-effort dispatch of a headless agent run to
+    //       andy-containers, persisting the resulting RunId on the
+    //       issue so the run-event consumer can correlate.
+    //
+    // Idempotency: when called on an issue already in `Triaging`, we
+    // short-circuit before touching the entity — no duplicate dispatch
+    // and no duplicate outbox row. The TriageRunId from the original
+    // dispatch is preserved.
+    //
+    // Dispatch is best-effort: if the agent isn't configured, or the
+    // container call fails for any reason, the issue still moves to
+    // `Triaging` and `TriageRunId` stays null. A human can re-invoke
+    // via the Z9 MCP tool / Z10 CLI once the dependency is fixed.
+    public async Task<IssueTriageResult> StartTriageAsync(
+        Guid id, string userId, CancellationToken ct = default)
+    {
+        var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
+        if (issue is null) return IssueTriageResult.NotFound();
+        if (issue.OwnerUserId != userId) return IssueTriageResult.NotFound();
+
+        if (issue.TriageState == TriageState.Triaging)
+            return IssueTriageResult.Ok(issue.ToDto());
+
+        try
+        {
+            issue.StartTriage();
+        }
+        catch (InvalidOperationException ex)
+        {
+            return IssueTriageResult.InvalidTransition(ex.Message);
+        }
+
+        await DispatchTriageRunAsync(issue, ct);
+
+        await _db.SaveChangesAsync(ct);
+        return IssueTriageResult.Ok(issue.ToDto());
+    }
+
+    private async Task DispatchTriageRunAsync(Issue issue, CancellationToken ct)
+    {
+        if (_agents is null || _containers is null)
+        {
+            // Wired only in production / integration tests; unit tests
+            // that construct IssueService directly skip dispatch.
+            return;
+        }
+
+        AgentDescriptor? agent;
+        try
+        {
+            agent = await _agents.GetTriageAgentAsync(ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex,
+                "Triage agent lookup failed for issue {IssueId}; leaving in Triaging",
+                issue.Id);
+            return;
+        }
+
+        if (agent is null)
+        {
+            _logger?.LogInformation(
+                "No triage agent configured (Triage:AgentId); issue {IssueId} stays in Triaging without dispatch",
+                issue.Id);
+            return;
+        }
+
+        // Pull any input doc refs already attached (Z8) so the agent
+        // sees them as part of the run input. Empty list when the
+        // issue has no attachments. Format in-memory rather than via
+        // EF projection so the wire shape is the canonical lowercase
+        // Guid format on every provider (SQLite returns uppercase).
+        var linkIds = await _db.IssueAttachments
+            .AsNoTracking()
+            .Where(a => a.IssueId == issue.Id)
+            .Select(a => a.LinkId)
+            .ToListAsync(ct);
+        var inputDocRefs = linkIds.Select(g => g.ToString()).ToList();
+
+        var request = new HeadlessRunRequest(
+            AgentId: agent.AgentId,
+            AgentVersion: agent.Version,
+            IssueId: issue.Id,
+            StoryId: null,
+            TenantId: issue.OwnerUserId,
+            InputDocRefs: inputDocRefs.Count == 0 ? null : inputDocRefs,
+            EnvironmentVariables: null);
+
+        HeadlessRunResponse? response;
+        try
+        {
+            response = await _containers.RunHeadlessAsync(request, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger?.LogWarning(ex,
+                "Triage run dispatch failed for issue {IssueId}; leaving in Triaging",
+                issue.Id);
+            return;
+        }
+
+        if (response is null)
+        {
+            _logger?.LogWarning(
+                "Triage run dispatch returned null for issue {IssueId}; leaving TriageRunId unset",
+                issue.Id);
+            return;
+        }
+
+        issue.TriageRunId = response.RunId;
+    }
 
     public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default) =>
         TransitionAsync(id, userId, issue =>
