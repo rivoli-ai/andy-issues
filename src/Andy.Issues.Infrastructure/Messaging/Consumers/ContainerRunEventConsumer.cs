@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Collections.Concurrent;
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Messaging;
 using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Domain.Enums;
@@ -121,9 +122,10 @@ public sealed class ContainerRunEventConsumer : BackgroundService
             return;
         }
 
-        if (payload?.StoryId is null)
+        if (payload is null
+            || (payload.StoryId is null && payload.IssueId is null))
         {
-            // Run was not correlated to a backlog story — nothing to do.
+            // Run was not correlated to anything we own — nothing to do.
             await msg.AckAsync(ct);
             return;
         }
@@ -139,16 +141,33 @@ public sealed class ContainerRunEventConsumer : BackgroundService
         }
 
         using var scope = _scopeFactory.CreateScope();
+
+        // Z2 — IssueId-correlated runs (triage agent invocations) take
+        // precedence when both are set, since IssueId is the more
+        // specific signal. In practice the publisher only sets one.
+        if (payload.IssueId is not null)
+        {
+            await HandleIssueAsync(scope, payload, kind, ct);
+        }
+        else
+        {
+            await HandleStoryAsync(scope, payload, kind, ct);
+        }
+
+        await msg.AckAsync(ct);
+    }
+
+    private async Task HandleStoryAsync(
+        IServiceScope scope, ContainerRunEventPayload payload, string kind, CancellationToken ct)
+    {
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
 
-        var story = await db.UserStories.FirstOrDefaultAsync(s => s.Id == payload.StoryId.Value, ct);
+        var story = await db.UserStories.FirstOrDefaultAsync(s => s.Id == payload.StoryId!.Value, ct);
         if (story is null)
         {
             // Story may have been deleted between run creation and event
             // delivery. Ack and move on — no recovery to attempt.
-            _logger.LogDebug("No story found for run event {MsgId} story_id={StoryId}",
-                msg.Headers.MsgId, payload.StoryId);
-            await msg.AckAsync(ct);
+            _logger.LogDebug("No story found for run event story_id={StoryId}", payload.StoryId);
             return;
         }
 
@@ -177,8 +196,60 @@ public sealed class ContainerRunEventConsumer : BackgroundService
                     payload.RunId, kind, story.Id, story.Status);
                 break;
         }
+    }
 
-        await msg.AckAsync(ct);
+    private async Task HandleIssueAsync(
+        IServiceScope scope, ContainerRunEventPayload payload, string kind, CancellationToken ct)
+    {
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var issue = await db.Issues.FirstOrDefaultAsync(i => i.Id == payload.IssueId!.Value, ct);
+        if (issue is null)
+        {
+            _logger.LogDebug("No issue found for run event issue_id={IssueId}", payload.IssueId);
+            return;
+        }
+
+        switch (kind)
+        {
+            case "finished":
+                // Only completes when the issue is currently being
+                // triaged. NeedsTriage / Triaged / Accepted / Rejected
+                // are skipped — the run event is either premature
+                // (StartTriage hasn't fired yet) or stale (a human
+                // already moved the issue forward).
+                if (issue.TriageState != TriageState.Triaging)
+                {
+                    _logger.LogInformation(
+                        "Run {RunId} finished for issue {IssueId} but state is {State}; skipping",
+                        payload.RunId, issue.Id, issue.TriageState);
+                    return;
+                }
+
+                // Output extraction from the run lands in PR B (Z2 dispatch).
+                // For now the cold-start estimator (Z7) backfills any
+                // empty estimate slot, so the issue still ends up
+                // Triaged with a useful default.
+                var issueService = scope.ServiceProvider.GetRequiredService<IIssueService>();
+                var result = await issueService.CompleteTriageAsync(
+                    id: issue.Id,
+                    userId: issue.OwnerUserId,
+                    output: null,
+                    ct: ct);
+                _logger.LogInformation(
+                    "Issue {IssueId} CompleteTriage outcome={Outcome} after run {RunId}",
+                    issue.Id, result.Outcome, payload.RunId);
+                break;
+
+            case "failed":
+            case "cancelled":
+                // Mirrors the story path — leave state alone; a human
+                // (or a later re-invoke via Z9/Z10) recovers. Audit log
+                // for run failures lands in Z6.
+                _logger.LogInformation(
+                    "Run {RunId} {Kind} for issue {IssueId} (state unchanged: {State})",
+                    payload.RunId, kind, issue.Id, issue.TriageState);
+                break;
+        }
     }
 
     // Returns true if the id was NOT previously seen (and remembers it

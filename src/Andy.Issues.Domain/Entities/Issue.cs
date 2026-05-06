@@ -30,6 +30,14 @@ public class Issue
 
     public TriageState TriageState { get; private set; } = TriageState.NeedsTriage;
 
+    // Z2 — id of the headless agent run dispatched to andy-containers
+    // to perform triage. Set when StartTriage is invoked alongside an
+    // agent dispatch; null when triage has not yet been kicked off, or
+    // when the issue was triaged manually (no agent run). Used by the
+    // run-event consumer for IssueId-correlated runs and by Z6 audit
+    // queries.
+    public Guid? TriageRunId { get; set; }
+
     // Set when triage produces output (state moves to Triaged) and when
     // a human accepts/rejects. Captures who acted and when, distinct
     // from the agent run audit log (Z6).

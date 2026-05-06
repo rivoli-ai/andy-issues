@@ -173,6 +173,9 @@ public class AppDbContext : DbContext
             e.Property(x => x.TriagedBy).HasMaxLength(256);
             e.HasIndex(x => x.OwnerUserId);
             e.HasIndex(x => x.TriageState);
+            // Z2 — supports the consumer's "find issue by run id" path
+            // when payload IssueId is absent but RunId is known.
+            e.HasIndex(x => x.TriageRunId);
 
             // Z3 — TriageOutput is a domain value, persisted as JSON
             // text (portable across SQLite + Postgres). The whole record

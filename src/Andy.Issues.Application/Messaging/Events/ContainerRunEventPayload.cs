@@ -8,13 +8,14 @@ namespace Andy.Issues.Application.Messaging.Events;
 // RunEventPayload). This service is the consumer, not the publisher,
 // so we declare the shape here to deserialize into.
 //
-// `StoryId` is nullable because andy-containers may emit events for
-// runs that were not created via andy-issues (e.g. from the web UI
-// directly). In that case we ack and skip — there is no backlog row
-// to correlate.
+// A run correlates to **either** a UserStory (sandbox-created PR work)
+// **or** an Issue (Z2 — headless triage agent run), never both. Both
+// fields are nullable; when neither is set the consumer acks and skips
+// (e.g. runs created directly via the web UI).
 public sealed record ContainerRunEventPayload(
     Guid RunId,
     Guid? StoryId,
     string Status,
     int? ExitCode,
-    double? DurationSeconds);
+    double? DurationSeconds,
+    Guid? IssueId = null);

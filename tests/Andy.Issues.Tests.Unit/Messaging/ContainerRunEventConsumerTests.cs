@@ -2,16 +2,20 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Text.Json;
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Messaging;
 using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Messaging.Consumers;
+using Andy.Issues.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -36,6 +40,12 @@ public class ContainerRunEventConsumerTests : IDisposable
         var services = new ServiceCollection();
         services.AddSingleton(_options);
         services.AddScoped<AppDbContext>();
+        services.AddLogging();
+        // Z2 — IssueId-correlated runs call IIssueService.CompleteTriageAsync
+        // to drive the state machine + outbox + Z7 estimator backfill.
+        services.AddScoped<ITriageEstimator, NoopTriageEstimator>();
+        services.AddSingleton<IDocsClient, StubDocsClient>();
+        services.AddScoped<IIssueService, IssueService>();
         _sp = services.BuildServiceProvider();
     }
 
@@ -108,6 +118,46 @@ public class ContainerRunEventConsumerTests : IDisposable
             Payload = bytes,
             ReceivedAt = DateTimeOffset.UtcNow
         };
+    }
+
+    private static FakeIncomingMessage BuildIssueMessage(Guid issueId, Guid runId, string kind)
+    {
+        var payload = new ContainerRunEventPayload(
+            runId, StoryId: null, Status: kind, ExitCode: null, DurationSeconds: null,
+            IssueId: issueId);
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload, EventJson.Options);
+        return new FakeIncomingMessage
+        {
+            Headers = MessageHeaders.NewRoot(),
+            Subject = $"andy.containers.events.run.{runId}.{kind}",
+            Payload = bytes,
+            ReceivedAt = DateTimeOffset.UtcNow
+        };
+    }
+
+    private async Task<Guid> SeedIssueAsync(TriageState state)
+    {
+        await using var ctx = new AppDbContext(_options);
+        var issue = new Issue
+        {
+            Id = Guid.NewGuid(),
+            OwnerUserId = "alice",
+            Title = "needs-triage"
+        };
+        // The state machine validates each transition, so step through
+        // the legal path to reach the desired starting state.
+        if (state == TriageState.Triaging)
+        {
+            issue.StartTriage();
+        }
+        else if (state == TriageState.Triaged)
+        {
+            issue.StartTriage();
+            issue.CompleteTriage("alice");
+        }
+        ctx.Issues.Add(issue);
+        await ctx.SaveChangesAsync();
+        return issue.Id;
     }
 
     [Fact]
@@ -220,6 +270,84 @@ public class ContainerRunEventConsumerTests : IDisposable
         var story = await verify.UserStories.FirstAsync();
         Assert.Equal(UserStoryStatus.InProgress, story.Status);
         Assert.True(msg.Acked);
+    }
+
+    // ── Z2 — IssueId-correlated runs ────────────────────────────────
+
+    [Fact]
+    public async Task IssueFinished_WhileTriaging_TransitionsToTriaged()
+    {
+        var issueId = await SeedIssueAsync(TriageState.Triaging);
+        var msg = BuildIssueMessage(issueId, Guid.NewGuid(), "finished");
+
+        await NewConsumer().HandleAsync(msg, CancellationToken.None);
+
+        await using var verify = new AppDbContext(_options);
+        var issue = await verify.Issues.FirstAsync(i => i.Id == issueId);
+        Assert.Equal(TriageState.Triaged, issue.TriageState);
+        Assert.True(msg.Acked);
+    }
+
+    [Theory]
+    [InlineData("failed")]
+    [InlineData("cancelled")]
+    public async Task IssueFailedOrCancelled_LeavesStateUnchanged(string kind)
+    {
+        var issueId = await SeedIssueAsync(TriageState.Triaging);
+        var msg = BuildIssueMessage(issueId, Guid.NewGuid(), kind);
+
+        await NewConsumer().HandleAsync(msg, CancellationToken.None);
+
+        await using var verify = new AppDbContext(_options);
+        var issue = await verify.Issues.FirstAsync(i => i.Id == issueId);
+        Assert.Equal(TriageState.Triaging, issue.TriageState);
+        Assert.True(msg.Acked);
+    }
+
+    [Fact]
+    public async Task IssueFinished_NotInTriaging_DoesNotRegress()
+    {
+        // A premature or replayed event for an issue that's already been
+        // triaged (and possibly accepted) must not re-call CompleteTriage.
+        var issueId = await SeedIssueAsync(TriageState.Triaged);
+        var msg = BuildIssueMessage(issueId, Guid.NewGuid(), "finished");
+
+        await NewConsumer().HandleAsync(msg, CancellationToken.None);
+
+        await using var verify = new AppDbContext(_options);
+        var issue = await verify.Issues.FirstAsync(i => i.Id == issueId);
+        Assert.Equal(TriageState.Triaged, issue.TriageState);
+        Assert.True(msg.Acked);
+    }
+
+    [Fact]
+    public async Task UnknownIssueId_AcksAndSkips()
+    {
+        var msg = BuildIssueMessage(Guid.NewGuid(), Guid.NewGuid(), "finished");
+
+        await NewConsumer().HandleAsync(msg, CancellationToken.None);
+
+        Assert.True(msg.Acked);
+    }
+
+    [Fact]
+    public async Task NeitherStoryNorIssue_AcksAndSkips()
+    {
+        var msg = BuildMessage(storyId: null, Guid.NewGuid(), "finished");
+        // BuildMessage already uses null StoryId and the IssueId default
+        // is null too, so the payload has nothing to correlate.
+
+        await NewConsumer().HandleAsync(msg, CancellationToken.None);
+        Assert.True(msg.Acked);
+    }
+
+    private sealed class NoopTriageEstimator : ITriageEstimator
+    {
+        public Andy.Issues.Domain.ValueTypes.EstimateSlot Estimate(
+            string tenantId,
+            Andy.Issues.Domain.Enums.TriageTemplateId templateId,
+            Andy.Issues.Domain.Enums.TriageSeverity severity)
+            => new();
     }
 
     private sealed class FakeIncomingMessage : IncomingMessage
