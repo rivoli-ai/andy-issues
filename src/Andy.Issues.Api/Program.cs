@@ -150,11 +150,24 @@ builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
 builder.Services.AddScoped<IIssueService, IssueService>();
-// Z8 — IDocsClient is stubbed until andy-docs Epic AJ ships. The
-// stub accepts any well-formed UUID pair so attachment endpoints work
-// end-to-end today; real verification + metadata fetch lands when the
-// AJ contract is published.
-builder.Services.AddSingleton<IDocsClient, StubDocsClient>();
+// #164 — when AndyDocs:BaseUrl is set, swap the stub for the real
+// HTTP adapter against andy-docs (Epic AJ shipped). Otherwise keep
+// the stub for tests / Conductor-embedded mode where andy-docs is
+// not running. Bearer token forwarding mirrors the andy-containers
+// HttpClient setup so the caller's JWT propagates upstream.
+var andyDocsBaseUrl = builder.Configuration["AndyDocs:BaseUrl"];
+if (!string.IsNullOrWhiteSpace(andyDocsBaseUrl))
+{
+    builder.Services.AddHttpClient<IDocsClient, AndyDocsClientAdapter>(client =>
+        {
+            client.BaseAddress = new Uri(andyDocsBaseUrl);
+        })
+        .AddHttpMessageHandler<BearerForwardingHandler>();
+}
+else
+{
+    builder.Services.AddSingleton<IDocsClient, StubDocsClient>();
+}
 // Z7 — cold-start triage estimator. Loads per-template seed defaults
 // from an embedded JSON file; learned-model retraining lands once
 // andy-tasks AI6 starts emitting training samples (cross-repo).
