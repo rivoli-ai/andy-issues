@@ -24,7 +24,35 @@ public interface IContainersClient
     Task<ContainerConnectionInfo?> GetConnectionInfoAsync(string containerId, CancellationToken ct = default);
 
     Task<ContainerExecResult> ExecAsync(string containerId, string command, CancellationToken ct = default);
+
+    /// <summary>
+    /// Enqueues a headless agent run on andy-containers (Z2 — triage
+    /// invocation). Returns the run id assigned by the upstream so the
+    /// caller can persist it for later correlation. Returns null on
+    /// non-2xx responses so callers can degrade gracefully — the
+    /// dispatching code will leave the originating entity in a state
+    /// that allows re-invocation.
+    /// </summary>
+    /// <remarks>
+    /// Wire shape is match-ahead with andy-containers — the upstream
+    /// endpoint <c>POST api/runs</c> is not yet implemented at the
+    /// time of writing. The local fake exercises the wire in tests.
+    /// </remarks>
+    Task<HeadlessRunResponse?> RunHeadlessAsync(
+        HeadlessRunRequest request,
+        CancellationToken ct = default);
 }
+
+public sealed record HeadlessRunRequest(
+    string AgentId,
+    string? AgentVersion = null,
+    Guid? IssueId = null,
+    Guid? StoryId = null,
+    string? TenantId = null,
+    IReadOnlyList<string>? InputDocRefs = null,
+    IReadOnlyDictionary<string, string>? EnvironmentVariables = null);
+
+public sealed record HeadlessRunResponse(Guid RunId);
 
 public record ContainerInfo(
     string Id,

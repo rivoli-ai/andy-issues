@@ -87,4 +87,17 @@ public class FakeContainersClient : IContainersClient
             ?? new ContainerExecResult(0, $"stdout: {command}", null);
         return Task.FromResult(result);
     }
+
+    public List<HeadlessRunRequest> HeadlessRunCalls { get; } = new();
+    public HeadlessRunResponse? HeadlessRunResult { get; set; } =
+        new HeadlessRunResponse(Guid.NewGuid());
+    public Exception? HeadlessRunException { get; set; }
+
+    public Task<HeadlessRunResponse?> RunHeadlessAsync(
+        HeadlessRunRequest request, CancellationToken ct = default)
+    {
+        HeadlessRunCalls.Add(request);
+        if (HeadlessRunException is not null) throw HeadlessRunException;
+        return Task.FromResult(HeadlessRunResult);
+    }
 }
