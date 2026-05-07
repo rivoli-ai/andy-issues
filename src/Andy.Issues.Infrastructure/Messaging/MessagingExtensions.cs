@@ -42,10 +42,8 @@ public static class MessagingExtensions
             configuration.GetSection(OutboxDispatcherOptions.SectionName));
         services.AddHostedService<OutboxDispatcher>();
 
-        // Consumers (ADR 0001). The consumer itself gates on the
-        // Messaging:ConsumeRunEvents flag so registering it
-        // unconditionally is safe — a disabled consumer is a no-op
-        // hosted service.
+        // Consumers (ADR 0001). Always-on per AK4 — selective disable
+        // in incidents goes through `nats consumer pause`, not config.
         services.AddHostedService<ContainerRunEventConsumer>();
 
         return services;

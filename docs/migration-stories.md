@@ -979,7 +979,7 @@ Rollout is incremental and landable one PR per story. Stories 15.2–15.5 and 15
 - Payload `{ runId, storyId, status, exitCode?, durationSeconds? }` (contract owned by andy-containers).
 - `finished` → story `InReview`; `failed`/`cancelled` → keep `InProgress`, append activity note.
 - Idempotent per `msg-id`.
-- Gated behind `Messaging:ConsumeRunEvents=true` (default off) until andy-containers publishes.
+- Always-on once registered (AK4 — andy-tasks epic). Per-consumer disable is via `nats consumer pause`, not configuration.
 
 **Tests.**
 - Unit: state transitions per event kind.

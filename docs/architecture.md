@@ -73,7 +73,7 @@ andy-issues participates in the Andy ecosystem event bus as both publisher and s
 - `andy.issues.events.system.health` (heartbeat)
 
 **Subjects andy-issues subscribes to:**
-- `andy.containers.events.run.*.{finished,failed,cancelled}` — correlates run outcomes back to `UserStory` state. Feature-gated behind `Messaging:ConsumeRunEvents=true` until andy-containers begins publishing.
+- `andy.containers.events.run.*.{finished,failed,cancelled}` — correlates run outcomes back to `UserStory` state. Always-on per AK4; selective disable during incidents goes through `nats consumer pause`.
 
 NATS vs SignalR: SignalR (`/hubs/board`) pushes backlog changes to **human clients** (the Angular app, IDE plugins). NATS carries **inter-service** domain events. They are complementary; neither replaces the other.
 

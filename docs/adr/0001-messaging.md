@@ -40,7 +40,7 @@ Payloads are JSON with a `schema_version: 1` field. See each story's acceptance 
 | `andy.containers.events.run.*.failed` | `ContainerRunEventConsumer` | Keeps the story in `InProgress`; appends a note to its activity log. |
 | `andy.containers.events.run.*.cancelled` | `ContainerRunEventConsumer` | Same as `failed`. |
 
-The consumer is durable (`andy-issues-run-events`) and idempotent per `msg-id`. It is feature-gated behind `Messaging:ConsumeRunEvents=true` so it stays off until andy-containers actually publishes these events (coordinated through andy-tasks ADR Phase 3).
+The consumer is durable (`andy-issues-run-events`) and idempotent per `msg-id`. It runs unconditionally whenever the service boots (AK4 — see andy-tasks ADR 0001 §"Operational invariants"). Selective disable during incidents goes through `nats consumer pause`, not configuration.
 
 ## Rules restated
 
