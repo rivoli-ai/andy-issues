@@ -8,7 +8,6 @@ using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -17,11 +16,6 @@ namespace Andy.Issues.Infrastructure.Messaging.Consumers;
 
 // Subscribes to andy.containers.events.run.> and correlates terminal
 // run events back to UserStory state per Story 15.6.
-//
-// Gated on Messaging:ConsumeRunEvents=true so this stays off until the
-// publisher side in andy-containers is rolled out. When disabled the
-// service registers but ExecuteAsync returns immediately — zero
-// runtime cost.
 //
 // Idempotency: in-memory bounded ring buffer of the most recently seen
 // msg-ids. NATS JetStream's at-least-once redelivery is the primary
@@ -40,7 +34,6 @@ public sealed class ContainerRunEventConsumer : BackgroundService
     private readonly IServiceScopeFactory _scopeFactory;
     private readonly IMessageBus _bus;
     private readonly ILogger<ContainerRunEventConsumer> _logger;
-    private readonly bool _enabled;
 
     private readonly ConcurrentQueue<Guid> _recentMsgIdsOrder = new();
     private readonly ConcurrentDictionary<Guid, byte> _recentMsgIds = new();
@@ -48,25 +41,15 @@ public sealed class ContainerRunEventConsumer : BackgroundService
     public ContainerRunEventConsumer(
         IServiceScopeFactory scopeFactory,
         IMessageBus bus,
-        IConfiguration configuration,
         ILogger<ContainerRunEventConsumer> logger)
     {
         _scopeFactory = scopeFactory;
         _bus = bus;
         _logger = logger;
-        _enabled = configuration.GetValue<bool>("Messaging:ConsumeRunEvents");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_enabled)
-        {
-            _logger.LogInformation(
-                "ContainerRunEventConsumer disabled " +
-                "(Messaging:ConsumeRunEvents is not true).");
-            return;
-        }
-
         _logger.LogInformation(
             "ContainerRunEventConsumer subscribing on {Filter} durable {Durable}",
             SubjectFilter, DurableName);

@@ -34,7 +34,7 @@ namespace Andy.Issues.Tests.Integration.Messaging;
 // The in-memory bus + EF in-memory DB are sufficient for the in-process
 // pipeline. A separate `[NatsFact]`-decorated smoke at the bottom runs
 // the same flow against a real JetStream when NATS is available.
-public class TriagePipelineTests : IClassFixture<TriagePipelineTestFactory>
+public class TriagePipelineTests : IClassFixture<TestWebApplicationFactory>
 {
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -44,10 +44,10 @@ public class TriagePipelineTests : IClassFixture<TriagePipelineTestFactory>
 
     private static readonly TimeSpan PipelineTimeout = TimeSpan.FromSeconds(5);
 
-    private readonly TriagePipelineTestFactory _factory;
+    private readonly TestWebApplicationFactory _factory;
     private readonly HttpClient _client;
 
-    public TriagePipelineTests(TriagePipelineTestFactory factory)
+    public TriagePipelineTests(TestWebApplicationFactory factory)
     {
         _factory = factory;
         _client = factory.CreateClient();

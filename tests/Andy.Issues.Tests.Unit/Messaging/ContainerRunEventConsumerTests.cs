@@ -13,7 +13,6 @@ using Andy.Issues.Infrastructure.Messaging.Consumers;
 using Andy.Issues.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -92,18 +91,11 @@ public class ContainerRunEventConsumerTests : IDisposable
         return (repo.Id, epic.Id, feature.Id, story.Id);
     }
 
-    private ContainerRunEventConsumer NewConsumer(bool enabled = true)
+    private ContainerRunEventConsumer NewConsumer()
     {
-        var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Messaging:ConsumeRunEvents"] = enabled ? "true" : "false"
-            })
-            .Build();
         return new ContainerRunEventConsumer(
             _sp.GetRequiredService<IServiceScopeFactory>(),
             new DummyBus(),
-            config,
             NullLogger<ContainerRunEventConsumer>.Instance);
     }
 
