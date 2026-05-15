@@ -34,4 +34,19 @@
     <Protobuf Include="Protos\sandboxes.proto" GrpcServices="Both" />
   </ItemGroup>
 
+  <!--
+    Help content (markdown topics served by HelpController). The
+    controller's lookup falls back to `{ContentRootPath}/content/help`
+    when run from a published binary (e.g. Conductor's bundled-services
+    flow), so the directory must be copied into the output tree —
+    otherwise every `GET /api/help/topics/{slug}` returns 404 and the
+    Conductor Help browser shows an empty pane.
+  -->
+  <ItemGroup>
+    <Content Include="..\..\content\help\*.md" LinkBase="content\help">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>
