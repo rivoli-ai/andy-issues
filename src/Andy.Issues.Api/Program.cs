@@ -1,6 +1,7 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Auth.M2MClient;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
 // HostEnvironmentExtensions.IsEmbedded / IsLocalOrEmbedded
@@ -209,14 +210,39 @@ builder.Services.AddScoped<ILlmSettingService, LlmSettingService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 
+// Epic IDP (rivoli-ai/conductor#1246). Register the M2M + OBO token
+// providers so DelegatedBearerHandler can resolve its dependencies.
+// Idempotent — no-op if already registered.
+builder.Services.AddAndyAuthM2M(builder.Configuration);
+
 // --- andy-code-index client ---
 var codeIndexBaseUrl = builder.Configuration["AndyCodeIndex:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(codeIndexBaseUrl))
 {
-    builder.Services.AddHttpClient<ICodeIndexClient, CodeIndexClient>(client =>
+    // Epic IDP (rivoli-ai/conductor#1246). The audit flagged
+    // CodeIndexClient as a latent risk: it ran unauthenticated, which
+    // works today because andy-code-index doesn't gate per-user RBAC,
+    // but would 403 the moment it tightens. Attach the OBO-aware
+    // bearer handler now (audience: urn:andy-code-index-api) so the
+    // chain preserves user identity end-to-end.
+    var attachBearer = !string.IsNullOrWhiteSpace(
+        builder.Configuration["AndyAuth:ClientId"]);
+
+    const string CodeIndexAudience = "urn:andy-code-index-api";
+
+    var clientBuilder = builder.Services.AddHttpClient<ICodeIndexClient, CodeIndexClient>(client =>
     {
         client.BaseAddress = new Uri(codeIndexBaseUrl);
     });
+    if (attachBearer)
+    {
+        clientBuilder.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+            sp.GetRequiredService<IDelegatedTokenProvider>(),
+            sp.GetRequiredService<IServiceTokenProvider>(),
+            sp.GetRequiredService<IHttpContextAccessor>(),
+            CodeIndexAudience,
+            sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+    }
 }
 else
 {
