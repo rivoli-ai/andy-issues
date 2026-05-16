@@ -123,17 +123,38 @@ if (!string.IsNullOrEmpty(rbacBaseUrl) && builder.Environment.IsDevelopment())
 
 // --- HTTP infrastructure ---
 builder.Services.AddHttpContextAccessor();
-builder.Services.AddTransient<BearerForwardingHandler>();
+
+// Epic IDP (rivoli-ai/conductor#1246). Register the M2M + OBO token
+// providers so DelegatedBearerHandler can resolve its dependencies.
+// Idempotent — no-op if already registered.
+builder.Services.AddAndyAuthM2M(builder.Configuration);
+
+// M2M bearer attach is conditional on AndyAuth.ClientId being configured
+// — same posture as andy-agents and andy-policies. In production
+// (embedded Conductor + cloud) ClientId/Scope/SecretEnvVar are set and
+// the handler mints a bearer for every outbound call. In tests +
+// legacy-bypass mode the handler is skipped so unauthenticated stubs
+// keep working.
+var attachBearer = !string.IsNullOrWhiteSpace(builder.Configuration["AndyAuth:ClientId"]);
 
 // --- Andy Settings (centralized configuration) ---
+const string SettingsAudience = "urn:andy-settings-api";
 var settingsBaseUrl = builder.Configuration["AndySettings:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(settingsBaseUrl))
 {
-    builder.Services.AddHttpClient("AndySettings", client =>
+    var settingsClient = builder.Services.AddHttpClient("AndySettings", client =>
     {
         client.BaseAddress = new Uri(settingsBaseUrl);
-    })
-    .AddHttpMessageHandler<BearerForwardingHandler>();
+    });
+    if (attachBearer)
+    {
+        settingsClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+            sp.GetRequiredService<IDelegatedTokenProvider>(),
+            sp.GetRequiredService<IServiceTokenProvider>(),
+            sp.GetRequiredService<IHttpContextAccessor>(),
+            SettingsAudience,
+            sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+    }
     builder.Services.AddScoped<IAndySettingsClient, AndySettingsClient>();
 }
 else
@@ -154,16 +175,25 @@ builder.Services.AddScoped<IIssueService, IssueService>();
 // #164 — when AndyDocs:BaseUrl is set, swap the stub for the real
 // HTTP adapter against andy-docs (Epic AJ shipped). Otherwise keep
 // the stub for tests / Conductor-embedded mode where andy-docs is
-// not running. Bearer token forwarding mirrors the andy-containers
-// HttpClient setup so the caller's JWT propagates upstream.
+// not running. The OBO-aware DelegatedBearerHandler exchanges the
+// caller's JWT for a bearer audience-scoped to andy-docs.
+const string DocsAudience = "urn:andy-docs-api";
 var andyDocsBaseUrl = builder.Configuration["AndyDocs:BaseUrl"];
 if (!string.IsNullOrWhiteSpace(andyDocsBaseUrl))
 {
-    builder.Services.AddHttpClient<IDocsClient, AndyDocsClientAdapter>(client =>
-        {
-            client.BaseAddress = new Uri(andyDocsBaseUrl);
-        })
-        .AddHttpMessageHandler<BearerForwardingHandler>();
+    var docsClient = builder.Services.AddHttpClient<IDocsClient, AndyDocsClientAdapter>(client =>
+    {
+        client.BaseAddress = new Uri(andyDocsBaseUrl);
+    });
+    if (attachBearer)
+    {
+        docsClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+            sp.GetRequiredService<IDelegatedTokenProvider>(),
+            sp.GetRequiredService<IServiceTokenProvider>(),
+            sp.GetRequiredService<IHttpContextAccessor>(),
+            DocsAudience,
+            sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+    }
 }
 else
 {
@@ -184,16 +214,26 @@ builder.Services.AddSignalR();
 
 // --- andy-containers client ---
 // andy-issues never manages containers directly — every call goes through andy-containers.
-// Cloud deployments set AndyContainers:BaseUrl explicitly and the BearerForwardingHandler
-// propagates the caller's JWT from the ambient HttpContext. Conductor-embedded mode can
-// override IContainersClient directly, so tests and Conductor need no HTTP stack at all.
+// Cloud deployments set AndyContainers:BaseUrl explicitly and the DelegatedBearerHandler
+// exchanges the caller's JWT for a bearer audience-scoped to andy-containers. Conductor-
+// embedded mode can override IContainersClient directly, so tests and Conductor need no
+// HTTP stack at all.
+const string ContainersAudience = "urn:andy-containers-api";
 var andyContainersBaseUrl = builder.Configuration["AndyContainers:BaseUrl"]
     ?? "http://andy-containers.local/";
-builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(client =>
-    {
-        client.BaseAddress = new Uri(andyContainersBaseUrl);
-    })
-    .AddHttpMessageHandler<BearerForwardingHandler>();
+var containersClient = builder.Services.AddHttpClient<IContainersClient, AndyContainersClientAdapter>(client =>
+{
+    client.BaseAddress = new Uri(andyContainersBaseUrl);
+});
+if (attachBearer)
+{
+    containersClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        sp.GetRequiredService<IDelegatedTokenProvider>(),
+        sp.GetRequiredService<IServiceTokenProvider>(),
+        sp.GetRequiredService<IHttpContextAccessor>(),
+        ContainersAudience,
+        sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+}
 
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IArtifactFeedService, ArtifactFeedService>();
@@ -210,33 +250,24 @@ builder.Services.AddScoped<ILlmSettingService, LlmSettingService>();
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 
-// Epic IDP (rivoli-ai/conductor#1246). Register the M2M + OBO token
-// providers so DelegatedBearerHandler can resolve its dependencies.
-// Idempotent — no-op if already registered.
-builder.Services.AddAndyAuthM2M(builder.Configuration);
-
 // --- andy-code-index client ---
+// Epic IDP (rivoli-ai/conductor#1246). The audit flagged
+// CodeIndexClient as a latent risk: it ran unauthenticated, which
+// works today because andy-code-index doesn't gate per-user RBAC,
+// but would 403 the moment it tightens. The OBO-aware
+// DelegatedBearerHandler (audience: urn:andy-code-index-api)
+// preserves user identity end-to-end.
+const string CodeIndexAudience = "urn:andy-code-index-api";
 var codeIndexBaseUrl = builder.Configuration["AndyCodeIndex:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(codeIndexBaseUrl))
 {
-    // Epic IDP (rivoli-ai/conductor#1246). The audit flagged
-    // CodeIndexClient as a latent risk: it ran unauthenticated, which
-    // works today because andy-code-index doesn't gate per-user RBAC,
-    // but would 403 the moment it tightens. Attach the OBO-aware
-    // bearer handler now (audience: urn:andy-code-index-api) so the
-    // chain preserves user identity end-to-end.
-    var attachBearer = !string.IsNullOrWhiteSpace(
-        builder.Configuration["AndyAuth:ClientId"]);
-
-    const string CodeIndexAudience = "urn:andy-code-index-api";
-
-    var clientBuilder = builder.Services.AddHttpClient<ICodeIndexClient, CodeIndexClient>(client =>
+    var codeIndexClient = builder.Services.AddHttpClient<ICodeIndexClient, CodeIndexClient>(client =>
     {
         client.BaseAddress = new Uri(codeIndexBaseUrl);
     });
     if (attachBearer)
     {
-        clientBuilder.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        codeIndexClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
             sp.GetRequiredService<IDelegatedTokenProvider>(),
             sp.GetRequiredService<IServiceTokenProvider>(),
             sp.GetRequiredService<IHttpContextAccessor>(),

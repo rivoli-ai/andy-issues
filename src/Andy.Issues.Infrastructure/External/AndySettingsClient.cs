@@ -9,11 +9,12 @@ using Microsoft.Extensions.Logging;
 namespace Andy.Issues.Infrastructure.External;
 
 /// <summary>
-/// HTTP-backed andy-settings client with per-request caching. The caller's
-/// Bearer token is forwarded via the <c>BearerForwardingHandler</c> registered
-/// in Program.cs so user-scoped settings resolve correctly. The cache is a
-/// plain dictionary — safe because the Scoped DI lifetime guarantees one
-/// instance per HTTP request (single-threaded within the request pipeline).
+/// HTTP-backed andy-settings client with per-request caching. The bearer is
+/// minted by the OBO-aware <c>DelegatedBearerHandler</c> registered in
+/// Program.cs (audience: <c>urn:andy-settings-api</c>) so user-scoped
+/// settings resolve correctly. The cache is a plain dictionary — safe
+/// because the Scoped DI lifetime guarantees one instance per HTTP request
+/// (single-threaded within the request pipeline).
 /// </summary>
 public class AndySettingsClient : IAndySettingsClient
 {
