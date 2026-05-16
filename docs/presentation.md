@@ -118,7 +118,7 @@ Plus adjacent aggregates:
 
 ## Domain Model — Key Details
 
-**`UserStory`** (`src/Andy.Issues.Domain/UserStory.cs`)
+**`UserStory`** (`src/Andy.Issues.Domain/Entities/UserStory.cs`)
 
 - `Status` enum: `Draft → Ready → InProgress → InReview → Done`
 - `SetStatus()` **enforces** the state machine (no Done→Draft)
@@ -297,7 +297,7 @@ app.MapFallbackToFile("index.html"); // Angular SPA
 - **Test user** (seeded in non-prod): `test@andy.local` / `Test123!`
 - **Andy RBAC** (optional, `https://localhost:5003`): app code `andy-issues` with admin/user/viewer roles.
 - **`ClaimsPermissionChecker`** falls back to JWT claims if RBAC isn't reachable.
-- **`BearerForwardingHandler`** propagates the caller's JWT to downstream HTTP calls (andy-containers, etc.).
+- **`DelegatedBearerHandler`** mints an OBO bearer for the downstream audience (andy-settings, andy-docs, andy-containers, andy-codeindex) using the caller's JWT; replaces the older raw-JWT-forwarding handler.
 
 ---
 
@@ -515,8 +515,8 @@ This hardened the outbox + NATS path end-to-end. The InMemory bus remains the de
 
 # Where to start reading
 
-1. `src/Andy.Issues.Domain/UserStory.cs` — understand the core invariant
-2. `src/Andy.Issues.Application/IBacklogService.cs` — the service contract
+1. `src/Andy.Issues.Domain/Entities/UserStory.cs` — understand the core invariant
+2. `src/Andy.Issues.Application/Interfaces/IBacklogService.cs` — the service contract
 3. `src/Andy.Issues.Infrastructure/Services/BacklogService.cs` — the real impl
 4. `src/Andy.Issues.Api/Controllers/BacklogController.cs` — the HTTP surface
 5. `src/Andy.Issues.Infrastructure/Messaging/OutboxDispatcher.cs` — the publishing loop
