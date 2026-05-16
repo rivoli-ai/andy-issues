@@ -25,6 +25,8 @@ namespace Andy.Issues.Infrastructure.Services;
 /// </remarks>
 public sealed class BacklogSequenceAllocator : IBacklogSequenceAllocator
 {
+    private const string InMemoryProviderName = "Microsoft.EntityFrameworkCore.InMemory";
+
     private readonly AppDbContext _db;
 
     public BacklogSequenceAllocator(AppDbContext db)
@@ -36,6 +38,17 @@ public sealed class BacklogSequenceAllocator : IBacklogSequenceAllocator
         BacklogEntityType type,
         CancellationToken ct = default)
     {
+        // EF Core InMemory provider (integration tests) doesn't support
+        // RelationalDatabaseFacadeExtensions.SqlQuery. Fall back to a
+        // tracked read-modify-write — xUnit fixtures are single-threaded
+        // per test, so the missing atomicity doesn't surface. Detect
+        // via provider name to avoid pulling in the InMemory package
+        // reference just to call IsInMemory().
+        if (_db.Database.ProviderName == InMemoryProviderName)
+        {
+            return await AllocateInMemoryAsync(type, ct).ConfigureAwait(false);
+        }
+
         int typeValue = (int)type;
 
         // Atomic read-modify-write via RETURNING. Both Npgsql and
@@ -71,5 +84,26 @@ public sealed class BacklogSequenceAllocator : IBacklogSequenceAllocator
         _db.BacklogSequences.Add(seed);
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
         return 1;
+    }
+
+    private async Task<long> AllocateInMemoryAsync(
+        BacklogEntityType type,
+        CancellationToken ct)
+    {
+        BacklogSequence? row = await _db.BacklogSequences
+            .SingleOrDefaultAsync(s => s.EntityType == type, ct)
+            .ConfigureAwait(false);
+
+        if (row is null)
+        {
+            _db.BacklogSequences.Add(new BacklogSequence { EntityType = type, NextSeq = 2 });
+            await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+            return 1;
+        }
+
+        long allocated = row.NextSeq;
+        row.NextSeq = allocated + 1;
+        await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+        return allocated;
     }
 }
