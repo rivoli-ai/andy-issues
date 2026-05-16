@@ -61,7 +61,7 @@ ListHelpTopics, GetHelpTopic, SearchHelp — browse this help content via MCP.
 
 ## gRPC
 
-For service-to-service communication. Proto definitions are in `src/Api/Protos/`.
+For service-to-service communication. Proto definitions are in `src/Andy.Issues.Api/Protos/`.
 
 | Service | Proto | Operations |
 |---------|-------|------------|
