@@ -22,6 +22,12 @@ namespace Andy.Issues.Application.Messaging.Events;
 // `StoryEventPayload`'s convention. The wire schema for the
 // `triaged` subject specifically is published in
 // schemas/triage-output.v1.json (Z3) — the embedded `TriageOutput`.
+// AH6 (rivoli-ai/conductor#713): SchemaVersion bumped to 2 with the
+// addition of optional `IssueDisplayId` (ISSUE-99 short form). The
+// andy-tasks consumer reads this and pins it on the resulting Goal so
+// the reciprocal Story↔Goal linkage round-trips end-to-end. Optional
+// for back-compat: pre-AH6 producer emissions left it null and the
+// consumer falls back to the GUID-form `IssueId`.
 public sealed record IssueEventPayload(
     Guid IssueId,
     Guid? RepositoryId,
@@ -30,9 +36,10 @@ public sealed record IssueEventPayload(
     string TriageState,
     string? TriagedBy,
     DateTimeOffset? TriagedAt,
-    TriageOutput? TriageOutput = null)
+    TriageOutput? TriageOutput = null,
+    string? IssueDisplayId = null)
 {
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     public int Schema_Version => SchemaVersion;
 }

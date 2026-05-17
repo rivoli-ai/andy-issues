@@ -50,6 +50,7 @@ public class IssueServiceTriageDispatchTests : IDisposable
         var service = new IssueService(
             ctx,
             new TriageDispatchTestDocsClient(),
+            new BacklogSequenceAllocator(ctx),
             estimator: null,
             agents: agents,
             containers: containers,

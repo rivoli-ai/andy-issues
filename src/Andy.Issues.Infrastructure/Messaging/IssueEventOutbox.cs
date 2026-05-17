@@ -37,7 +37,15 @@ public static class IssueEventOutbox
             TriageState: issue.TriageState.ToString(),
             TriagedBy: issue.TriagedBy,
             TriagedAt: issue.TriagedAt,
-            TriageOutput: issue.TriageOutput);
+            TriageOutput: issue.TriageOutput,
+            // AH6 (rivoli-ai/conductor#713): carry the short ISSUE-N
+            // identifier so the andy-tasks consumer can pin it on the
+            // resulting Goal and emit it back on
+            // GoalCreatedEvent.SourceIssueDisplayId. Falls through as
+            // null for issues with Seq == 0 (legacy fixtures or
+            // pre-AH6 rows that haven't been backfilled yet) — the
+            // andy-tasks side already tolerates that case.
+            IssueDisplayId: issue.Seq > 0 ? issue.DisplayId : null);
 
         var subject = $"andy.issues.events.issue.{issue.Id}.{kind.ToSubjectKind()}";
 

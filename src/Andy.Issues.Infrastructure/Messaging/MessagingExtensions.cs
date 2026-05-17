@@ -45,6 +45,10 @@ public static class MessagingExtensions
         // Consumers (ADR 0001). Always-on per AK4 — selective disable
         // in incidents goes through `nats consumer pause`, not config.
         services.AddHostedService<ContainerRunEventConsumer>();
+        // AH6 (rivoli-ai/conductor#713): reverse-pin the
+        // andy-tasks Goal back-reference onto the originating Issue
+        // when SourceIssueDisplayId carries an ISSUE-N form.
+        services.AddHostedService<GoalLinkageConsumer>();
 
         return services;
     }

@@ -49,9 +49,10 @@ public class IssueServiceTests : IDisposable
     // that don't care about backfill see exactly what they pass in.
     // The few tests that exercise backfill construct via NewServiceWithEstimator.
     private IssueService NewService(AppDbContext ctx) =>
-        new(ctx, new TestDocsClient());
+        new(ctx, new TestDocsClient(), new BacklogSequenceAllocator(ctx));
     private IssueService NewServiceWithEstimator(AppDbContext ctx) =>
-        new(ctx, new TestDocsClient(), new Andy.Issues.Infrastructure.Estimation.TriageEstimator());
+        new(ctx, new TestDocsClient(), new BacklogSequenceAllocator(ctx),
+            new Andy.Issues.Infrastructure.Estimation.TriageEstimator());
 
     private async Task<Guid> CreateIssueAsync(string owner = "alice")
     {
@@ -70,6 +71,50 @@ public class IssueServiceTests : IDisposable
         var issue = await verify.Issues.SingleAsync(i => i.Id == id);
         Assert.Equal(TriageState.NeedsTriage, issue.TriageState);
         Assert.Empty(verify.Outbox);
+    }
+
+    [Fact]
+    public async Task Create_StampsIssueDisplayId_StartingAt1()
+    {
+        // AH6 (rivoli-ai/conductor#713): every freshly-created Issue
+        // gets an ISSUE-N short id allocated alongside the insert,
+        // starting at 1 per service instance.
+        var first = await CreateIssueAsync();
+        var second = await CreateIssueAsync();
+
+        await using var verify = NewContext();
+        var a = await verify.Issues.SingleAsync(i => i.Id == first);
+        var b = await verify.Issues.SingleAsync(i => i.Id == second);
+
+        Assert.Equal(1, a.Seq);
+        Assert.Equal(2, b.Seq);
+        Assert.Equal("ISSUE-1", a.DisplayId);
+        Assert.Equal("ISSUE-2", b.DisplayId);
+    }
+
+    [Fact]
+    public async Task Triaged_OutboxEventCarries_IssueDisplayId()
+    {
+        // AH6: the IssueEventPayload published on .triaged carries
+        // the ISSUE-N short id so the andy-tasks consumer can pin it
+        // on the resulting Goal.
+        var id = await CreateIssueAsync();
+        await using (var ctx = NewContext())
+        {
+            await NewService(ctx).StartTriageAsync(id, "alice");
+        }
+        await using (var ctx = NewContext())
+        {
+            await NewService(ctx).CompleteTriageAsync(id, "alice", MakeOutput());
+        }
+
+        await using var verify = NewContext();
+        var entry = verify.Outbox.Single(o => o.Subject.EndsWith(".triaged"));
+        var payload = JsonSerializer.Deserialize<IssueEventPayload>(
+            entry.PayloadJson, Andy.Issues.Application.Messaging.EventJson.Options);
+        Assert.NotNull(payload);
+        Assert.Equal("ISSUE-1", payload!.IssueDisplayId);
+        Assert.Equal(2, payload.Schema_Version);
     }
 
     [Fact]
