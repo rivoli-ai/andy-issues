@@ -44,6 +44,11 @@ public class ContainerRunEventConsumerTests : IDisposable
         // to drive the state machine + outbox + Z7 estimator backfill.
         services.AddScoped<ITriageEstimator, NoopTriageEstimator>();
         services.AddSingleton<IDocsClient, StubDocsClient>();
+        // AH6: IssueService now depends on IBacklogSequenceAllocator
+        // to stamp ISSUE-N on the new issue. Wire the real allocator
+        // — it works against the same in-memory SQLite.
+        services.AddScoped<IBacklogSequenceAllocator,
+            Andy.Issues.Infrastructure.Services.BacklogSequenceAllocator>();
         services.AddScoped<IIssueService, IssueService>();
         _sp = services.BuildServiceProvider();
     }

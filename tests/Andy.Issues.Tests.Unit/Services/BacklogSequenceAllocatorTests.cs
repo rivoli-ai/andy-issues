@@ -50,6 +50,24 @@ public class BacklogSequenceAllocatorTests : IDisposable
         Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Epic));
         Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Feature));
         Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Story));
+        // AH6 (rivoli-ai/conductor#713): Issue gets its own independent
+        // sequence so ISSUE-N never collides with STORY-N.
+        Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Issue));
+    }
+
+    [Fact]
+    public async Task Issue_sequence_is_independent_of_backlog_hierarchy()
+    {
+        // AH6 — interleaving Issue / Story / Feature / Epic
+        // allocations must give each its own monotonic counter.
+        await using var ctx = NewContext();
+        var allocator = new BacklogSequenceAllocator(ctx);
+
+        Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Issue));
+        Assert.Equal(1, await allocator.AllocateAsync(BacklogEntityType.Story));
+        Assert.Equal(2, await allocator.AllocateAsync(BacklogEntityType.Issue));
+        Assert.Equal(2, await allocator.AllocateAsync(BacklogEntityType.Story));
+        Assert.Equal(3, await allocator.AllocateAsync(BacklogEntityType.Issue));
     }
 
     [Fact]

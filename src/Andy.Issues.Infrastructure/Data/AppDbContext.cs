@@ -3,6 +3,7 @@
 
 using System.Text.Json;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
@@ -166,6 +167,25 @@ public class AppDbContext : DbContext
         modelBuilder.Entity<Issue>(e =>
         {
             e.HasKey(x => x.Id);
+
+            // AH6 (rivoli-ai/conductor#713): short ISSUE-N display id.
+            // Unique so callers can look up an Issue by display id
+            // alone (mirrors the EPIC/FEAT/STORY pattern from AH1).
+            e.Property(x => x.Seq).IsRequired();
+            e.HasIndex(x => x.Seq).IsUnique();
+            // DisplayId is computed from Seq — flag not-mapped so EF
+            // doesn't try to back it with a column.
+            e.Ignore(x => x.DisplayId);
+
+            // AH6 — reverse linkage to the andy-tasks Goal that was
+            // created from this issue's triage event. Written by the
+            // GoalLinkageConsumer when it sees
+            // andy.tasks.events.goal.*.created carrying this issue's
+            // SourceIssueDisplayId. Indexed for the conductor's "find
+            // issues that became goals" query path.
+            e.Property(x => x.GoalDisplayId).HasMaxLength(64);
+            e.HasIndex(x => x.GoalDisplayId);
+
             e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Body).HasMaxLength(8192);
@@ -255,6 +275,20 @@ public class AppDbContext : DbContext
             e.HasKey(x => x.EntityType);
             e.Property(x => x.EntityType).HasColumnName("entity_type");
             e.Property(x => x.NextSeq).HasColumnName("next_seq").IsRequired();
+
+            // AH6 (rivoli-ai/conductor#713): seed all four counter
+            // rows so the EnsureCreated path (SQLite tests + the
+            // Conductor embedded build) starts every allocator at 1
+            // without racing the lazy-seed branch under concurrent
+            // first-allocations. The production Postgres migration
+            // also seeds them via raw SQL (AH1 added Epic/Feature/
+            // Story; the AH6 migration appends Issue at max(Seq)+1
+            // for existing rows).
+            e.HasData(
+                new BacklogSequence { EntityType = BacklogEntityType.Epic, NextSeq = 1 },
+                new BacklogSequence { EntityType = BacklogEntityType.Feature, NextSeq = 1 },
+                new BacklogSequence { EntityType = BacklogEntityType.Story, NextSeq = 1 },
+                new BacklogSequence { EntityType = BacklogEntityType.Issue, NextSeq = 1 });
         });
 
         modelBuilder.Entity<LinkedProvider>(e =>

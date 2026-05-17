@@ -20,6 +20,7 @@ public class IssueService : IIssueService
 {
     private readonly AppDbContext _db;
     private readonly IDocsClient _docs;
+    private readonly IBacklogSequenceAllocator _sequence;
     private readonly ITriageEstimator? _estimator;
     private readonly IAgentsClient? _agents;
     private readonly IContainersClient? _containers;
@@ -28,6 +29,7 @@ public class IssueService : IIssueService
     public IssueService(
         AppDbContext db,
         IDocsClient docs,
+        IBacklogSequenceAllocator sequence,
         ITriageEstimator? estimator = null,
         IAgentsClient? agents = null,
         IContainersClient? containers = null,
@@ -35,6 +37,7 @@ public class IssueService : IIssueService
     {
         _db = db;
         _docs = docs;
+        _sequence = sequence;
         _estimator = estimator;
         _agents = agents;
         _containers = containers;
@@ -92,6 +95,10 @@ public class IssueService : IIssueService
         var issue = new Issue
         {
             Id = Guid.NewGuid(),
+            // AH6 (rivoli-ai/conductor#713): allocate the ISSUE-N
+            // short id alongside the insert so the outbox event
+            // payload (Triaged subject) carries it on first emission.
+            Seq = await _sequence.AllocateAsync(BacklogEntityType.Issue, ct),
             OwnerUserId = userId,
             RepositoryId = request.RepositoryId,
             Title = request.Title,

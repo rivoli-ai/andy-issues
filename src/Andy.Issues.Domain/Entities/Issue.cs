@@ -15,6 +15,33 @@ public class Issue
 {
     public Guid Id { get; set; }
 
+    /// <summary>
+    /// AH6 (rivoli-ai/conductor#713) — monotonic sequence allocated
+    /// by <see cref="IBacklogSequenceAllocator"/> before insert.
+    /// Projected as <see cref="DisplayId"/>. Immutable once stamped.
+    /// </summary>
+    public long Seq { get; internal set; }
+
+    /// <summary>
+    /// AH6 — human-readable short identifier (<c>ISSUE-99</c>) derived
+    /// from <see cref="Seq"/>. Carried on the
+    /// <c>andy.issues.events.issue.*.triaged</c> payload so andy-tasks
+    /// can pin it on the resulting Goal and emit it back on
+    /// <c>GoalCreatedEvent.SourceIssueDisplayId</c>.
+    /// </summary>
+    public string DisplayId => $"ISSUE-{Seq}";
+
+    /// <summary>
+    /// AH6 — reverse linkage written by the
+    /// <c>GoalLinkageConsumer</c> when andy-tasks emits
+    /// <c>andy.tasks.events.goal.{id}.created</c> with this issue's
+    /// display id pinned as <c>SourceIssueDisplayId</c>. Stable
+    /// <c>GOAL-{n}</c> form. Null while no goal references this
+    /// issue (manual issue creation, or pre-AH6 emissions that
+    /// didn't carry the back-pin).
+    /// </summary>
+    public string? GoalDisplayId { get; set; }
+
     // Owner (the user who filed the issue). Mirrors the OwnerUserId
     // pattern used by Repository / Sandbox; there is no tenant axis in
     // this codebase yet.
