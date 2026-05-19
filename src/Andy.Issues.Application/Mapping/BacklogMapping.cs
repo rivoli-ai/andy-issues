@@ -3,6 +3,7 @@
 
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Services;
 
 namespace Andy.Issues.Application.Mapping;
 
@@ -22,7 +23,13 @@ public static class BacklogMapping
         entity.ExternalId,
         entity.AzureDevOpsWorkItemId,
         entity.CreatedAt,
-        entity.UpdatedAt);
+        entity.UpdatedAt,
+        // SP.7.1 — emit the hash on every DTO so consumers can detect
+        // drift. We compute on demand rather than read the column so
+        // rows that pre-date the migration (ContentHash IS NULL) still
+        // ship the correct hash — the persisted column is a cache, the
+        // canonical truth is the entity content.
+        entity.ContentHash ?? StoryContentHasher.Compute(entity));
 
     public static FeatureDto ToDto(this Feature entity) => new(
         entity.Id,

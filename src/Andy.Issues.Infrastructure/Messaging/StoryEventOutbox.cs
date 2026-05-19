@@ -5,6 +5,7 @@ using System.Text.Json;
 using Andy.Issues.Application.Messaging;
 using Andy.Issues.Application.Messaging.Events;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Domain.Services;
 using Andy.Issues.Infrastructure.Data;
 
 namespace Andy.Issues.Infrastructure.Messaging;
@@ -32,6 +33,12 @@ public static class StoryEventOutbox
         Guid repositoryId,
         StoryEventKind kind)
     {
+        // Recompute the hash here rather than reading story.ContentHash so
+        // the outbox row is internally consistent even when this helper
+        // is called before the AppDbContext SaveChanges hook runs (or
+        // when the caller mutated the entity after the hook fired).
+        var contentHash = StoryContentHasher.Compute(story);
+
         var payload = new StoryEventPayload(
             StoryId: story.Id,
             FeatureId: featureId,
@@ -39,7 +46,8 @@ public static class StoryEventOutbox
             RepositoryId: repositoryId,
             Title: story.Title,
             Status: story.Status.ToString(),
-            DisplayId: story.DisplayId);
+            DisplayId: story.DisplayId,
+            ContentHash: contentHash);
 
         var subject = $"andy.issues.events.story.{story.Id}.{kind.ToSubjectKind()}";
 

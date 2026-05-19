@@ -48,6 +48,19 @@ public class UserStory
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
     public DateTimeOffset? UpdatedAt { get; set; }
 
+    /// <summary>
+    /// Stable sha256 (hex, lowercase) over the canonicalised
+    /// title / description / labels / acceptance-criteria. Recomputed on
+    /// every persist and emitted on every story.* outbox event so
+    /// downstream services (andy-tasks, Conductor) can detect drift
+    /// after a re-import. See andy-issues#181 / conductor#1627
+    /// (Epic SP, story SP.7.1).
+    ///
+    /// Nullable so rows written before this column existed (and the
+    /// SQLite EnsureCreated path) can be lazily backfilled on first read.
+    /// </summary>
+    public string? ContentHash { get; set; }
+
     public void SetStatus(UserStoryStatus next)
     {
         if (Status == UserStoryStatus.Done && next == UserStoryStatus.Draft)

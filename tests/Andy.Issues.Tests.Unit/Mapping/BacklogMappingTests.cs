@@ -4,6 +4,7 @@
 using Andy.Issues.Application.Mapping;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
+using Andy.Issues.Domain.Services;
 using Xunit;
 
 namespace Andy.Issues.Tests.Unit.Mapping;
@@ -52,5 +53,42 @@ public class BacklogMappingTests
         story.SetStatus(UserStoryStatus.InReview);
         var dto = story.ToDto();
         Assert.Equal("InReview", dto.Status);
+    }
+
+    [Fact]
+    public void UserStoryDto_PrefersPersistedContentHashWhenPresent()
+    {
+        // SP.7.1 — when the entity already carries a stored hash (i.e.
+        // it was populated by the SaveChanges hook), the mapping returns
+        // that value unchanged rather than recomputing.
+        var story = new UserStory
+        {
+            Title = "T",
+            Description = "B",
+            ContentHash = "deadbeef" + new string('0', 56)
+        };
+        var dto = story.ToDto();
+        Assert.Equal(story.ContentHash, dto.ContentHash);
+    }
+
+    [Fact]
+    public void UserStoryDto_FallsBackToComputedHashWhenColumnIsNull()
+    {
+        // SP.7.1 — pre-migration rows have ContentHash == NULL on disk.
+        // The mapping must hand consumers the right hash anyway by
+        // computing on the fly.
+        var story = new UserStory
+        {
+            Title = "Legacy",
+            Description = "Pre-migration",
+            Labels = new List<string> { "bug" },
+            AcceptanceCriteria = "AC",
+            ContentHash = null
+        };
+        var dto = story.ToDto();
+        Assert.NotNull(dto.ContentHash);
+        Assert.Equal(
+            StoryContentHasher.Compute("Legacy", "Pre-migration", new[] { "bug" }, "AC"),
+            dto.ContentHash);
     }
 }
