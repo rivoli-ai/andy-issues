@@ -4,7 +4,9 @@
 using System.Text.Json;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
+using Andy.Issues.Domain.Services;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 namespace Andy.Issues.Infrastructure.Data;
@@ -156,6 +158,10 @@ public class AppDbContext : DbContext
             e.Property(x => x.ExternalId).HasMaxLength(256);
             e.Property(x => x.GitHubType).HasMaxLength(64);
             e.Property(x => x.Labels).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            // SP.7.1 — sha256-hex content hash for drift detection. 64
+            // hex chars; nullable so migration backfill can run lazily
+            // without painting every row at once.
+            e.Property(x => x.ContentHash).HasMaxLength(64);
             e.Ignore(x => x.DisplayId);
             e.HasIndex(x => x.AzureDevOpsWorkItemId);
             e.HasOne(x => x.Feature)
@@ -392,5 +398,47 @@ public class AppDbContext : DbContext
             e.HasIndex(x => new { x.ResourceType, x.ResourceId, x.CreatedAt });
             e.HasIndex(x => x.UserId);
         });
+    }
+
+    // SP.7.1 — recompute UserStory.ContentHash on every persist so the
+    // stored value is never stale relative to title/body/labels/AC. Runs
+    // before EF emits SQL; story.* outbox rows queued by the caller in
+    // the same unit of work observe the updated hash because the outbox
+    // payload is built from the entity after this hook fires.
+    public override int SaveChanges()
+    {
+        RecomputeStoryContentHashes();
+        return base.SaveChanges();
+    }
+
+    public override int SaveChanges(bool acceptAllChangesOnSuccess)
+    {
+        RecomputeStoryContentHashes();
+        return base.SaveChanges(acceptAllChangesOnSuccess);
+    }
+
+    public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+    {
+        RecomputeStoryContentHashes();
+        return base.SaveChangesAsync(cancellationToken);
+    }
+
+    public override Task<int> SaveChangesAsync(
+        bool acceptAllChangesOnSuccess,
+        CancellationToken cancellationToken = default)
+    {
+        RecomputeStoryContentHashes();
+        return base.SaveChangesAsync(acceptAllChangesOnSuccess, cancellationToken);
+    }
+
+    private void RecomputeStoryContentHashes()
+    {
+        foreach (var entry in ChangeTracker.Entries<UserStory>())
+        {
+            if (entry.State is EntityState.Added or EntityState.Modified)
+            {
+                entry.Entity.ContentHash = StoryContentHasher.Compute(entry.Entity);
+            }
+        }
     }
 }

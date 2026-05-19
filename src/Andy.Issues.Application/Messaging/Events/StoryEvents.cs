@@ -18,7 +18,14 @@ public sealed record StoryEventPayload(
     // fields keep working; consumers that care can cross-reference
     // without a GUID round-trip. Nullable so payloads replayed from
     // pre-AH1 outbox rows decode cleanly.
-    string? DisplayId = null)
+    string? DisplayId = null,
+    // SP.7.1 (andy-issues#181 / conductor#1627) — stable sha256-hex
+    // over the story's canonicalised title/body/labels/AC. Downstream
+    // services (andy-tasks, Conductor) compare against the hash stored
+    // on the corresponding Goal/StoryRef and surface drift in the UI
+    // when they diverge. Nullable so payloads replayed from pre-SP7.1
+    // outbox rows decode cleanly.
+    string? ContentHash = null)
 {
     public const int SchemaVersion = 1;
 

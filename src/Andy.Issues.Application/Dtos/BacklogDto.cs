@@ -45,4 +45,11 @@ public record UserStoryDto(
     string? ExternalId,
     int? AzureDevOpsWorkItemId,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    // SP.7.1 — stable sha256 over title/body/labels/AC. Emitted on
+    // every DTO so downstream consumers (andy-tasks, Conductor) can
+    // detect drift after a re-import. See andy-issues#181 /
+    // conductor#1627. Nullable for back-compat with older clients that
+    // ignore unknown fields; the field is always populated for stories
+    // persisted post-migration.
+    string? ContentHash = null);
