@@ -162,6 +162,23 @@ public class AppDbContext : DbContext
             // hex chars; nullable so migration backfill can run lazily
             // without painting every row at once.
             e.Property(x => x.ContentHash).HasMaxLength(64);
+
+            // SP.0.4 (andy-issues#180 / conductor#1632) — refinement
+            // output. All nullable / default-empty so the migration
+            // back-fills cleanly. Enums persist as strings (matches the
+            // status / triage_state columns elsewhere in the schema).
+            e.Property(x => x.Priority).HasConversion<string>().HasMaxLength(8);
+            e.Property(x => x.Complexity).HasConversion<string>().HasMaxLength(16);
+            e.Property(x => x.Risk).HasConversion<string>().HasMaxLength(8);
+            e.Property(x => x.SuggestedApproach).HasMaxLength(8192);
+            e.Property(x => x.RefinedDescription).HasMaxLength(16384);
+            e.Property(x => x.AcceptanceCriteriaList).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Property(x => x.Risks).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Property(x => x.TestPlan).HasConversion(LabelsConverter).Metadata.SetValueComparer(LabelsComparer);
+            e.Property(x => x.RefineVersion).HasDefaultValue(0);
+            e.Property(x => x.RefinedBy).HasMaxLength(256);
+            e.Property(x => x.StoryContentHashAtTriage).HasMaxLength(64);
+
             e.Ignore(x => x.DisplayId);
             e.HasIndex(x => x.AzureDevOpsWorkItemId);
             e.HasOne(x => x.Feature)

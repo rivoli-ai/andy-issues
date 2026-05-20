@@ -19,17 +19,20 @@ public class BacklogController : ControllerBase
     private readonly IBacklogAzureDevOpsSyncService _azureSync;
     private readonly IBacklogAiService _ai;
     private readonly IPullRequestStatusService _prStatus;
+    private readonly IStoryRefinementService _refinement;
 
     public BacklogController(
         IBacklogService backlog,
         IBacklogAzureDevOpsSyncService azureSync,
         IBacklogAiService ai,
-        IPullRequestStatusService prStatus)
+        IPullRequestStatusService prStatus,
+        IStoryRefinementService refinement)
     {
         _backlog = backlog;
         _azureSync = azureSync;
         _ai = ai;
         _prStatus = prStatus;
+        _refinement = refinement;
     }
 
     /// <summary>
@@ -269,6 +272,37 @@ public class BacklogController : ControllerBase
         var result = await _prStatus.SyncRepositoryAsync(repositoryId, GetUserId(), ct);
         if (result is null) return NotFound();
         return Ok(result);
+    }
+
+    // SP.0.4 (andy-issues#180 / conductor#1632) — kick off a story
+    // refinement run. Long-running: returns 202 immediately with the
+    // refineRunId; the client polls GET /api/stories/{id} or subscribes
+    // to the `andy.issues.events.story.{id}.triaged` outbox topic to
+    // observe completion. Idempotent under (storyId, agentId) for 5
+    // minutes — see StoryRefinementService.IdempotencyWindow.
+    [HttpPost("api/stories/{storyId:guid}/refine")]
+    [ProducesResponseType(typeof(StoryRefineRunDto), StatusCodes.Status202Accepted)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
+    public async Task<ActionResult<StoryRefineRunDto>> RefineStory(
+        Guid storyId,
+        [FromBody] RefineStoryRequest? request,
+        CancellationToken ct)
+    {
+        var result = await _refinement.RefineAsync(
+            storyId, request ?? new RefineStoryRequest(), GetUserId(), ct);
+
+        return result.Outcome switch
+        {
+            StoryRefineOutcome.Queued => Accepted(result.Run!),
+            StoryRefineOutcome.NotFound => NotFound(),
+            StoryRefineOutcome.Forbidden => Forbid(),
+            StoryRefineOutcome.AgentUnavailable =>
+                StatusCode(StatusCodes.Status503ServiceUnavailable,
+                    new { error = result.Error ?? "Triage agent unavailable." }),
+            _ => StatusCode(500)
+        };
     }
 
     // #89 — single-story PR status check. Auto-transitions to Done
