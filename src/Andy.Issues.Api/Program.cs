@@ -439,15 +439,36 @@ app.MapFallbackToFile("index.html");
 // Embedded mode is a single-user desktop app — there is no ops team to
 // run `dotnet ef database update` on first launch. Auto-migrate so the
 // SQLite schema is created inline, same as dotnet-run development.
+//
+// SQLite path:
+//   1. EnsureCreatedAsync — creates the schema from the live model
+//      snapshot on a fresh DB. No-op on an already-populated DB.
+//   2. SqliteSchemaBootstrapper.HealMissingColumnsAsync — compares the
+//      live model against the actual schema and adds any columns the
+//      model declares that the DB is missing. Only nullable additive
+//      changes are healed; destructive changes are left for migrations.
+//      Without this, a user whose DB was created by an older binary
+//      stays stuck at the older schema forever (e.g. missing
+//      UserStory.ContentHash → every Story query 500s).
+//
+// Postgres path: standard EF migrations.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 if (app.Environment.IsLocalOrEmbedded() && !string.IsNullOrEmpty(connectionString))
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
     if (db.Database.IsNpgsql())
+    {
         await db.Database.MigrateAsync();
+    }
     else if (db.Database.IsSqlite())
+    {
         await db.Database.EnsureCreatedAsync();
+        var bootstrapLogger = scope.ServiceProvider
+            .GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Andy.Issues.SqliteSchemaBootstrap");
+        await SqliteSchemaBootstrapper.HealMissingColumnsAsync(db, bootstrapLogger);
+    }
 }
 
 app.Run();
