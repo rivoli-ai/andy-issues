@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: andy_issues_dev_password
       PGDATA: /var/lib/postgresql/data/pgdata
     ports:
-      - "5443:5432"
+      - "7443:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -28,8 +28,8 @@ services:
     container_name: andy-issues-nats
     command: ["-js", "-m", "8222"]
     ports:
-      - "4222:4222"
-      - "8222:8222"
+      - "7422:4222"
+      - "7223:8222"
     volumes:
       - nats_data:/data
     healthcheck:
@@ -64,8 +64,8 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     ports:
-      - "5410:8443"
-      - "5411:8080"
+      - "7410:8443"
+      - "7411:8080"
     volumes:
       - ./certs:/usr/local/share/ca-certificates/custom:ro
       - dpkeys:/app/.aspnet/DataProtection-Keys
