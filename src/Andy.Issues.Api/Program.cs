@@ -12,6 +12,7 @@ using Andy.Issues.Infrastructure.Estimation;
 using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Infrastructure.Messaging;
 using Andy.Issues.Infrastructure.Services;
+using Andy.Issues.Infrastructure.Triage;
 using Andy.Telemetry;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
@@ -172,6 +173,15 @@ builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
 builder.Services.AddScoped<IBacklogService, BacklogService>();
 builder.Services.AddScoped<IIssueService, IssueService>();
+// SP.0.4 (andy-issues#180 / conductor#1632) — story refinement
+// orchestrator. Stub agent (EchoStoryTriageAgent) is wired by
+// default; the LLM-backed adapter swaps in via a follow-up.
+// The tracker is a singleton because idempotency state must outlive
+// the request scope (a retry seconds later from the same client must
+// see the in-flight entry from the first request).
+builder.Services.AddSingleton<IStoryTriageAgent, EchoStoryTriageAgent>();
+builder.Services.AddSingleton<IStoryRefinementTracker, InMemoryStoryRefinementTracker>();
+builder.Services.AddScoped<IStoryRefinementService, StoryRefinementService>();
 // #164 — when AndyDocs:BaseUrl is set, swap the stub for the real
 // HTTP adapter against andy-docs (Epic AJ shipped). Otherwise keep
 // the stub for tests / Conductor-embedded mode where andy-docs is

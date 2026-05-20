@@ -61,6 +61,54 @@ public class UserStory
     /// </summary>
     public string? ContentHash { get; set; }
 
+    // ── SP.0.4 (andy-issues#180 / conductor#1632) — refinement output ─
+    //
+    // Populated by the triage agent when POST /api/stories/{id}/refine
+    // completes. Every column below is nullable: a freshly imported
+    // story (TriageState.NotTriaged) has all six unset. Conductor's
+    // RefinementPanel derives the tagged-union TriageState from
+    // RefinedAt + RefineVersion + ContentHash drift, see
+    // <c>StoryTriageStateMapper</c>.
+    //
+    // Storage:
+    //   • RefinedDescription / SuggestedApproach : free text columns
+    //   • AcceptanceCriteriaList / RisksList / TestPlanList : stored as
+    //     JSON text via the EF value converter on AppDbContext so they
+    //     round-trip cleanly on both SQLite and Postgres without a join
+    //     table. Stored field names use the "*List" suffix so the
+    //     existing scalar <see cref="AcceptanceCriteria"/> blob (kept
+    //     for back-compat with manual story edits) does not collide
+    //     with the structured list emitted by the agent.
+
+    public StoryPriority? Priority { get; set; }
+    public StoryComplexity? Complexity { get; set; }
+    public StoryRisk? Risk { get; set; }
+    public string? SuggestedApproach { get; set; }
+
+    public string? RefinedDescription { get; set; }
+
+    public List<string> AcceptanceCriteriaList { get; set; } = new();
+    public List<string> Risks { get; set; } = new();
+    public List<string> TestPlan { get; set; } = new();
+
+    /// <summary>
+    /// Monotonic version counter, incremented every time the triage
+    /// agent re-runs successfully. 0 means "never refined". Used as the
+    /// idempotency key alongside agent id (5-minute window).
+    /// </summary>
+    public int RefineVersion { get; set; }
+
+    public DateTimeOffset? RefinedAt { get; set; }
+    public string? RefinedBy { get; set; }
+
+    /// <summary>
+    /// Snapshot of <see cref="ContentHash"/> at the moment the latest
+    /// refinement completed. Conductor's StoryTriageState decoder
+    /// transitions to <c>Obsolete</c> when the live hash diverges from
+    /// this snapshot — see SP.0.12.
+    /// </summary>
+    public string? StoryContentHashAtTriage { get; set; }
+
     public void SetStatus(UserStoryStatus next)
     {
         if (Status == UserStoryStatus.Done && next == UserStoryStatus.Draft)

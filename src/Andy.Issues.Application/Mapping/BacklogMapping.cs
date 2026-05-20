@@ -9,7 +9,9 @@ namespace Andy.Issues.Application.Mapping;
 
 public static class BacklogMapping
 {
-    public static UserStoryDto ToDto(this UserStory entity) => new(
+    public static UserStoryDto ToDto(this UserStory entity) => entity.ToDto(triaging: false);
+
+    public static UserStoryDto ToDto(this UserStory entity, bool triaging) => new(
         entity.Id,
         entity.DisplayId,
         entity.FeatureId,
@@ -29,7 +31,12 @@ public static class BacklogMapping
         // rows that pre-date the migration (ContentHash IS NULL) still
         // ship the correct hash — the persisted column is a cache, the
         // canonical truth is the entity content.
-        entity.ContentHash ?? StoryContentHasher.Compute(entity));
+        entity.ContentHash ?? StoryContentHasher.Compute(entity),
+        // SP.0.4 — derived triage state + refinement output. `triaging`
+        // is set by the orchestrator while a run is in flight; pure
+        // GETs see one of NotTriaged / Triaged / Obsolete.
+        entity.DeriveTriageState(triaging),
+        entity.ToRefinementDto());
 
     public static FeatureDto ToDto(this Feature entity) => new(
         entity.Id,

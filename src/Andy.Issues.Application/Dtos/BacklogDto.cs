@@ -52,4 +52,10 @@ public record UserStoryDto(
     // conductor#1627. Nullable for back-compat with older clients that
     // ignore unknown fields; the field is always populated for stories
     // persisted post-migration.
-    string? ContentHash = null);
+    string? ContentHash = null,
+    // SP.0.4 (andy-issues#180 / conductor#1632) — derived triage state
+    // (tagged union) + refinement output. `TriageState` is non-nullable
+    // so the wire shape is always one of the four kinds; `Refinement`
+    // is null until POST /api/stories/{id}/refine completes.
+    StoryTriageStateDto? TriageState = null,
+    StoryRefinementDto? Refinement = null);
