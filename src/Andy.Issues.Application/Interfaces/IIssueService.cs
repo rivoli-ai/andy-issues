@@ -25,6 +25,19 @@ public interface IIssueService
         int pageSize,
         CancellationToken ct = default);
 
+    // #187 — unified, cursor-paginated list for the cockpit AF2
+    // pipeline kanban and AF3 intake pane. Filters compose: ANY-of on
+    // <c>States</c>, NULL/equals on <c>Assignee</c>, equals on
+    // <c>RepositoryId</c>. Returns a small <see cref="IssueSummary"/>
+    // projection (no full triage output) plus an opaque cursor for
+    // the next page; cursor is null when the response is the last
+    // page. Caller is responsible for issuing the next request with
+    // the same filters and the returned cursor.
+    Task<IssueListResponse> ListIssuesAsync(
+        string userId,
+        IssueListQuery query,
+        CancellationToken ct = default);
+
     // Z1 transition methods. See Issue.cs for the state machine.
     Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default);
 

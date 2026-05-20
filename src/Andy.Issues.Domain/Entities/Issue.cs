@@ -47,6 +47,14 @@ public class Issue
     // this codebase yet.
     public string OwnerUserId { get; set; } = string.Empty;
 
+    // #187 — assignee on the triage envelope. Distinct from
+    // <see cref="OwnerUserId"/> (the filer) and from
+    // <see cref="TriagedBy"/> (the last actor on a transition). Null
+    // when the issue is unassigned (the AF3 cockpit intake pane's
+    // default queue). The unified `GET /api/issues` endpoint filters
+    // on this column with `assignee=none|me|<user-id>`.
+    public string? AssigneeUserId { get; set; }
+
     // Optional repository the issue is filed against. Triage may also
     // suggest a target repo (Z3) — that is a separate field on the
     // triage output, not this attribution.

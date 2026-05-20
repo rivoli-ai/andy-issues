@@ -791,6 +791,17 @@ file class StubIssueService : IIssueService
         return Task.FromResult(ListResult!);
     }
 
+    public Task<IssueListResponse> ListIssuesAsync(
+        string userId,
+        Andy.Issues.Application.Requests.IssueListQuery query,
+        CancellationToken ct = default)
+    {
+        // #187 — stub returns an empty page; the unit tests for the
+        // unified endpoint cover ListIssuesAsync via the integration
+        // controller path against the real IssueService.
+        return Task.FromResult(new IssueListResponse(Array.Empty<IssueSummary>(), null));
+    }
+
     public Task<IssueTriageResult> StartTriageAsync(Guid id, string userId, CancellationToken ct = default)
     {
         LastStartTriageId = id;
