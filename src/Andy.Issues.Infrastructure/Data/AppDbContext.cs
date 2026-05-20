@@ -214,8 +214,14 @@ public class AppDbContext : DbContext
             e.Property(x => x.Body).HasMaxLength(8192);
             e.Property(x => x.TriageState).HasConversion<string>().HasMaxLength(32);
             e.Property(x => x.TriagedBy).HasMaxLength(256);
+            // #187 — unified list endpoint filters by assignee. Null
+            // means unassigned (the cockpit AF3 intake pane default).
+            e.Property(x => x.AssigneeUserId).HasMaxLength(256);
             e.HasIndex(x => x.OwnerUserId);
             e.HasIndex(x => x.TriageState);
+            // #187 — supports (state, assignee) composite filters used
+            // by the AF2 pipeline kanban and AF3 intake pane.
+            e.HasIndex(x => x.AssigneeUserId);
             // Z2 — supports the consumer's "find issue by run id" path
             // when payload IssueId is absent but RunId is known.
             e.HasIndex(x => x.TriageRunId);

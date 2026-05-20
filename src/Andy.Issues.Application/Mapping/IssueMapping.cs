@@ -20,4 +20,21 @@ public static class IssueMapping
         entity.TriageOutput,
         entity.CreatedAt,
         entity.UpdatedAt);
+
+    // #187 — lightweight projection for the unified `GET /api/issues`
+    // listing endpoint. Skips `Body` and `TriageOutput` so a page of
+    // 50 rows stays small enough for the cockpit pipeline kanban and
+    // intake pane to render incrementally.
+    public static IssueSummary ToSummary(this Issue entity) => new(
+        entity.Id,
+        entity.DisplayId,
+        entity.OwnerUserId,
+        entity.AssigneeUserId,
+        entity.RepositoryId,
+        entity.Title,
+        entity.TriageState.ToString(),
+        entity.TriagedAt,
+        entity.TriagedBy,
+        entity.CreatedAt,
+        entity.UpdatedAt);
 }

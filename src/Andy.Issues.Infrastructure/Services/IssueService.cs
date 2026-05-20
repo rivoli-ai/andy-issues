@@ -13,6 +13,7 @@ using Andy.Issues.Infrastructure.Data;
 using Andy.Issues.Infrastructure.Messaging;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using System.Linq;
 
 namespace Andy.Issues.Infrastructure.Services;
 
@@ -88,6 +89,81 @@ public class IssueService : IIssueService
             page,
             pageSize,
             total);
+    }
+
+    // #187 — unified list for cockpit AF2/AF3. Composes the
+    // state-set / assignee / repository filters returned by
+    // <see cref="IssueListQueryParser"/>, sorts stably by
+    // <c>(CreatedAt DESC, Id DESC)</c>, and pages with an opaque
+    // <see cref="IssueListCursor"/>.
+    //
+    // Ownership scope mirrors <see cref="ListAsync"/>: the result is
+    // restricted to issues whose <c>OwnerUserId</c> matches the
+    // caller. The `assignee=me` form is resolved up at the controller
+    // level (the parser receives the principal id) so this method
+    // takes a concrete <see cref="AssigneeFilter"/>.
+    public async Task<IssueListResponse> ListIssuesAsync(
+        string userId,
+        IssueListQuery query,
+        CancellationToken ct = default)
+    {
+        var q = _db.Issues.AsNoTracking().Where(i => i.OwnerUserId == userId);
+
+        if (query.States is { Count: > 0 } states)
+        {
+            // Translate to a Contains for an IN (...) on the column.
+            // EF Core's relational provider lowers this to SQL IN.
+            var stateSet = states.Distinct().ToArray();
+            q = q.Where(i => stateSet.Contains(i.TriageState));
+        }
+
+        switch (query.Assignee.Kind)
+        {
+            case AssigneeFilterKind.None:
+                q = q.Where(i => i.AssigneeUserId == null);
+                break;
+            case AssigneeFilterKind.SpecificUser:
+                var target = query.Assignee.UserId;
+                q = q.Where(i => i.AssigneeUserId == target);
+                break;
+        }
+
+        if (query.RepositoryId is { } repoId)
+        {
+            q = q.Where(i => i.RepositoryId == repoId);
+        }
+
+        if (IssueListCursor.TryDecode(query.Cursor, out var cursorCreatedAt, out var cursorId))
+        {
+            // Strictly past the cursor row under (CreatedAt DESC, Id DESC).
+            // Older row, OR same instant with a smaller Id.
+            q = q.Where(i =>
+                i.CreatedAt < cursorCreatedAt
+                || (i.CreatedAt == cursorCreatedAt && i.Id.CompareTo(cursorId) < 0));
+        }
+
+        // Fetch one extra row so we can tell whether another page exists
+        // without a separate COUNT().
+        var fetched = await q
+            .OrderByDescending(i => i.CreatedAt)
+            .ThenByDescending(i => i.Id)
+            .Take(query.Limit + 1)
+            .ToListAsync(ct);
+
+        string? nextCursor = null;
+        if (fetched.Count > query.Limit)
+        {
+            // Drop the probe row; cursor points at the LAST row in the
+            // returned page so the next request resumes immediately
+            // past it.
+            fetched.RemoveAt(fetched.Count - 1);
+            var last = fetched[^1];
+            nextCursor = IssueListCursor.Encode(last.CreatedAt, last.Id);
+        }
+
+        return new IssueListResponse(
+            fetched.Select(IssueMapping.ToSummary).ToList(),
+            nextCursor);
     }
 
     public async Task<IssueDto> CreateAsync(CreateIssueRequest request, string userId, CancellationToken ct = default)
