@@ -77,11 +77,15 @@ public static class SqliteSchemaBootstrapper
 
                 // Only auto-add columns that are safe to add to a
                 // populated table: must be nullable OR have a default
-                // value. Anything else needs human attention.
+                // value OR be backed by a value converter that
+                // gracefully handles missing data on read (e.g. the
+                // List<string> JSON converters that materialise null →
+                // empty list). Anything else needs human attention.
                 var isNullable = property.IsColumnNullable();
                 var defaultSql = property.GetDefaultValueSql(storeObject);
                 var defaultValue = property.GetDefaultValue(storeObject);
-                if (!isNullable && defaultSql is null && defaultValue is null)
+                var hasValueConverter = property.GetValueConverter() is not null;
+                if (!isNullable && defaultSql is null && defaultValue is null && !hasValueConverter)
                 {
                     logger.LogWarning(
                         "andy-issues SQLite schema heal: refusing to add non-nullable column {Table}.{Column} without default.",
@@ -91,7 +95,13 @@ public static class SqliteSchemaBootstrapper
                 }
 
                 var columnType = ResolveSqliteColumnType(property);
-                var nullClause = isNullable ? "NULL" : "NOT NULL";
+                // Converter-backed non-nullable properties (e.g. JSON
+                // list serialisation) get added as nullable on the
+                // SQLite path — the converter handles null → safe
+                // default at read time. Plain non-nullable columns
+                // keep their NOT NULL + default.
+                var addAsNullable = isNullable || (hasValueConverter && defaultSql is null && defaultValue is null);
+                var nullClause = addAsNullable ? "NULL" : "NOT NULL";
                 var defaultClause = defaultSql is not null
                     ? $" DEFAULT ({defaultSql})"
                     : (defaultValue is not null ? $" DEFAULT {FormatDefaultLiteral(defaultValue)}" : "");
