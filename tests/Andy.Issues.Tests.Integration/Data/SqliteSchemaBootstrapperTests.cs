@@ -158,6 +158,64 @@ public class SqliteSchemaBootstrapperTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Reproduces the production failure that surfaced after #184 shipped
+    /// `AcceptanceCriteriaList`, `Risks`, `TestPlan` on `UserStory` —
+    /// `List&lt;string&gt;` columns backed by a JSON value converter and
+    /// non-nullable on the model. The original heal refused to add them
+    /// because they have no SQL default. The converter materialises
+    /// null → empty list, so we can safely add them as nullable TEXT
+    /// on the SQLite path and let the converter close the gap.
+    /// </summary>
+    [Fact]
+    public async Task Heal_AddsConverterBackedListColumns_QueryWorksAfterwards()
+    {
+        // ARRANGE: create the live schema, then strip the three list
+        // columns to simulate a DB created before #184 shipped.
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+        await ExecuteAsync(@"ALTER TABLE ""UserStories"" DROP COLUMN ""AcceptanceCriteriaList"";");
+        await ExecuteAsync(@"ALTER TABLE ""UserStories"" DROP COLUMN ""Risks"";");
+        await ExecuteAsync(@"ALTER TABLE ""UserStories"" DROP COLUMN ""TestPlan"";");
+
+        // Sanity: the columns are gone and the query that 500s in
+        // production fails locally too.
+        await using (var ctx = NewContext())
+        {
+            await Assert.ThrowsAsync<SqliteException>(async () =>
+            {
+                await ctx.UserStories.Select(s => s.AcceptanceCriteriaList).ToListAsync();
+            });
+        }
+
+        // ACT: heal the schema.
+        await using (var ctx = NewContext())
+        {
+            var healed = await SqliteSchemaBootstrapper.HealMissingColumnsAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.True(healed >= 3, "expected at least the three list columns to be healed");
+        }
+
+        // ASSERT: the list queries now succeed and round-trip cleanly
+        // through SaveChanges. Existing rows (added pre-#184) get null
+        // on disk and the converter materialises them as empty lists.
+        var storyId = await SeedRepoEpicFeatureStoryAsync();
+        await using (var ctx = NewContext())
+        {
+            var story = await ctx.UserStories.FirstOrDefaultAsync(s => s.Id == storyId);
+            Assert.NotNull(story);
+            Assert.NotNull(story!.AcceptanceCriteriaList);
+            Assert.Empty(story.AcceptanceCriteriaList);
+            Assert.NotNull(story.Risks);
+            Assert.Empty(story.Risks);
+            Assert.NotNull(story.TestPlan);
+            Assert.Empty(story.TestPlan);
+        }
+    }
+
     private async Task<Guid> SeedRepoEpicFeatureStoryAsync()
     {
         var repoId = Guid.NewGuid();
