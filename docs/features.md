@@ -85,13 +85,13 @@ Triage endpoints carry full `[ProducesResponseType]` decorations (Z11), so the g
 
 The `TriageState` enum values: `NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected` — stored as strings on the row.
 
-The same surface is also published as MCP tools (Z9) for agent callers via mcp-gateway. The MCP SDK auto-converts `PascalCase` method names to `snake_case`, so the tool ids are `issue_get`, `issue_list`, `issue_triage`:
+The same surface is also published as MCP tools (Z9) for agent callers via andy-mcp-proxy. The MCP SDK auto-converts `PascalCase` method names to `snake_case`, so the tool ids are `issue_get`, `issue_list`, `issue_triage`:
 
 | Tool | Inputs | Effect |
 |---|---|---|
 | `issue_get` | `issueId` | Owner-scoped `IssueDto`. |
 | `issue_list` | `triageState?`, `page?`, `pageSize?` | `PagedResult<IssueDto>`; unknown `triageState` filters yield an empty page. |
-| `issue_triage` | `issueId` | Re-invokes triage (calls `StartTriageAsync`). The actual agent dispatch lands in Z2; today this is the state transition only. |
+| `issue_triage` | `issueId` | Re-invokes triage (calls `StartTriageAsync`). Z2 has shipped — the state transition is followed by an asynchronous run dispatched through `IContainersClient`; the `ContainerRunEventConsumer` correlates run completion back to this issue and writes the triage output. |
 
 The CLI mirrors the same surface (Z10):
 

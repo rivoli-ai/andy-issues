@@ -36,6 +36,6 @@ Use your Andy Auth credentials to sign in. For development:
 This service exposes multiple API protocols:
 
 - **REST / Swagger** — Interactive API docs at `/swagger`
-- **MCP** — AI assistant integration at `/mcp` (17 tools)
+- **MCP** — AI assistant integration at `/mcp`
 - **gRPC** — High-performance RPC for service-to-service calls
 - **CLI** — Command-line tool for terminal workflows
