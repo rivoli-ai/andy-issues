@@ -25,7 +25,7 @@
       "clientSecretEnvVar": "ANDY_ISSUES_API_SECRET",
       "displayName": "Andy Issues API",
       "description": "Service-to-service client for Andy Issues",
-      "grantTypes": ["authorization_code", "refresh_token", "client_credentials"],
+      "grantTypes": ["authorization_code", "refresh_token", "client_credentials", "token_exchange"],
       "scopes": ["email", "profile", "roles", "scp:urn:andy-issues-api"],
       "redirectUris": ["https://localhost:5410/callback"],
       "postLogoutRedirectUris": ["https://localhost:5410/"]
