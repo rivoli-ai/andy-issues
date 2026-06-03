@@ -251,7 +251,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
                     ? parent.Id
                     : uncategorizedEpic.Id;
 
-            var feature = await UpsertFeatureAsync(parentEpicId, issue, ct);
+            var feature = await UpsertFeatureAsync(repositoryId, parentEpicId, issue, ct);
             featureByNumber[issue.Number] = feature.entity;
             if (feature.added) added++; else updated++;
         }
@@ -266,7 +266,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
 
             try
             {
-                var story = await UpsertStoryAsync(parentFeatureId, issue, ct);
+                var story = await UpsertStoryAsync(repositoryId, parentFeatureId, issue, ct);
                 if (story.added) added++; else updated++;
             }
             catch (InvalidOperationException ex)
@@ -342,11 +342,18 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     }
 
     private async Task<(Feature entity, bool added)> UpsertFeatureAsync(
-        Guid epicId, GitHubIssueInfo issue, CancellationToken ct)
+        Guid repositoryId, Guid epicId, GitHubIssueInfo issue, CancellationToken ct)
     {
         var externalId = ExternalIdPrefix + issue.Number;
+        // Scope the lookup to THIS repository. ExternalId is only
+        // `gh:<issue-number>`, which collides across repos (andy-cli #34
+        // and andy-policies #34 both map to `gh:34`). Without the
+        // RepositoryId filter the upsert would find and reparent the
+        // other repo's row, silently stealing it. See conductor#670 /
+        // the cross-repo import regression.
         var existing = await _db.Features
-            .FirstOrDefaultAsync(f => f.ExternalId == externalId, ct);
+            .FirstOrDefaultAsync(
+                f => f.ExternalId == externalId && f.Epic.RepositoryId == repositoryId, ct);
 
         if (existing is null)
         {
@@ -377,11 +384,19 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     }
 
     private async Task<(UserStory entity, bool added)> UpsertStoryAsync(
-        Guid featureId, GitHubIssueInfo issue, CancellationToken ct)
+        Guid repositoryId, Guid featureId, GitHubIssueInfo issue, CancellationToken ct)
     {
         var externalId = ExternalIdPrefix + issue.Number;
+        // Scope the lookup to THIS repository — see UpsertFeatureAsync.
+        // Cross-repo collision here was the root cause of the
+        // "only 2 issues show up" bug: importing a second repo found
+        // the first repo's same-numbered story, reparented it, and —
+        // because SetStatus never pulls a story back from Done — left
+        // the second repo's OPEN issue wearing the first repo's CLOSED
+        // (Done) status, which the tree then hid.
         var existing = await _db.UserStories
-            .FirstOrDefaultAsync(s => s.ExternalId == externalId, ct);
+            .FirstOrDefaultAsync(
+                s => s.ExternalId == externalId && s.Feature.Epic.RepositoryId == repositoryId, ct);
 
         var targetStatus = StatusFromIssueState(issue.State);
 
@@ -453,11 +468,13 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             var externalId = ExternalIdPrefix + issue.Number;
 
             var wrongFeature = await _db.Features
-                .FirstOrDefaultAsync(f => f.ExternalId == externalId, ct);
+                .FirstOrDefaultAsync(
+                    f => f.ExternalId == externalId && f.Epic.RepositoryId == repositoryId, ct);
             if (wrongFeature is not null) _db.Features.Remove(wrongFeature);
 
             var wrongStory = await _db.UserStories
-                .FirstOrDefaultAsync(s => s.ExternalId == externalId, ct);
+                .FirstOrDefaultAsync(
+                    s => s.ExternalId == externalId && s.Feature.Epic.RepositoryId == repositoryId, ct);
             if (wrongStory is not null) _db.UserStories.Remove(wrongStory);
         }
 
@@ -474,7 +491,8 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             if (wrongEpic is not null) _db.Epics.Remove(wrongEpic);
 
             var wrongStory = await _db.UserStories
-                .FirstOrDefaultAsync(s => s.ExternalId == externalId, ct);
+                .FirstOrDefaultAsync(
+                    s => s.ExternalId == externalId && s.Feature.Epic.RepositoryId == repositoryId, ct);
             if (wrongStory is not null) _db.UserStories.Remove(wrongStory);
         }
 
@@ -491,7 +509,8 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             if (wrongEpic is not null) _db.Epics.Remove(wrongEpic);
 
             var wrongFeature = await _db.Features
-                .FirstOrDefaultAsync(f => f.ExternalId == externalId, ct);
+                .FirstOrDefaultAsync(
+                    f => f.ExternalId == externalId && f.Epic.RepositoryId == repositoryId, ct);
             if (wrongFeature is not null) _db.Features.Remove(wrongFeature);
         }
 

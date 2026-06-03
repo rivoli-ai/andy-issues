@@ -49,22 +49,32 @@ public class BacklogGitHubImportTests : IDisposable
     private async Task<Guid> SeedRepoAsync(string cloneUrl = "https://github.com/acme/widgets.git")
     {
         await using var ctx = NewContext();
+        // Derive a unique repo name from the clone URL so seeding two
+        // repos in one test doesn't collide on any (owner, name) index.
+        BacklogGitHubImportService.TryParseOwnerRepo(cloneUrl, out _, out var repoName);
         var repo = new Repository
         {
             Id = Guid.NewGuid(),
             OwnerUserId = "alice",
-            Name = "widgets",
+            Name = string.IsNullOrEmpty(repoName) ? "widgets" : repoName,
             Provider = RepositoryProvider.GitHub,
             CloneUrl = cloneUrl
         };
         ctx.Repositories.Add(repo);
-        ctx.LinkedProviders.Add(new LinkedProvider
+        // LinkedProvider is unique per (OwnerUserId, Provider); add it
+        // only once so a second SeedRepoAsync for the same user reuses it.
+        var hasProvider = await ctx.LinkedProviders.AnyAsync(
+            p => p.OwnerUserId == "alice" && p.Provider == LinkedProviderKind.GitHub);
+        if (!hasProvider)
         {
-            Id = Guid.NewGuid(),
-            OwnerUserId = "alice",
-            Provider = LinkedProviderKind.GitHub,
-            AccessToken = "pat"
-        });
+            ctx.LinkedProviders.Add(new LinkedProvider
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Provider = LinkedProviderKind.GitHub,
+                AccessToken = "pat"
+            });
+        }
         await ctx.SaveChangesAsync();
         return repo.Id;
     }
@@ -713,5 +723,162 @@ public class BacklogGitHubImportTests : IDisposable
         await using var ctx = NewContext();
         var story = await ctx.UserStories.FirstAsync(s => s.ExternalId == "gh:11");
         Assert.Equal("Bug", story.GitHubType);
+    }
+
+    // ── Cross-repo ExternalId collision regression ──────────────────────
+    //
+    // ExternalId is only `gh:<issue-number>`, so issue #34 in two
+    // different repos both map to "gh:34". Before repo-scoping the
+    // Feature/Story upsert + rehome lookups, importing a second repo
+    // FOUND the first repo's same-numbered row, reparented (stole) it,
+    // and — because UserStory.SetStatus refuses Done→Draft — left the
+    // second repo's OPEN issue wearing the first repo's CLOSED/Done
+    // status, which the backlog tree then hid. This is the live
+    // "only 2 issues show up" bug (andy-cli imported after andy-policies).
+
+    [Fact]
+    public async Task Import_TwoReposCollidingIssueNumber_KeepsBothNoCrossContamination()
+    {
+        // Repo A: issue #34 is CLOSED -> Done story.
+        var repoA = await SeedRepoAsync(cloneUrl: "https://github.com/acme/repo-a.git");
+        var ghA = new StubGitHubClient().IssuesFor("acme", "repo-a", new[]
+        {
+            Issue(34, "A: closed work", "story", state: "closed"),
+        });
+        await using (var ctx = NewContext())
+            Assert.Equal(1, (await NewImporter(ctx, ghA).ImportAsync(repoA, "alice"))!.Added);
+
+        // Repo B: SAME issue number #34, but OPEN.
+        var repoB = await SeedRepoAsync(cloneUrl: "https://github.com/acme/repo-b.git");
+        var ghB = new StubGitHubClient().IssuesFor("acme", "repo-b", new[]
+        {
+            Issue(34, "B: open work", "story", state: "open"),
+        });
+        await using (var ctx = NewContext())
+        {
+            var r = await NewImporter(ctx, ghB).ImportAsync(repoB, "alice");
+            // Must be a NEW row in repo B, never an "update" of repo A's.
+            Assert.Equal(1, r!.Added);
+            Assert.Equal(0, r.Updated);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            // Nothing dropped: each repo owns its own gh:34 story.
+            var stories = await ctx.UserStories
+                .Include(s => s.Feature).ThenInclude(f => f.Epic)
+                .Where(s => s.ExternalId == "gh:34")
+                .ToListAsync();
+            Assert.Equal(2, stories.Count);
+
+            var a = stories.Single(s => s.Feature.Epic.RepositoryId == repoA);
+            var b = stories.Single(s => s.Feature.Epic.RepositoryId == repoB);
+
+            // Repo A untouched by repo B's import.
+            Assert.Equal("A: closed work", a.Title);
+            Assert.Equal(UserStoryStatus.Done, a.Status);
+
+            // Repo B's OPEN issue is Draft, NOT poisoned by repo A's Done.
+            Assert.Equal("B: open work", b.Title);
+            Assert.Equal(UserStoryStatus.Draft, b.Status);
+        }
+    }
+
+    [Fact]
+    public async Task Import_TwoReposHeavyNumberOverlap_DropsNothing()
+    {
+        // Two repos whose issue numbers fully overlap (1..12). Every
+        // non-PR issue from BOTH repos must survive as its own row, and
+        // repo B's open issues must stay Draft regardless of repo A's
+        // same-numbered closed issues.
+        var numbers = Enumerable.Range(1, 12).ToArray();
+
+        var repoA = await SeedRepoAsync(cloneUrl: "https://github.com/acme/repo-a.git");
+        var repoB = await SeedRepoAsync(cloneUrl: "https://github.com/acme/repo-b.git");
+
+        var ghA = new StubGitHubClient().IssuesFor("acme", "repo-a",
+            numbers.Select(n => Issue(n, $"A#{n}", "story",
+                state: n % 2 == 0 ? "closed" : "open")).ToArray());
+        var ghB = new StubGitHubClient().IssuesFor("acme", "repo-b",
+            numbers.Select(n => Issue(n, $"B#{n}", "story", state: "open")).ToArray());
+
+        await using (var ctx = NewContext())
+            await NewImporter(ctx, ghA).ImportAsync(repoA, "alice");
+        await using (var ctx = NewContext())
+            await NewImporter(ctx, ghB).ImportAsync(repoB, "alice");
+
+        await using (var ctx = NewContext())
+        {
+            // Each repo keeps all 12 of its stories — nothing stolen.
+            Assert.Equal(12, await ctx.UserStories
+                .CountAsync(s => s.Feature.Epic.RepositoryId == repoA));
+            Assert.Equal(12, await ctx.UserStories
+                .CountAsync(s => s.Feature.Epic.RepositoryId == repoB));
+
+            // Every repo-B issue is OPEN -> every repo-B story is Draft.
+            var bStories = await ctx.UserStories
+                .Include(s => s.Feature).ThenInclude(f => f.Epic)
+                .Where(s => s.Feature.Epic.RepositoryId == repoB)
+                .ToListAsync();
+            Assert.All(bStories, s => Assert.Equal(UserStoryStatus.Draft, s.Status));
+        }
+    }
+
+    [Fact]
+    public async Task Import_Refresh_PreservesTriageData()
+    {
+        var repoId = await SeedRepoAsync();
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(7, "Refine me", "story", body: "original body"),
+        });
+        await using (var ctx = NewContext())
+            await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+
+        // Simulate a completed triage/refinement on the imported story.
+        await using (var ctx = NewContext())
+        {
+            var story = await ctx.UserStories.FirstAsync(s => s.ExternalId == "gh:7");
+            story.Priority = StoryPriority.P1;
+            story.Complexity = StoryComplexity.Medium;
+            story.Risk = StoryRisk.Low;
+            story.SuggestedApproach = "Do the thing";
+            story.RefinedDescription = "Refined description";
+            story.AcceptanceCriteriaList = new List<string> { "AC1", "AC2" };
+            story.Risks = new List<string> { "R1" };
+            story.TestPlan = new List<string> { "T1" };
+            story.RefineVersion = 3;
+            story.RefinedAt = DateTimeOffset.UtcNow;
+            story.RefinedBy = "triage-agent";
+            await ctx.SaveChangesAsync();
+        }
+
+        // Re-import (refresh) with an upstream-edited title/body -> upsert.
+        gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[]
+        {
+            Issue(7, "Refine me (edited upstream)", "story", body: "edited body"),
+        });
+        await using (var ctx = NewContext())
+            await NewImporter(ctx, gh).ImportAsync(repoId, "alice");
+
+        await using (var ctx = NewContext())
+        {
+            var story = await ctx.UserStories.FirstAsync(s => s.ExternalId == "gh:7");
+            // GitHub-sourced fields update...
+            Assert.Equal("Refine me (edited upstream)", story.Title);
+            Assert.Equal("edited body", story.Description);
+            // ...but triage output is preserved across the refresh.
+            Assert.Equal(StoryPriority.P1, story.Priority);
+            Assert.Equal(StoryComplexity.Medium, story.Complexity);
+            Assert.Equal(StoryRisk.Low, story.Risk);
+            Assert.Equal("Do the thing", story.SuggestedApproach);
+            Assert.Equal("Refined description", story.RefinedDescription);
+            Assert.Equal(new[] { "AC1", "AC2" }, story.AcceptanceCriteriaList);
+            Assert.Equal(new[] { "R1" }, story.Risks);
+            Assert.Equal(new[] { "T1" }, story.TestPlan);
+            Assert.Equal(3, story.RefineVersion);
+            Assert.NotNull(story.RefinedAt);
+            Assert.Equal("triage-agent", story.RefinedBy);
+        }
     }
 }
