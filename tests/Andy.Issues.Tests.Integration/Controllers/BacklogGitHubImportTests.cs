@@ -296,6 +296,59 @@ public class BacklogGitHubImportTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Fact]
+    public async Task Post_NativeSubIssues_BuildTree_AndBacklogGetShowsIt()
+    {
+        // Native sub-issues are the primary hierarchy source: epic #1
+        // has sub-issues [2, 10] (a feature and a DIRECT story),
+        // feature #2 has sub-issue [3]. No body carries any #N ref —
+        // exactly the rivoli-ai/andy-cli shape that used to dump
+        // everything into "Uncategorized".
+        await SeedPatAsync();
+        var repoId = await SeedRepoAsync();
+        _factory.FakeGitHubClient.SetIssues("acme", "widgets", new[]
+        {
+            Issue(1, "Platform epic", "epic",
+                body: "- [ ] build it\n- [ ] ship it") with { SubIssuesTotal = 2 },
+            Issue(2, "Auth feature", "feature") with { SubIssuesTotal = 1 },
+            Issue(3, "Login story", "story"),
+            Issue(10, "Direct epic story", "story"),
+        });
+        _factory.FakeGitHubClient.SetSubIssues("acme", "widgets", 1, new[] { 2, 10 });
+        _factory.FakeGitHubClient.SetSubIssues("acme", "widgets", 2, new[] { 3 });
+
+        var response = await _client.PostAsync(
+            $"/api/repositories/{repoId}/sync-github-issues",
+            content: null);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var result = await response.Content.ReadFromJsonAsync<SyncResult>(JsonOptions);
+        Assert.NotNull(result);
+        Assert.Equal(4, result!.Added);
+        Assert.Empty(result.Errors);
+
+        // The backlog GET (what Conductor renders) shows the tree.
+        var backlog = await _client.GetFromJsonAsync<BacklogDto>(
+            $"/api/repositories/{repoId}/backlog", JsonOptions);
+        Assert.NotNull(backlog);
+
+        // Exactly one epic — NO synthetic Uncategorized epic.
+        var epic = Assert.Single(backlog!.Epics);
+        Assert.Equal("gh:1", epic.ExternalId);
+
+        // Feature #2 under the epic, story #3 under the feature.
+        Assert.Equal(2, epic.Features.Count);
+        var feature = epic.Features.Single(f => f.ExternalId == "gh:2");
+        var story = Assert.Single(feature.Stories);
+        Assert.Equal("gh:3", story.ExternalId);
+
+        // The direct epic→story link lands in the synthetic per-epic
+        // "Stories" feature, not in Uncategorized.
+        var storiesFeature = epic.Features.Single(f => f.ExternalId == "gh:1/stories");
+        Assert.Equal("Stories", storiesFeature.Title);
+        var directStory = Assert.Single(storiesFeature.Stories);
+        Assert.Equal("gh:10", directStory.ExternalId);
+    }
+
+    [Fact]
     public async Task Resync_TypeFlipWithoutLabelChange_IsStillReflected()
     {
         // GitHub typed Issue Types are independent of labels. When

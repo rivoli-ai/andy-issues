@@ -246,7 +246,89 @@ public class GitHubClient : IGitHubClient
                     if (!string.IsNullOrWhiteSpace(typeName)) issueType = typeName;
                 }
 
-                results.Add(new GitHubIssueInfo(number, title, body, state, isPr, labels, issueType));
+                // GitHub native sub-issues: the list payload carries a
+                // `sub_issues_summary` object (often null) whose
+                // `total` tells us whether a follow-up call to the
+                // sub_issues endpoint is worthwhile. See
+                // ListSubIssueNumbersAsync.
+                int subIssuesTotal = 0;
+                if (item.TryGetProperty("sub_issues_summary", out var subSummaryEl)
+                    && subSummaryEl.ValueKind == JsonValueKind.Object
+                    && subSummaryEl.TryGetProperty("total", out var subTotalEl)
+                    && subTotalEl.ValueKind == JsonValueKind.Number)
+                {
+                    subIssuesTotal = subTotalEl.GetInt32();
+                }
+
+                // GitHub's global database id — needed by the
+                // sub-issues write API (which takes sub_issue_id, not
+                // a number). See AddSubIssueAsync.
+                long databaseId = item.TryGetProperty("id", out var idEl)
+                    && idEl.ValueKind == JsonValueKind.Number
+                        ? idEl.GetInt64() : 0;
+
+                results.Add(new GitHubIssueInfo(
+                    number, title, body, state, isPr, labels, issueType, subIssuesTotal,
+                    Id: databaseId));
+            }
+
+            nextUrl = ParseNextLink(response.Headers);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Lists the issue numbers of a parent issue's GitHub native
+    /// sub-issues via
+    /// <c>GET /repos/{owner}/{repo}/issues/{issueNumber}/sub_issues</c>.
+    /// Anonymous calls are allowed (public repos); pagination walks
+    /// the Link header like <see cref="ListIssuesAsync"/>. On a
+    /// non-success status this logs a warning and returns an EMPTY
+    /// list — a sub-issues fetch failure must not fail the whole
+    /// sync; hierarchy inference simply falls back to task-list
+    /// parsing for that issue.
+    /// </summary>
+    public async Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        var results = new List<int>();
+        var nextUrl = $"{BaseUrl}/repos/{owner}/{repo}/issues/{issueNumber}/sub_issues?per_page=100";
+
+        while (!string.IsNullOrEmpty(nextUrl))
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            if (!string.IsNullOrEmpty(accessToken))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+            using var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "GitHub GET /repos/{Owner}/{Repo}/issues/{Number}/sub_issues failed with {Status} — falling back to task-list parsing",
+                    owner, repo, issueNumber, response.StatusCode);
+                return Array.Empty<int>();
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return results;
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.TryGetProperty("number", out var n)
+                    && n.ValueKind == JsonValueKind.Number)
+                {
+                    results.Add(n.GetInt32());
+                }
             }
 
             nextUrl = ParseNextLink(response.Headers);
@@ -280,6 +362,144 @@ public class GitHubClient : IGitHubClient
         }
         return null;
     }
+
+    /// <summary>
+    /// Adds labels to an issue via
+    /// <c>POST /repos/{owner}/{repo}/issues/{n}/labels</c>. Write —
+    /// Bearer auth required. Throws <see cref="GitHubApiException"/>
+    /// on a non-success status so callers can record a per-item error
+    /// and continue.
+    /// </summary>
+    public async Task AddLabelsAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        using var request = NewWriteRequest(
+            HttpMethod.Post,
+            $"{BaseUrl}/repos/{owner}/{repo}/issues/{issueNumber}/labels",
+            accessToken);
+        request.Content = JsonContent.Create(new { labels });
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = (int)response.StatusCode;
+            _logger.LogWarning(
+                "GitHub POST /repos/{Owner}/{Repo}/issues/{Number}/labels failed with {Status}",
+                owner, repo, issueNumber, response.StatusCode);
+            throw new GitHubApiException(
+                WriteFailureMessage($"add labels to issue #{issueNumber}", status), status);
+        }
+    }
+
+    /// <summary>
+    /// Creates an issue via <c>POST /repos/{owner}/{repo}/issues</c>.
+    /// Write — Bearer auth required. Throws
+    /// <see cref="GitHubApiException"/> on a non-success status.
+    /// </summary>
+    public async Task<GitHubCreatedIssue> CreateIssueAsync(
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        using var request = NewWriteRequest(
+            HttpMethod.Post,
+            $"{BaseUrl}/repos/{owner}/{repo}/issues",
+            accessToken);
+        request.Content = JsonContent.Create(new { title, body, labels });
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = (int)response.StatusCode;
+            _logger.LogWarning(
+                "GitHub POST /repos/{Owner}/{Repo}/issues failed with {Status}",
+                owner, repo, response.StatusCode);
+            throw new GitHubApiException(
+                WriteFailureMessage($"create issue '{title}'", status), status);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(ct);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+        var root = doc.RootElement;
+        var number = root.TryGetProperty("number", out var n) ? n.GetInt32() : 0;
+        var id = root.TryGetProperty("id", out var idEl)
+            && idEl.ValueKind == JsonValueKind.Number ? idEl.GetInt64() : 0;
+        return new GitHubCreatedIssue(number, id);
+    }
+
+    /// <summary>
+    /// Links a child under a parent via the native sub-issues write
+    /// API, <c>POST /repos/{owner}/{repo}/issues/{parent}/sub_issues</c>
+    /// with <c>{"sub_issue_id": childIssueId}</c> (the child's database
+    /// id, not its number). Write — Bearer auth required. Throws
+    /// <see cref="GitHubApiException"/> on a non-success status.
+    /// </summary>
+    public async Task AddSubIssueAsync(
+        string owner,
+        string repo,
+        int parentIssueNumber,
+        long childIssueId,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        using var request = NewWriteRequest(
+            HttpMethod.Post,
+            $"{BaseUrl}/repos/{owner}/{repo}/issues/{parentIssueNumber}/sub_issues",
+            accessToken);
+        request.Content = JsonContent.Create(new { sub_issue_id = childIssueId });
+
+        using var response = await _http.SendAsync(request, ct);
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = (int)response.StatusCode;
+            _logger.LogWarning(
+                "GitHub POST /repos/{Owner}/{Repo}/issues/{Parent}/sub_issues failed with {Status}",
+                owner, repo, parentIssueNumber, response.StatusCode);
+            // 422 typically means the child already has a parent (or
+            // is already linked) — surface that distinctly so the
+            // caller's per-item error is actionable.
+            var detail = status == 422
+                ? " — the child issue may already be linked under another parent."
+                : string.Empty;
+            throw new GitHubApiException(
+                WriteFailureMessage(
+                    $"link sub-issue {childIssueId} under issue #{parentIssueNumber}", status) + detail,
+                status);
+        }
+    }
+
+    /// <summary>
+    /// Builds an authenticated write request with the standard header
+    /// set (UA / accept / api-version). Writes always require a token —
+    /// unlike the read paths there is no anonymous fallback.
+    /// </summary>
+    private static HttpRequestMessage NewWriteRequest(
+        HttpMethod method, string url, string accessToken)
+    {
+        var request = new HttpRequestMessage(method, url);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+        request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+        request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+        return request;
+    }
+
+    private static string WriteFailureMessage(string action, int status) => status switch
+    {
+        401 => $"GitHub rejected the token while trying to {action} (unauthorized).",
+        403 => $"GitHub forbade the request to {action} — check the PAT's scopes (needs repo/issues write).",
+        404 => $"GitHub returned 404 while trying to {action} — the repo or issue may not exist, or the PAT can't see it.",
+        _ => $"GitHub request to {action} failed with HTTP {status}."
+    };
 
     public async Task<GitHubPullRequestInfo?> CreatePullRequestAsync(
         string owner,

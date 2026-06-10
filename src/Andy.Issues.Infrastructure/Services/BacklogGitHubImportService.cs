@@ -51,9 +51,20 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         "type:story", "story", "user-story", "user story"
     };
 
-    private static readonly Regex TaskListRefRegex = new(
-        @"^\s*[-*]\s*\[[ xX]\]\s*#(\d+)",
+    /// <summary>
+    /// Matches a markdown task-list line (`- [ ] ...` / `* [x] ...`)
+    /// and captures the rest of the line so a reference can be looked
+    /// up anywhere in it — conductor-style epics put the ref at the
+    /// END of the line (`- [ ] **SM.2** — Backend prerequisites (#1976)`).
+    /// </summary>
+    private static readonly Regex TaskListLineRegex = new(
+        @"^\s*[-*]\s*\[[ xX]\]\s*(?<rest>.*)$",
         RegexOptions.Compiled | RegexOptions.Multiline);
+
+    /// <summary>Bare <c>#123</c> issue reference.</summary>
+    private static readonly Regex HashRefRegex = new(
+        @"#(\d+)",
+        RegexOptions.Compiled);
 
     /// <summary>
     /// Fast-path env var to pick up a GitHub PAT when no
@@ -161,17 +172,52 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             return new SyncResult(0, 0, 0, new[] { $"GitHub issue listing failed: {ex.Message}" });
         }
 
-        return await ImportIssuesAsync(repo.Id, issues, ct);
+        // GitHub native sub-issues are the PRIMARY hierarchy source
+        // (real repos rarely maintain `- [ ] #N` task lists). The list
+        // payload only carries a count (`sub_issues_summary.total`),
+        // so fetch the actual child numbers for every classified
+        // epic/feature that reports sub-issues. A per-issue fetch
+        // failure degrades to task-list parsing for that issue — it
+        // must never fail the whole sync.
+        var enriched = new List<GitHubIssueInfo>(issues.Count);
+        foreach (var issue in issues)
+        {
+            if (!issue.IsPullRequest
+                && issue.SubIssuesTotal > 0
+                && ClassifyIssue(issue.Labels) is IssueType.Epic or IssueType.Feature)
+            {
+                try
+                {
+                    var subIssueNumbers = await _gitHubClient.ListSubIssueNumbersAsync(
+                        owner, repoName, issue.Number, accessToken ?? string.Empty, ct);
+                    enriched.Add(issue with { SubIssueNumbers = subIssueNumbers });
+                    continue;
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "Sub-issues fetch failed for {Owner}/{Repo}#{Number} — falling back to task-list parsing",
+                        owner, repoName, issue.Number);
+                }
+            }
+            enriched.Add(issue);
+        }
+
+        return await ImportIssuesAsync(repo.Id, enriched, owner, repoName, ct);
     }
 
     /// <summary>
     /// Core logic separated from the HTTP/token plumbing so tests can
-    /// feed a pre-built issue list straight in.
+    /// feed a pre-built issue list straight in. <paramref name="owner"/>
+    /// and <paramref name="repoName"/> enable same-repo issue-URL
+    /// references in task lists; when null, only <c>#N</c> refs match.
     /// </summary>
     internal async Task<SyncResult> ImportIssuesAsync(
         Guid repositoryId,
         IReadOnlyList<GitHubIssueInfo> issues,
-        CancellationToken ct)
+        string? owner = null,
+        string? repoName = null,
+        CancellationToken ct = default)
     {
         // Classify.
         var epicIssues = new List<GitHubIssueInfo>();
@@ -191,30 +237,67 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             }
         }
 
-        // Hierarchy inference: feature# -> epic#, story# -> feature#.
-        // First-match wins so a feature showing up under two epics stays with the earliest.
+        // Quick lookup: issue number -> classification, so hierarchy
+        // edges can route a child to the right map based on what the
+        // CHILD is (a feature goes under the epic; a story directly
+        // under an epic goes through the synthetic "Stories" feature).
+        var typeByNumber = new Dictionary<int, IssueType>();
+        foreach (var i in epicIssues) typeByNumber[i.Number] = IssueType.Epic;
+        foreach (var i in featureIssues) typeByNumber[i.Number] = IssueType.Feature;
+        foreach (var i in storyIssues) typeByNumber[i.Number] = IssueType.Story;
+
+        // Hierarchy inference. GitHub NATIVE sub-issues are the primary
+        // source; markdown task-list references are the fallback.
+        // First-match wins so a child showing up under two parents
+        // stays with the earliest (and native beats task-list because
+        // it is enumerated first).
         var featureToEpic = new Dictionary<int, int>();
+        var storyToEpicDirect = new Dictionary<int, int>();
         foreach (var epic in epicIssues)
         {
-            foreach (var childNumber in ParseTaskListReferences(epic.Body))
+            var children = (epic.SubIssueNumbers ?? Array.Empty<int>())
+                .Concat(ParseTaskListReferences(epic.Body, owner, repoName));
+            foreach (var childNumber in children)
             {
-                if (!featureToEpic.ContainsKey(childNumber))
-                    featureToEpic[childNumber] = epic.Number;
+                if (!typeByNumber.TryGetValue(childNumber, out var childType))
+                    continue;
+
+                if (childType == IssueType.Feature)
+                {
+                    if (!featureToEpic.ContainsKey(childNumber))
+                        featureToEpic[childNumber] = epic.Number;
+                }
+                else if (childType == IssueType.Story)
+                {
+                    // Common 2-level pattern: stories attached directly
+                    // to an epic with no feature tier in between.
+                    if (!storyToEpicDirect.ContainsKey(childNumber))
+                        storyToEpicDirect[childNumber] = epic.Number;
+                }
             }
         }
         var storyToFeature = new Dictionary<int, int>();
         foreach (var feature in featureIssues)
         {
-            foreach (var childNumber in ParseTaskListReferences(feature.Body))
+            var children = (feature.SubIssueNumbers ?? Array.Empty<int>())
+                .Concat(ParseTaskListReferences(feature.Body, owner, repoName));
+            foreach (var childNumber in children)
             {
-                if (!storyToFeature.ContainsKey(childNumber))
+                // Ignore children that aren't stories.
+                if (typeByNumber.TryGetValue(childNumber, out var childType)
+                    && childType == IssueType.Story
+                    && !storyToFeature.ContainsKey(childNumber))
+                {
                     storyToFeature[childNumber] = feature.Number;
+                }
             }
         }
 
-        // Ensure the Uncategorized bucket exists so orphans have a parent.
-        var (uncategorizedEpic, uncategorizedFeature) =
-            await EnsureUncategorizedAsync(repositoryId, ct);
+        // Uncategorized buckets are created LAZILY — only when the
+        // first orphan actually needs one. Eager creation polluted
+        // fully-categorized repos with empty "Uncategorized" rows.
+        Epic? uncategorizedEpic = null;
+        Feature? uncategorizedFeature = null;
 
         int added = 0, updated = 0;
         var errors = new List<string>();
@@ -242,6 +325,18 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             if (epic.added) added++; else updated++;
         }
 
+        // Lazy bucket accessors. Each creates (and caches) its row on
+        // first use only; a fully-categorized import never touches them.
+        async Task<Epic> UncategorizedEpicAsync() =>
+            uncategorizedEpic ??= await GetOrCreateUncategorizedEpicAsync(repositoryId, ct);
+        async Task<Feature> UncategorizedFeatureAsync() =>
+            uncategorizedFeature ??= await GetOrCreateUncategorizedFeatureAsync(
+                await UncategorizedEpicAsync(), ct);
+
+        // Per-epic synthetic "Stories" features, created lazily for
+        // stories attached DIRECTLY to an epic on GitHub.
+        var storiesFeatureByEpicNumber = new Dictionary<int, Feature>();
+
         // Upsert features.
         var featureByNumber = new Dictionary<int, Feature>();
         foreach (var issue in featureIssues)
@@ -249,20 +344,40 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             Guid parentEpicId = featureToEpic.TryGetValue(issue.Number, out var epicNumber)
                 && epicByNumber.TryGetValue(epicNumber, out var parent)
                     ? parent.Id
-                    : uncategorizedEpic.Id;
+                    : (await UncategorizedEpicAsync()).Id;
 
             var feature = await UpsertFeatureAsync(repositoryId, parentEpicId, issue, ct);
             featureByNumber[issue.Number] = feature.entity;
             if (feature.added) added++; else updated++;
         }
 
-        // Upsert stories.
+        // Upsert stories. Parent resolution order:
+        //   (a) a feature references the story (native or task-list);
+        //   (b) an epic references the story directly -> synthetic
+        //       per-epic "Stories" feature;
+        //   (c) Uncategorized fallback.
         foreach (var issue in storyIssues)
         {
-            Guid parentFeatureId = storyToFeature.TryGetValue(issue.Number, out var featureNumber)
-                && featureByNumber.TryGetValue(featureNumber, out var parent)
-                    ? parent.Id
-                    : uncategorizedFeature.Id;
+            Guid parentFeatureId;
+            if (storyToFeature.TryGetValue(issue.Number, out var featureNumber)
+                && featureByNumber.TryGetValue(featureNumber, out var parentFeature))
+            {
+                parentFeatureId = parentFeature.Id;
+            }
+            else if (storyToEpicDirect.TryGetValue(issue.Number, out var epicNumber)
+                && epicByNumber.TryGetValue(epicNumber, out var parentEpic))
+            {
+                if (!storiesFeatureByEpicNumber.TryGetValue(epicNumber, out var storiesFeature))
+                {
+                    storiesFeature = await GetOrCreateStoriesFeatureAsync(epicNumber, parentEpic, ct);
+                    storiesFeatureByEpicNumber[epicNumber] = storiesFeature;
+                }
+                parentFeatureId = storiesFeature.Id;
+            }
+            else
+            {
+                parentFeatureId = (await UncategorizedFeatureAsync()).Id;
+            }
 
             try
             {
@@ -279,6 +394,13 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         }
 
         await _db.SaveChangesAsync(ct);
+
+        // Heal empty synthetic buckets — both ones this sync would have
+        // left behind (e.g. every story got re-homed to a real parent)
+        // and pre-existing ones from earlier syncs that created the
+        // buckets eagerly.
+        await CleanupEmptySyntheticBucketsAsync(_db, repositoryId, ct);
+
         return new SyncResult(added, updated, pullRequestsSkipped, errors);
     }
 
@@ -521,7 +643,12 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             await _db.SaveChangesAsync(ct);
     }
 
-    private async Task<(Epic epic, Feature feature)> EnsureUncategorizedAsync(
+    /// <summary>
+    /// Lazily fetches or creates the synthetic Uncategorized epic.
+    /// Called only when the first orphan actually needs it, so a
+    /// fully-categorized repo never grows an empty bucket.
+    /// </summary>
+    private async Task<Epic> GetOrCreateUncategorizedEpicAsync(
         Guid repositoryId, CancellationToken ct)
     {
         var epic = await _db.Epics.FirstOrDefaultAsync(
@@ -534,33 +661,131 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
                 Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
                 RepositoryId = repositoryId,
                 Title = "Uncategorized",
-                Description = "Orphan epics/features/stories imported from GitHub that couldn't be parented via task-list references.",
+                Description = "Orphan epics/features/stories imported from GitHub that couldn't be parented via sub-issues or task-list references.",
                 Order = int.MaxValue,
                 ExternalId = UncategorizedExternalId
             };
             _db.Epics.Add(epic);
             await _db.SaveChangesAsync(ct);
         }
+        return epic;
+    }
 
+    /// <summary>
+    /// Lazily fetches or creates the synthetic Uncategorized feature
+    /// under the given Uncategorized epic. See
+    /// <see cref="GetOrCreateUncategorizedEpicAsync"/>.
+    /// </summary>
+    private async Task<Feature> GetOrCreateUncategorizedFeatureAsync(
+        Epic uncategorizedEpic, CancellationToken ct)
+    {
         var feature = await _db.Features.FirstOrDefaultAsync(
-            f => f.EpicId == epic.Id && f.ExternalId == UncategorizedExternalId, ct);
+            f => f.EpicId == uncategorizedEpic.Id && f.ExternalId == UncategorizedExternalId, ct);
         if (feature is null)
         {
             feature = new Feature
             {
                 Id = Guid.NewGuid(),
                 Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
-                EpicId = epic.Id,
+                EpicId = uncategorizedEpic.Id,
                 Title = "Uncategorized",
-                Description = "Orphan stories with no matching feature in the imported task-lists.",
+                Description = "Orphan stories with no matching feature in the imported hierarchy.",
                 Order = int.MaxValue,
                 ExternalId = UncategorizedExternalId
             };
             _db.Features.Add(feature);
             await _db.SaveChangesAsync(ct);
         }
+        return feature;
+    }
 
-        return (epic, feature);
+    /// <summary>
+    /// Lazily fetches or creates the synthetic per-epic "Stories"
+    /// feature that hosts stories attached DIRECTLY to an epic on
+    /// GitHub (the common 2-level epic→story pattern, where no
+    /// feature tier exists). ExternalId is <c>gh:{epicNumber}/stories</c>
+    /// so re-syncs find the same row.
+    /// </summary>
+    private async Task<Feature> GetOrCreateStoriesFeatureAsync(
+        int epicNumber, Epic parentEpic, CancellationToken ct)
+    {
+        var externalId = StoriesFeatureExternalId(epicNumber);
+        var feature = await _db.Features.FirstOrDefaultAsync(
+            f => f.EpicId == parentEpic.Id && f.ExternalId == externalId, ct);
+        if (feature is null)
+        {
+            feature = new Feature
+            {
+                Id = Guid.NewGuid(),
+                Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
+                EpicId = parentEpic.Id,
+                Title = "Stories",
+                Description = "Stories attached directly to this epic on GitHub.",
+                Order = int.MaxValue - 1,
+                ExternalId = externalId
+            };
+            _db.Features.Add(feature);
+            await _db.SaveChangesAsync(ct);
+        }
+        return feature;
+    }
+
+    /// <summary>ExternalId for the synthetic per-epic Stories feature, e.g. <c>gh:32/stories</c>.</summary>
+    internal static string StoriesFeatureExternalId(int epicNumber) =>
+        $"{ExternalIdPrefix}{epicNumber}/stories";
+
+    /// <summary>
+    /// Matches the synthetic per-epic Stories feature ExternalId
+    /// (<c>gh:{n}/stories</c>) — used by the cleanup pass to identify
+    /// importer-owned buckets without touching real issue rows
+    /// (always plain <c>gh:{n}</c>).
+    /// </summary>
+    private static readonly Regex StoriesFeatureExternalIdRegex = new(
+        @"^gh:\d+/stories$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Deletes synthetic buckets that ended up empty: any Uncategorized
+    /// or per-epic <c>gh:{n}/stories</c> feature with zero stories,
+    /// then the Uncategorized epic itself once it has zero features.
+    /// Runs after every sync, so it both prevents new empty buckets
+    /// and heals pre-existing ones from earlier (eager-creation) syncs.
+    /// Internal static so <see cref="BacklogRecategorizeService"/> can
+    /// reuse the exact same heal pass after emptying buckets, instead
+    /// of duplicating the synthetic-pattern matching.
+    /// </summary>
+    internal static async Task CleanupEmptySyntheticBucketsAsync(
+        AppDbContext db, Guid repositoryId, CancellationToken ct)
+    {
+        // DB-side prefilter (LIKE), exact synthetic-pattern check in
+        // memory so a hypothetical real ExternalId can't be caught.
+        var candidates = await db.Features
+            .Where(f => f.Epic.RepositoryId == repositoryId
+                && f.ExternalId != null
+                && (f.ExternalId == UncategorizedExternalId
+                    || (f.ExternalId.StartsWith(ExternalIdPrefix)
+                        && f.ExternalId.EndsWith("/stories")))
+                && !f.Stories.Any())
+            .ToListAsync(ct);
+
+        var emptySynthetic = candidates
+            .Where(f => f.ExternalId == UncategorizedExternalId
+                || StoriesFeatureExternalIdRegex.IsMatch(f.ExternalId!))
+            .ToList();
+
+        if (emptySynthetic.Count > 0)
+        {
+            db.Features.RemoveRange(emptySynthetic);
+            await db.SaveChangesAsync(ct);
+        }
+
+        var uncatEpic = await db.Epics.FirstOrDefaultAsync(
+            e => e.RepositoryId == repositoryId && e.ExternalId == UncategorizedExternalId, ct);
+        if (uncatEpic is not null
+            && !await db.Features.AnyAsync(f => f.EpicId == uncatEpic.Id, ct))
+        {
+            db.Epics.Remove(uncatEpic);
+            await db.SaveChangesAsync(ct);
+        }
     }
 
     public static UserStoryStatus StatusFromIssueState(string issueState) =>
@@ -569,16 +794,55 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             : UserStoryStatus.Draft;
 
     /// <summary>
-    /// Extracts <c>#123</c>-style issue references that appear on
-    /// lines starting with a markdown task-list marker.
+    /// Extracts issue references from markdown task-list lines
+    /// (<c>- [ ] ...</c> / <c>* [x] ...</c>). For each task-list line,
+    /// yields the FIRST issue reference found anywhere in the line —
+    /// not just a leading one, so conductor-style trailing refs
+    /// (<c>- [ ] **SM.2** — Backend prerequisites (#1976)</c>) match.
+    /// A reference is either a bare <c>#123</c> or, when
+    /// <paramref name="owner"/>/<paramref name="repo"/> are provided
+    /// (matched case-insensitively), a same-repo issue URL
+    /// (<c>https://github.com/{owner}/{repo}/issues/123</c>).
+    /// At most one ref per line (the earliest of either form); lines
+    /// without a ref yield nothing. Non-task-list lines are ignored.
     /// </summary>
-    public static IEnumerable<int> ParseTaskListReferences(string? body)
+    public static IEnumerable<int> ParseTaskListReferences(
+        string? body, string? owner = null, string? repo = null)
     {
         if (string.IsNullOrEmpty(body)) yield break;
-        foreach (Match match in TaskListRefRegex.Matches(body))
+
+        // The hash regex and the task-list line regex are compiled
+        // statics; the URL form depends on the caller's owner/repo so
+        // it is built per call (uninteresting cost next to the GitHub
+        // round-trips that precede parsing).
+        Regex? urlRefRegex = null;
+        if (!string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repo))
         {
-            if (int.TryParse(match.Groups[1].ValueSpan, out var number))
+            urlRefRegex = new Regex(
+                $@"https://github\.com/{Regex.Escape(owner)}/{Regex.Escape(repo)}/issues/(\d+)",
+                RegexOptions.IgnoreCase);
+        }
+
+        foreach (Match line in TaskListLineRegex.Matches(body))
+        {
+            var rest = line.Groups["rest"].Value;
+
+            var hashMatch = HashRefRegex.Match(rest);
+            var urlMatch = urlRefRegex?.Match(rest) ?? Match.Empty;
+
+            Match? first = null;
+            if (hashMatch.Success && urlMatch.Success)
+                first = hashMatch.Index <= urlMatch.Index ? hashMatch : urlMatch;
+            else if (hashMatch.Success)
+                first = hashMatch;
+            else if (urlMatch.Success)
+                first = urlMatch;
+
+            if (first is not null
+                && int.TryParse(first.Groups[1].ValueSpan, out var number))
+            {
                 yield return number;
+            }
         }
     }
 

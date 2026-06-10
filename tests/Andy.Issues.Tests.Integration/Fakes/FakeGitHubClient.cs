@@ -30,6 +30,10 @@ public class FakeGitHubClient : IGitHubClient
         CurrentUserResult = new("fake-gh-user");
         _issueResponses.Clear();
         ListIssuesException = null;
+        _subIssueResponses.Clear();
+        _addLabelsCalls.Clear();
+        _createIssueCalls.Clear();
+        _addSubIssueCalls.Clear();
     }
 
     public Task<GitHubUserInfo?> GetCurrentUserAsync(
@@ -85,6 +89,24 @@ public class FakeGitHubClient : IGitHubClient
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
     }
 
+    private readonly ConcurrentDictionary<string, IReadOnlyList<int>> _subIssueResponses = new();
+
+    public void SetSubIssues(string owner, string repo, int issueNumber, IReadOnlyList<int> subIssueNumbers)
+    {
+        _subIssueResponses[$"{owner}/{repo}#{issueNumber}"] = subIssueNumbers;
+    }
+
+    public Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _subIssueResponses.TryGetValue($"{owner}/{repo}#{issueNumber}", out var numbers);
+        return Task.FromResult(numbers ?? (IReadOnlyList<int>)Array.Empty<int>());
+    }
+
     private readonly List<GitHubRepositoryInfo> _userRepositories = new();
 
     public void SetUserRepositories(IEnumerable<GitHubRepositoryInfo> repos)
@@ -108,6 +130,57 @@ public class FakeGitHubClient : IGitHubClient
             .Take(perPage)
             .ToList();
         return Task.FromResult<IReadOnlyList<GitHubRepositoryInfo>>(pageSlice);
+    }
+
+    // ── Write methods (recategorize write-back) ──────────────────────
+
+    private readonly ConcurrentBag<(string owner, string repo, int issueNumber, IReadOnlyList<string> labels)> _addLabelsCalls = new();
+    public IReadOnlyCollection<(string owner, string repo, int issueNumber, IReadOnlyList<string> labels)> AddLabelsCalls => _addLabelsCalls;
+
+    public Task AddLabelsAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _addLabelsCalls.Add((owner, repo, issueNumber, labels));
+        return Task.CompletedTask;
+    }
+
+    private readonly ConcurrentBag<(string owner, string repo, string title, string? body, IReadOnlyList<string> labels)> _createIssueCalls = new();
+    public IReadOnlyCollection<(string owner, string repo, string title, string? body, IReadOnlyList<string> labels)> CreateIssueCalls => _createIssueCalls;
+
+    private int _nextCreatedIssueNumber = 100;
+
+    public Task<GitHubCreatedIssue> CreateIssueAsync(
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _createIssueCalls.Add((owner, repo, title, body, labels));
+        var number = Interlocked.Increment(ref _nextCreatedIssueNumber);
+        return Task.FromResult(new GitHubCreatedIssue(number, number * 1000L));
+    }
+
+    private readonly ConcurrentBag<(string owner, string repo, int parentIssueNumber, long childIssueId)> _addSubIssueCalls = new();
+    public IReadOnlyCollection<(string owner, string repo, int parentIssueNumber, long childIssueId)> AddSubIssueCalls => _addSubIssueCalls;
+
+    public Task AddSubIssueAsync(
+        string owner,
+        string repo,
+        int parentIssueNumber,
+        long childIssueId,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _addSubIssueCalls.Add((owner, repo, parentIssueNumber, childIssueId));
+        return Task.CompletedTask;
     }
 
     private readonly ConcurrentDictionary<string, PullRequestStatusInfo> _prStatuses = new();
