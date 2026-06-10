@@ -33,6 +33,18 @@ public record GitHubUserInfo(string Login);
 /// label set. See conductor#670 Bug 2.
 /// </para>
 /// </summary>
+/// <param name="SubIssuesTotal">
+/// Count of GitHub native sub-issues, read from
+/// <c>sub_issues_summary.total</c> in the issues-list payload. Zero
+/// when the issue has no sub-issues or the field is absent/null.
+/// </param>
+/// <param name="SubIssueNumbers">
+/// Issue numbers of GitHub native sub-issues. NOT populated by the
+/// list call — the importer fills this (via
+/// <see cref="IGitHubClient.ListSubIssueNumbersAsync"/>) only for
+/// classified epics/features whose <paramref name="SubIssuesTotal"/>
+/// is greater than zero.
+/// </param>
 public record GitHubIssueInfo(
     int Number,
     string Title,
@@ -40,7 +52,9 @@ public record GitHubIssueInfo(
     string State,
     bool IsPullRequest,
     IReadOnlyList<string> Labels,
-    string? Type = null);
+    string? Type = null,
+    int SubIssuesTotal = 0,
+    IReadOnlyList<int>? SubIssueNumbers = null);
 
 /// <summary>
 /// Thrown when a GitHub API call fails in a way the caller needs to
@@ -108,6 +122,21 @@ public interface IGitHubClient
     Task<IReadOnlyList<GitHubIssueInfo>> ListIssuesAsync(
         string owner,
         string repo,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Lists the issue numbers of a parent issue's GitHub native
+    /// sub-issues via
+    /// <c>GET /repos/{owner}/{repo}/issues/{n}/sub_issues</c>.
+    /// Returns an empty list when the issue has none or the fetch
+    /// fails — a sub-issues failure must never fail the whole sync;
+    /// hierarchy inference falls back to task-list parsing.
+    /// </summary>
+    Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
         string accessToken,
         CancellationToken ct = default);
 

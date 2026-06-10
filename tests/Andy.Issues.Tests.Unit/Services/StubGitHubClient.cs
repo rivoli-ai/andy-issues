@@ -106,6 +106,31 @@ public class StubGitHubClient : IGitHubClient
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
     }
 
+    // Native sub-issues: keyed by "owner/repo#number". The importer
+    // only calls this for classified epics/features whose
+    // SubIssuesTotal > 0.
+    public List<(string owner, string repo, int issueNumber)> ListSubIssuesCalls { get; } = new();
+    private readonly Dictionary<string, IReadOnlyList<int>> _subIssueResponses = new();
+
+    public StubGitHubClient SubIssuesFor(
+        string owner, string repo, int issueNumber, IReadOnlyList<int> subIssueNumbers)
+    {
+        _subIssueResponses[$"{owner}/{repo}#{issueNumber}"] = subIssueNumbers;
+        return this;
+    }
+
+    public Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        ListSubIssuesCalls.Add((owner, repo, issueNumber));
+        _subIssueResponses.TryGetValue($"{owner}/{repo}#{issueNumber}", out var numbers);
+        return Task.FromResult(numbers ?? (IReadOnlyList<int>)Array.Empty<int>());
+    }
+
     public Dictionary<string, PullRequestStatusInfo?> PrStatuses { get; } = new();
 
     public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(

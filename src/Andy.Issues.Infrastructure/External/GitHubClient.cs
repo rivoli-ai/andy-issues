@@ -246,7 +246,81 @@ public class GitHubClient : IGitHubClient
                     if (!string.IsNullOrWhiteSpace(typeName)) issueType = typeName;
                 }
 
-                results.Add(new GitHubIssueInfo(number, title, body, state, isPr, labels, issueType));
+                // GitHub native sub-issues: the list payload carries a
+                // `sub_issues_summary` object (often null) whose
+                // `total` tells us whether a follow-up call to the
+                // sub_issues endpoint is worthwhile. See
+                // ListSubIssueNumbersAsync.
+                int subIssuesTotal = 0;
+                if (item.TryGetProperty("sub_issues_summary", out var subSummaryEl)
+                    && subSummaryEl.ValueKind == JsonValueKind.Object
+                    && subSummaryEl.TryGetProperty("total", out var subTotalEl)
+                    && subTotalEl.ValueKind == JsonValueKind.Number)
+                {
+                    subIssuesTotal = subTotalEl.GetInt32();
+                }
+
+                results.Add(new GitHubIssueInfo(
+                    number, title, body, state, isPr, labels, issueType, subIssuesTotal));
+            }
+
+            nextUrl = ParseNextLink(response.Headers);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Lists the issue numbers of a parent issue's GitHub native
+    /// sub-issues via
+    /// <c>GET /repos/{owner}/{repo}/issues/{issueNumber}/sub_issues</c>.
+    /// Anonymous calls are allowed (public repos); pagination walks
+    /// the Link header like <see cref="ListIssuesAsync"/>. On a
+    /// non-success status this logs a warning and returns an EMPTY
+    /// list — a sub-issues fetch failure must not fail the whole
+    /// sync; hierarchy inference simply falls back to task-list
+    /// parsing for that issue.
+    /// </summary>
+    public async Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        var results = new List<int>();
+        var nextUrl = $"{BaseUrl}/repos/{owner}/{repo}/issues/{issueNumber}/sub_issues?per_page=100";
+
+        while (!string.IsNullOrEmpty(nextUrl))
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            if (!string.IsNullOrEmpty(accessToken))
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            request.Headers.UserAgent.Add(new ProductInfoHeaderValue(UserAgent, "1.0"));
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
+            request.Headers.Add("X-GitHub-Api-Version", ApiVersion);
+
+            using var response = await _http.SendAsync(request, ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning(
+                    "GitHub GET /repos/{Owner}/{Repo}/issues/{Number}/sub_issues failed with {Status} — falling back to task-list parsing",
+                    owner, repo, issueNumber, response.StatusCode);
+                return Array.Empty<int>();
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                return results;
+
+            foreach (var item in doc.RootElement.EnumerateArray())
+            {
+                if (item.TryGetProperty("number", out var n)
+                    && n.ValueKind == JsonValueKind.Number)
+                {
+                    results.Add(n.GetInt32());
+                }
             }
 
             nextUrl = ParseNextLink(response.Headers);

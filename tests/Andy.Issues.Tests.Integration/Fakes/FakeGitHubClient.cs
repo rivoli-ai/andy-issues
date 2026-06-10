@@ -30,6 +30,7 @@ public class FakeGitHubClient : IGitHubClient
         CurrentUserResult = new("fake-gh-user");
         _issueResponses.Clear();
         ListIssuesException = null;
+        _subIssueResponses.Clear();
     }
 
     public Task<GitHubUserInfo?> GetCurrentUserAsync(
@@ -83,6 +84,24 @@ public class FakeGitHubClient : IGitHubClient
             throw ListIssuesException;
         _issueResponses.TryGetValue($"{owner}/{repo}", out var issues);
         return Task.FromResult(issues ?? (IReadOnlyList<GitHubIssueInfo>)Array.Empty<GitHubIssueInfo>());
+    }
+
+    private readonly ConcurrentDictionary<string, IReadOnlyList<int>> _subIssueResponses = new();
+
+    public void SetSubIssues(string owner, string repo, int issueNumber, IReadOnlyList<int> subIssueNumbers)
+    {
+        _subIssueResponses[$"{owner}/{repo}#{issueNumber}"] = subIssueNumbers;
+    }
+
+    public Task<IReadOnlyList<int>> ListSubIssueNumbersAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        _subIssueResponses.TryGetValue($"{owner}/{repo}#{issueNumber}", out var numbers);
+        return Task.FromResult(numbers ?? (IReadOnlyList<int>)Array.Empty<int>());
     }
 
     private readonly List<GitHubRepositoryInfo> _userRepositories = new();
