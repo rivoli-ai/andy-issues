@@ -98,7 +98,7 @@ public class BacklogAiService : IBacklogAiService
         {
             llmText = await CallLlmAsync(setting, prompt, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex,
                 "LLM call failed for SuggestContent (field={Field} itemType={ItemType}).",
@@ -151,7 +151,7 @@ public class BacklogAiService : IBacklogAiService
                 : string.Empty;
             return (false, $"Provider rejected the request{status}: {ex.Message}");
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex,
                 "TestConnection failure for LlmSetting {SettingId}.",

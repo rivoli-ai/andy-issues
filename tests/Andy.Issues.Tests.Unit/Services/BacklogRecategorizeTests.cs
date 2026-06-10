@@ -214,6 +214,26 @@ public class BacklogRecategorizeTests : IDisposable
     private static IHttpClientFactory LlmFailing(HttpStatusCode status) =>
         new SingleClientFactory(new HttpClient(new LlmStubHandler(status, "boom")));
 
+    /// <summary>
+    /// Simulates the named HttpClient's own timeout: HttpClient wraps
+    /// it in a <see cref="TaskCanceledException"/> even though the
+    /// CALLER's token was never cancelled. The service must classify
+    /// this as <see cref="RecategorizeOutcome.LlmCallFailed"/>, not
+    /// leak it as an unhandled 500 (live regression, 2026-06-10:
+    /// gemma4 on x86 exceeded the 100 s default timeout).
+    /// </summary>
+    private static IHttpClientFactory LlmTimingOut() =>
+        new SingleClientFactory(new HttpClient(new LlmTimeoutHandler()));
+
+    private sealed class LlmTimeoutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new TaskCanceledException(
+                "The request was canceled due to the configured HttpClient.Timeout of 100 seconds elapsing.",
+                new TimeoutException("The operation was canceled."));
+    }
+
     private sealed class SingleClientFactory : IHttpClientFactory
     {
         private readonly HttpClient _client;
@@ -419,6 +439,22 @@ public class BacklogRecategorizeTests : IDisposable
         Assert.NotNull(result);
         Assert.Equal(RecategorizeOutcome.LlmCallFailed, result!.Outcome);
         Assert.NotNull(result.Message);
+    }
+
+    [Fact]
+    public async Task Recategorize_LlmClientTimeout_ReturnsLlmCallFailed_NotUnhandled()
+    {
+        var seeded = await SeedRepoAsync();
+        await SeedUncatStoryAsync(seeded, 12, "Some story");
+
+        await using var ctx = NewContext();
+        // Caller token NOT cancelled — only the HttpClient timed out.
+        var result = await NewService(ctx, new StubGitHubClient(), LlmTimingOut())
+            .RecategorizeAsync(seeded.RepoId, "alice", applyToGitHub: false);
+
+        Assert.NotNull(result);
+        Assert.Equal(RecategorizeOutcome.LlmCallFailed, result!.Outcome);
+        Assert.Contains("canceled", result.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

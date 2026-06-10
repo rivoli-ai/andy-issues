@@ -138,6 +138,19 @@ builder.Services.AddAndyAuthM2M(builder.Configuration);
 // keep working.
 var attachBearer = !string.IsNullOrWhiteSpace(builder.Configuration["AndyAuth:ClientId"]);
 
+
+// --- LLM provider client (BacklogAiService / DraftBacklogGenerator /
+// BacklogRecategorizeService via LlmChatCompletion) ---
+// Named-client registration so the timeout is NOT HttpClient's 100 s
+// default: local providers (Ollama on consumer hardware) routinely
+// need minutes for a long classification prompt. Without this the
+// call dies in TaskCanceledException mid-generation (seen live
+// 2026-06-10 recategorizing 25 stories through gemma4 on x86).
+builder.Services.AddHttpClient("LlmProvider", client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+
 // --- Andy Settings (centralized configuration) ---
 const string SettingsAudience = "urn:andy-settings-api";
 var settingsBaseUrl = builder.Configuration["AndySettings:ApiBaseUrl"];

@@ -96,7 +96,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         {
             llmResponse = await CallLlmAsync(repo.LlmSetting, repo.Name, indexStatus.Summary, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "LLM call failed for repository {RepositoryId}.", repositoryId);
             await AdvanceAsync(generationId, BacklogGenerationPhase.Failed, ex.Message, ct);

@@ -147,7 +147,7 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                 requestJsonObject: true,
                 ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             _logger.LogWarning(ex, "Recategorize LLM call failed for repository {RepositoryId}.", repositoryId);
             return new RecategorizeResult(
@@ -524,7 +524,7 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                     idByNumber[issue.Number] = issue.Id;
             }
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {
             errors.Add($"GitHub issue listing failed — sub-issue links for existing issues skipped: {ex.Message}");
         }
