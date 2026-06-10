@@ -254,6 +254,7 @@ builder.Services.AddScoped<IPullRequestService, PullRequestService>();
 builder.Services.AddScoped<IBacklogGenerationTracker, BacklogGenerationTracker>();
 builder.Services.AddScoped<IDraftBacklogGenerator, DraftBacklogGenerator>();
 builder.Services.AddScoped<IBacklogAiService, BacklogAiService>();
+builder.Services.AddScoped<IBacklogRecategorizeService, BacklogRecategorizeService>();
 builder.Services.AddScoped<ISecretStore, SecretStore>();
 builder.Services.AddScoped<ILinkedProviderService, LinkedProviderService>();
 builder.Services.AddScoped<ILlmSettingService, LlmSettingService>();

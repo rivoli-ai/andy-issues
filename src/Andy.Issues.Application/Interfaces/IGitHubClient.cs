@@ -45,6 +45,12 @@ public record GitHubUserInfo(string Login);
 /// classified epics/features whose <paramref name="SubIssuesTotal"/>
 /// is greater than zero.
 /// </param>
+/// <param name="Id">
+/// GitHub's global database id for the issue (the numeric <c>id</c>
+/// field, distinct from the per-repo <c>number</c>). Required by the
+/// sub-issues write API (<c>POST .../sub_issues</c> takes
+/// <c>sub_issue_id</c>, not a number). Zero when not parsed.
+/// </param>
 public record GitHubIssueInfo(
     int Number,
     string Title,
@@ -54,7 +60,16 @@ public record GitHubIssueInfo(
     IReadOnlyList<string> Labels,
     string? Type = null,
     int SubIssuesTotal = 0,
-    IReadOnlyList<int>? SubIssueNumbers = null);
+    IReadOnlyList<int>? SubIssueNumbers = null,
+    long Id = 0);
+
+/// <summary>
+/// Result of <see cref="IGitHubClient.CreateIssueAsync"/>. Carries
+/// both identifiers: <paramref name="Number"/> for ExternalId
+/// bookkeeping (<c>gh:{number}</c>) and the database
+/// <paramref name="Id"/> for sub-issue linking.
+/// </summary>
+public record GitHubCreatedIssue(int Number, long Id);
 
 /// <summary>
 /// Thrown when a GitHub API call fails in a way the caller needs to
@@ -137,6 +152,54 @@ public interface IGitHubClient
         string owner,
         string repo,
         int issueNumber,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Adds labels to an existing issue via
+    /// <c>POST /repos/{owner}/{repo}/issues/{issueNumber}/labels</c>.
+    /// This is a write — a token is required. Throws
+    /// <see cref="GitHubApiException"/> on a non-success response so
+    /// callers can record a per-item error and continue.
+    /// </summary>
+    Task AddLabelsAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Creates a new issue via
+    /// <c>POST /repos/{owner}/{repo}/issues</c>. This is a write — a
+    /// token is required. Throws <see cref="GitHubApiException"/> on a
+    /// non-success response.
+    /// </summary>
+    Task<GitHubCreatedIssue> CreateIssueAsync(
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Links a child issue under a parent via GitHub's native
+    /// sub-issues write API,
+    /// <c>POST /repos/{owner}/{repo}/issues/{parentIssueNumber}/sub_issues</c>.
+    /// The child is referenced by its database
+    /// <see cref="GitHubIssueInfo.Id"/> (NOT its number). This is a
+    /// write — a token is required. Throws
+    /// <see cref="GitHubApiException"/> on a non-success response
+    /// (including 422 when the child already has a parent).
+    /// </summary>
+    Task AddSubIssueAsync(
+        string owner,
+        string repo,
+        int parentIssueNumber,
+        long childIssueId,
         string accessToken,
         CancellationToken ct = default);
 

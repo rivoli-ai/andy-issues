@@ -1,9 +1,6 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
-using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
@@ -16,20 +13,13 @@ namespace Andy.Issues.Infrastructure.Services;
 
 /// <summary>
 /// AI-assisted suggest-content service powering
-/// <c>POST /api/backlog/suggest</c> (#87). Thin layer on top of the
-/// same openai-chat-compatible HTTP contract <c>DraftBacklogGenerator</c>
-/// uses — explicitly not extracted into a shared <c>ILlmClient</c>
-/// abstraction yet, because the two call sites only share ~20 lines
-/// of payload-building code and their prompt/response shapes diverge
-/// (JSON object vs plain text).
+/// <c>POST /api/backlog/suggest</c> (#87). Thin layer over the shared
+/// provider-aware <see cref="LlmChatCompletion"/> dispatch (extracted
+/// when <see cref="BacklogRecategorizeService"/> needed the same
+/// Anthropic-vs-OpenAI routing).
 /// </summary>
 public class BacklogAiService : IBacklogAiService
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-    };
-
     private readonly AppDbContext _db;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -172,147 +162,27 @@ public class BacklogAiService : IBacklogAiService
 
     /// <summary>
     /// Routes the LLM call to the provider-specific endpoint and body
-    /// shape. Anthropic's Messages API diverges enough from
-    /// OpenAI's Chat Completions that a common path would either
-    /// silently 404 or return a response we can't parse — which was
-    /// the live symptom when a user configured an Anthropic key
-    /// against a hard-coded <c>{baseUrl}/chat/completions</c> call.
+    /// shape via the shared <see cref="LlmChatCompletion"/> helper.
+    /// Anthropic's Messages API diverges enough from OpenAI's Chat
+    /// Completions that a common path would either silently 404 or
+    /// return a response we can't parse — which was the live symptom
+    /// when a user configured an Anthropic key against a hard-coded
+    /// <c>{baseUrl}/chat/completions</c> call.
     /// </summary>
     private Task<string> CallLlmAsync(
         LlmSetting setting,
         string prompt,
         CancellationToken ct)
     {
-        return setting.Provider switch
-        {
-            LlmProvider.Anthropic => CallAnthropicAsync(setting, prompt, ct),
-            // OpenAI, Ollama, and `Custom` all speak the OpenAI
-            // Chat Completions wire format (the latter two by
-            // convention — most self-hosted providers proxy it).
-            _ => CallOpenAiChatAsync(setting, prompt, ct)
-        };
-    }
-
-    private async Task<string> CallOpenAiChatAsync(
-        LlmSetting setting,
-        string prompt,
-        CancellationToken ct)
-    {
-        var baseUrl = GetBaseUrl(setting);
-        var client = _httpClientFactory.CreateClient("LlmProvider");
-        client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", setting.ApiKey);
-
-        var payload = new
-        {
-            model = setting.Model,
-            messages = new[]
-            {
-                new { role = "system", content = SystemPrompt },
-                new { role = "user", content = prompt }
-            },
-            temperature = 0.7,
-            max_tokens = 400
-        };
-
-        using var response = await client.PostAsJsonAsync(
-            $"{baseUrl}/chat/completions", payload, JsonOptions, ct);
-
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-
-        var content = doc.RootElement
-            .GetProperty("choices")[0]
-            .GetProperty("message")
-            .GetProperty("content")
-            .GetString();
-
-        return content ?? throw new InvalidOperationException("LLM returned null content.");
-    }
-
-    /// <summary>
-    /// Anthropic's Messages API: <c>POST /v1/messages</c> with
-    /// <c>x-api-key</c> + <c>anthropic-version</c> headers, system
-    /// prompt in a dedicated top-level field (not a role), and a
-    /// response body shaped as <c>content: [{type: "text",
-    /// text: "…"}]</c>.
-    /// </summary>
-    private async Task<string> CallAnthropicAsync(
-        LlmSetting setting,
-        string prompt,
-        CancellationToken ct)
-    {
-        var baseUrl = GetBaseUrl(setting);
-        var client = _httpClientFactory.CreateClient("LlmProvider");
-        // Anthropic uses `x-api-key` instead of Bearer. Clear any
-        // Authorization header the factory may have left on the
-        // pooled client from a previous call.
-        client.DefaultRequestHeaders.Authorization = null;
-
-        using var request = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/messages")
-        {
-            Content = JsonContent.Create(
-                new
-                {
-                    model = setting.Model,
-                    max_tokens = 400,
-                    temperature = 0.7,
-                    system = SystemPrompt,
-                    messages = new[]
-                    {
-                        new { role = "user", content = prompt }
-                    }
-                },
-                options: JsonOptions)
-        };
-        request.Headers.Add("x-api-key", setting.ApiKey);
-        request.Headers.Add("anthropic-version", "2023-06-01");
-
-        using var response = await client.SendAsync(request, ct);
-        response.EnsureSuccessStatusCode();
-
-        await using var stream = await response.Content.ReadAsStreamAsync(ct);
-        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
-
-        // The `content` array can mix text and tool-use blocks; we
-        // only care about text blocks and we concatenate them in
-        // order. A defensive fallback grabs the first block's `text`
-        // field directly when the shape is unexpected.
-        if (doc.RootElement.TryGetProperty("content", out var blocks)
-            && blocks.ValueKind == JsonValueKind.Array)
-        {
-            var parts = new List<string>();
-            foreach (var block in blocks.EnumerateArray())
-            {
-                if (block.TryGetProperty("type", out var type)
-                    && type.GetString() == "text"
-                    && block.TryGetProperty("text", out var text)
-                    && text.GetString() is { } chunk)
-                {
-                    parts.Add(chunk);
-                }
-            }
-            if (parts.Count > 0)
-                return string.Join("\n\n", parts);
-        }
-
-        throw new InvalidOperationException("Anthropic response did not contain any text content blocks.");
-    }
-
-    private static string GetBaseUrl(LlmSetting setting)
-    {
-        if (!string.IsNullOrEmpty(setting.BaseUrl))
-            return setting.BaseUrl.TrimEnd('/');
-
-        return setting.Provider switch
-        {
-            LlmProvider.OpenAI => "https://api.openai.com/v1",
-            LlmProvider.Anthropic => "https://api.anthropic.com/v1",
-            LlmProvider.Ollama => "http://localhost:11434/v1",
-            _ => throw new InvalidOperationException($"No base URL configured for provider {setting.Provider}.")
-        };
+        return LlmChatCompletion.CompleteAsync(
+            _httpClientFactory,
+            setting,
+            systemPrompt: SystemPrompt,
+            userPrompt: prompt,
+            maxTokens: 400,
+            temperature: 0.7,
+            requestJsonObject: false,
+            ct);
     }
 
     // MARK: - Prompt assembly

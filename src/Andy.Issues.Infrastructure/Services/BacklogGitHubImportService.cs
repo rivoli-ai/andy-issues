@@ -399,7 +399,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         // left behind (e.g. every story got re-homed to a real parent)
         // and pre-existing ones from earlier syncs that created the
         // buckets eagerly.
-        await CleanupEmptySyntheticBucketsAsync(repositoryId, ct);
+        await CleanupEmptySyntheticBucketsAsync(_db, repositoryId, ct);
 
         return new SyncResult(added, updated, pullRequestsSkipped, errors);
     }
@@ -749,13 +749,16 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     /// then the Uncategorized epic itself once it has zero features.
     /// Runs after every sync, so it both prevents new empty buckets
     /// and heals pre-existing ones from earlier (eager-creation) syncs.
+    /// Internal static so <see cref="BacklogRecategorizeService"/> can
+    /// reuse the exact same heal pass after emptying buckets, instead
+    /// of duplicating the synthetic-pattern matching.
     /// </summary>
-    private async Task CleanupEmptySyntheticBucketsAsync(
-        Guid repositoryId, CancellationToken ct)
+    internal static async Task CleanupEmptySyntheticBucketsAsync(
+        AppDbContext db, Guid repositoryId, CancellationToken ct)
     {
         // DB-side prefilter (LIKE), exact synthetic-pattern check in
         // memory so a hypothetical real ExternalId can't be caught.
-        var candidates = await _db.Features
+        var candidates = await db.Features
             .Where(f => f.Epic.RepositoryId == repositoryId
                 && f.ExternalId != null
                 && (f.ExternalId == UncategorizedExternalId
@@ -771,17 +774,17 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
 
         if (emptySynthetic.Count > 0)
         {
-            _db.Features.RemoveRange(emptySynthetic);
-            await _db.SaveChangesAsync(ct);
+            db.Features.RemoveRange(emptySynthetic);
+            await db.SaveChangesAsync(ct);
         }
 
-        var uncatEpic = await _db.Epics.FirstOrDefaultAsync(
+        var uncatEpic = await db.Epics.FirstOrDefaultAsync(
             e => e.RepositoryId == repositoryId && e.ExternalId == UncategorizedExternalId, ct);
         if (uncatEpic is not null
-            && !await _db.Features.AnyAsync(f => f.EpicId == uncatEpic.Id, ct))
+            && !await db.Features.AnyAsync(f => f.EpicId == uncatEpic.Id, ct))
         {
-            _db.Epics.Remove(uncatEpic);
-            await _db.SaveChangesAsync(ct);
+            db.Epics.Remove(uncatEpic);
+            await db.SaveChangesAsync(ct);
         }
     }
 

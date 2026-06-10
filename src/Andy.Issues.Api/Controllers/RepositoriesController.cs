@@ -19,6 +19,7 @@ public class RepositoriesController : ControllerBase
     private readonly IPullRequestService _pullRequestService;
     private readonly IDraftBacklogGenerator _draftBacklogGenerator;
     private readonly IBacklogGitHubImportService _backlogGitHubImportService;
+    private readonly IBacklogRecategorizeService _backlogRecategorizeService;
     private readonly IAgentRulesService _agentRulesService;
 
     public RepositoriesController(
@@ -26,12 +27,14 @@ public class RepositoriesController : ControllerBase
         IPullRequestService pullRequestService,
         IDraftBacklogGenerator draftBacklogGenerator,
         IBacklogGitHubImportService backlogGitHubImportService,
+        IBacklogRecategorizeService backlogRecategorizeService,
         IAgentRulesService agentRulesService)
     {
         _repositoryService = repositoryService;
         _pullRequestService = pullRequestService;
         _draftBacklogGenerator = draftBacklogGenerator;
         _backlogGitHubImportService = backlogGitHubImportService;
+        _backlogRecategorizeService = backlogRecategorizeService;
         _agentRulesService = agentRulesService;
     }
 
@@ -232,6 +235,53 @@ public class RepositoriesController : ControllerBase
         var result = await _backlogGitHubImportService.ImportAsync(id, userId, ct);
         if (result is null) return NotFound();
         return Ok(result);
+    }
+
+    /// <summary>
+    /// Classifies the backlog items sitting in the synthetic
+    /// "Uncategorized" buckets into a proper epic → feature → story
+    /// hierarchy using the repository's configured LLM, optionally
+    /// writing labels / new issues / sub-issue links back to GitHub.
+    /// Response shape is PINNED — the Conductor client is built
+    /// against these exact field names.
+    /// </summary>
+    [HttpPost("{id:guid}/recategorize")]
+    public async Task<ActionResult<object>> Recategorize(
+        Guid id,
+        [FromBody] RecategorizeBacklogRequest? request,
+        CancellationToken ct)
+    {
+        var userId = GetUserId();
+        var result = await _backlogRecategorizeService.RecategorizeAsync(
+            id, userId, request?.ApplyToGitHub ?? false, ct);
+        if (result is null) return NotFound();
+
+        return result.Outcome switch
+        {
+            RecategorizeOutcome.NoLlmSetting => BadRequest(new
+            {
+                error = "no_llm_setting",
+                message = result.Message
+            }),
+            RecategorizeOutcome.LlmCallFailed or RecategorizeOutcome.ParseFailed => StatusCode(502, new
+            {
+                error = "llm_failed",
+                message = result.Message
+            }),
+            // Recategorized and NothingToDo both map to 200 — the
+            // latter simply carries all-zero counts and no errors.
+            _ => Ok(new
+            {
+                classified = result.Classified,
+                epicsCreated = result.EpicsCreated,
+                featuresCreated = result.FeaturesCreated,
+                storiesReparented = result.StoriesReparented,
+                labelsApplied = result.LabelsApplied,
+                subIssuesLinked = result.SubIssuesLinked,
+                githubIssuesCreated = result.GithubIssuesCreated,
+                errors = result.Errors
+            })
+        };
     }
 
     [HttpPatch("{id:guid}/llm-setting")]

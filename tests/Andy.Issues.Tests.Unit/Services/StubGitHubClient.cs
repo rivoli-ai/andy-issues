@@ -131,6 +131,76 @@ public class StubGitHubClient : IGitHubClient
         return Task.FromResult(numbers ?? (IReadOnlyList<int>)Array.Empty<int>());
     }
 
+    // ── Write methods (recategorize write-back) ──────────────────────
+    // Each call is recorded; per-key exceptions simulate partial
+    // GitHub failures (callers must catch per item and continue).
+
+    public List<(string owner, string repo, int issueNumber, IReadOnlyList<string> labels)> AddLabelsCalls { get; } = new();
+
+    /// <summary>When set, AddLabelsAsync throws for the given issue number.</summary>
+    public Dictionary<int, Exception> AddLabelsExceptions { get; } = new();
+
+    public Task AddLabelsAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        if (AddLabelsExceptions.TryGetValue(issueNumber, out var ex))
+            throw ex;
+        AddLabelsCalls.Add((owner, repo, issueNumber, labels));
+        return Task.CompletedTask;
+    }
+
+    public List<(string owner, string repo, string title, string? body, IReadOnlyList<string> labels)> CreateIssueCalls { get; } = new();
+
+    /// <summary>When set, CreateIssueAsync throws for the given title.</summary>
+    public Dictionary<string, Exception> CreateIssueExceptions { get; } = new();
+
+    /// <summary>
+    /// Issue number assigned to the next created issue; increments per
+    /// call. The database Id is derived as number * 1000 so tests can
+    /// assert the number→id correlation in sub-issue calls.
+    /// </summary>
+    public int NextCreatedIssueNumber { get; set; } = 100;
+
+    public Task<GitHubCreatedIssue> CreateIssueAsync(
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        IReadOnlyList<string> labels,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        if (CreateIssueExceptions.TryGetValue(title, out var ex))
+            throw ex;
+        CreateIssueCalls.Add((owner, repo, title, body, labels));
+        var number = NextCreatedIssueNumber++;
+        return Task.FromResult(new GitHubCreatedIssue(number, number * 1000L));
+    }
+
+    public List<(string owner, string repo, int parentIssueNumber, long childIssueId)> AddSubIssueCalls { get; } = new();
+
+    /// <summary>When set, AddSubIssueAsync throws for the given child issue id.</summary>
+    public Dictionary<long, Exception> AddSubIssueExceptions { get; } = new();
+
+    public Task AddSubIssueAsync(
+        string owner,
+        string repo,
+        int parentIssueNumber,
+        long childIssueId,
+        string accessToken,
+        CancellationToken ct = default)
+    {
+        if (AddSubIssueExceptions.TryGetValue(childIssueId, out var ex))
+            throw ex;
+        AddSubIssueCalls.Add((owner, repo, parentIssueNumber, childIssueId));
+        return Task.CompletedTask;
+    }
+
     public Dictionary<string, PullRequestStatusInfo?> PrStatuses { get; } = new();
 
     public Task<PullRequestStatusInfo?> GetPullRequestStatusAsync(

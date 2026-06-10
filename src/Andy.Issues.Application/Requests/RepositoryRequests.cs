@@ -43,6 +43,14 @@ public record SyncAzureDevOpsRepositoriesRequest(
     string? Project,
     [Required] IReadOnlyList<string> RepoIds);
 
+/// <summary>
+/// Body for <c>POST /api/repositories/{id}/recategorize</c>. The body
+/// is optional — absent means <c>applyToGitHub = false</c> (classify
+/// locally only).
+/// </summary>
+public record RecategorizeBacklogRequest(
+    bool ApplyToGitHub = false);
+
 public record CreatePullRequestRequest(
     [Required] Guid SandboxId,
     [Required] string Title,
