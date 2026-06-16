@@ -29,7 +29,7 @@ andy-issues-cli issues triage <id> [--json]
 
 - `list` — paginated owner-scoped list. `--triage-state` is case-insensitive (`NeedsTriage`, `Triaging`, `Triaged`, `Accepted`, `Rejected`); unknown values yield an empty page.
 - `get` — print one issue, including triage attribution if present.
-- `triage` — re-invoke triage. Allowed from `NeedsTriage` or `Triaged`. The actual agent dispatch lands in Z2 — today this is the state transition only.
+- `triage` — re-invoke triage. Allowed from `NeedsTriage` or `Triaged`. Z2 has shipped — the state transition is followed by an asynchronous agent run via `IContainersClient`; the `ContainerRunEventConsumer` correlates the run-finished event back to the issue and writes the resulting triage output.
 
 ### `sandbox`
 Manage sandboxes. See `andy-issues-cli sandbox --help`.

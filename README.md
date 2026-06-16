@@ -64,7 +64,7 @@ Terminal transitions append outbox rows that publish to NATS as `andy.issues.eve
 | Surface | Where |
 |---|---|
 | REST | `/api/triage` — see [features.md](docs/features.md#triage-workflow) |
-| MCP | tools `issue_get`, `issue_list`, `issue_triage` (via mcp-gateway) |
+| MCP | tools `issue_get`, `issue_list`, `issue_triage` (via andy-mcp-proxy) |
 | CLI | `andy-issues-cli issues {list, get, triage}` — see [tools/Andy.Issues.Cli/README.md](tools/Andy.Issues.Cli/README.md) |
 
 Cross-service handoffs:
