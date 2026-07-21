@@ -467,13 +467,16 @@ app.MapFallbackToFile("index.html");
 // SQLite path:
 //   1. EnsureCreatedAsync — creates the schema from the live model
 //      snapshot on a fresh DB. No-op on an already-populated DB.
-//   2. SqliteSchemaBootstrapper.HealMissingColumnsAsync — compares the
-//      live model against the actual schema and adds any columns the
-//      model declares that the DB is missing. Only nullable additive
+//   2. SqliteSchemaBootstrapper.HealAsync — compares the live model
+//      against the actual schema and heals additive drift: creates any
+//      table (plus indexes) the model declares that the DB lacks (using
+//      EnsureCreated's own generated DDL), then adds any columns the
+//      model declares that existing tables are missing. Only additive
 //      changes are healed; destructive changes are left for migrations.
 //      Without this, a user whose DB was created by an older binary
 //      stays stuck at the older schema forever (e.g. missing
-//      UserStory.ContentHash → every Story query 500s).
+//      UserStory.ContentHash → every Story query 500s; a whole missing
+//      table → "no such table" on every query against it).
 //
 // Postgres path: standard EF migrations.
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
@@ -491,7 +494,7 @@ if (app.Environment.IsLocalOrEmbedded() && !string.IsNullOrEmpty(connectionStrin
         var bootstrapLogger = scope.ServiceProvider
             .GetRequiredService<ILoggerFactory>()
             .CreateLogger("Andy.Issues.SqliteSchemaBootstrap");
-        await SqliteSchemaBootstrapper.HealMissingColumnsAsync(db, bootstrapLogger);
+        await SqliteSchemaBootstrapper.HealAsync(db, bootstrapLogger);
     }
 }
 

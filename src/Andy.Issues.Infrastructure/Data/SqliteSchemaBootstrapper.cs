@@ -24,13 +24,60 @@ namespace Andy.Issues.Infrastructure.Data;
 /// This bootstrapper closes that gap. After
 /// <see cref="DatabaseFacade.EnsureCreatedAsync"/> has had a chance to
 /// run, it compares the live EF model against the actual SQLite schema
-/// and adds any column the model expects but the table is missing. Only
-/// additive, nullable column adds are performed — we never drop, rename,
-/// or alter, because those would risk data loss and the migrations
-/// system is the right tool for those cases.
+/// and heals ADDITIVE drift only: it creates any entire table (plus its
+/// indexes) the model declares that the live DB lacks — using the exact
+/// DDL EnsureCreated would emit via
+/// <see cref="DatabaseFacade.GenerateCreateScript"/> — and adds any
+/// column the model expects but the table is missing. We never drop,
+/// rename, or alter, because those would risk data loss and the
+/// migrations system is the right tool for those cases.
 /// </summary>
 public static class SqliteSchemaBootstrapper
 {
+    /// <summary>
+    /// Heals additive schema drift: first creates any tables the EF
+    /// model declares that the live SQLite DB lacks (using
+    /// EnsureCreated's own generated DDL), then adds any missing
+    /// columns on existing tables. On a completely empty DB (zero user
+    /// tables) it no-ops — materialising the full schema there is
+    /// EnsureCreated's job. Returns the number of healed objects
+    /// (tables + columns).
+    /// </summary>
+    public static async Task<int> HealAsync(
+        AppDbContext db,
+        ILogger logger,
+        CancellationToken cancellationToken = default)
+    {
+        if (!db.Database.IsSqlite()) return 0;
+
+        var conn = db.Database.GetDbConnection();
+        if (conn.State != System.Data.ConnectionState.Open)
+        {
+            await conn.OpenAsync(cancellationToken);
+        }
+
+        var existingTables = await ReadTableNamesAsync(conn, cancellationToken);
+        if (existingTables.Count == 0)
+        {
+            // Fresh DB — EnsureCreated materialises the full schema;
+            // nothing to heal.
+            return 0;
+        }
+
+        int healed = 0;
+        healed += await HealMissingTablesAsync(db, conn, existingTables, logger, cancellationToken);
+        healed += await HealMissingColumnsAsync(db, logger, cancellationToken);
+
+        if (healed > 0)
+        {
+            logger.LogWarning(
+                "andy-issues SQLite schema heal complete: {Healed} object(s) added.",
+                healed);
+        }
+
+        return healed;
+    }
+
     /// <summary>
     /// Inspects the SQLite database and adds any column declared by the
     /// EF model that doesn't yet exist in the live schema. No-ops on
@@ -129,6 +176,103 @@ public static class SqliteSchemaBootstrapper
         }
 
         return healed;
+    }
+
+    /// <summary>
+    /// Creates any table (plus its indexes) the EF model declares that
+    /// the live DB lacks. The DDL comes from
+    /// <see cref="DatabaseFacade.GenerateCreateScript"/> — the exact SQL
+    /// EnsureCreated would emit — never hand-written statements. This
+    /// closes the blind spot where a NEW entity landed after the DB was
+    /// created: EnsureCreated no-ops (some tables exist) and the column
+    /// heal skips the table (zero live columns), so every query against
+    /// it 500s with "no such table" forever.
+    /// </summary>
+    private static async Task<int> HealMissingTablesAsync(
+        AppDbContext db,
+        System.Data.Common.DbConnection conn,
+        HashSet<string> existingTables,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        // Which model tables are absent from the live DB?
+        var missing = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entityType in db.Model.GetEntityTypes())
+        {
+            var tableName = entityType.GetTableName();
+            if (string.IsNullOrEmpty(tableName)) continue;
+            if (!IsSafeIdentifier(tableName)) continue;
+            if (!existingTables.Contains(tableName)) missing.Add(tableName);
+        }
+        if (missing.Count == 0) return 0;
+
+        // EnsureCreated's own DDL — statements separated by ";" at line end.
+        var script = db.Database.GenerateCreateScript();
+        var statements = SplitSqlStatements(script);
+
+        int created = 0;
+        foreach (var table in missing)
+        {
+            // CREATE TABLE first, then its indexes.
+            var createTable = statements.FirstOrDefault(s =>
+                s.StartsWith($"CREATE TABLE \"{table}\"", StringComparison.Ordinal));
+            if (createTable is null)
+            {
+                logger.LogWarning(
+                    "andy-issues SQLite schema heal: model table {Table} missing from DB but no CREATE TABLE found in generated script; skipping.",
+                    table);
+                continue;
+            }
+
+            logger.LogWarning(
+                "andy-issues SQLite schema heal: creating missing table {Table}.",
+                table);
+            using (var cmd = conn.CreateCommand())
+            {
+                cmd.CommandText = createTable;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+            created++;
+
+            foreach (var index in statements.Where(s =>
+                         s.StartsWith("CREATE INDEX", StringComparison.Ordinal) ||
+                         s.StartsWith("CREATE UNIQUE INDEX", StringComparison.Ordinal)))
+            {
+                if (!index.Contains($" ON \"{table}\" ", StringComparison.Ordinal)) continue;
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = index;
+                await cmd.ExecuteNonQueryAsync(cancellationToken);
+            }
+        }
+        return created;
+    }
+
+    private static async Task<HashSet<string>> ReadTableNamesAsync(
+        System.Data.Common.DbConnection conn,
+        CancellationToken cancellationToken)
+    {
+        var tables = new HashSet<string>(StringComparer.Ordinal);
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '__EFMigrationsHistory';";
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            tables.Add(reader.GetString(0));
+        }
+        return tables;
+    }
+
+    private static List<string> SplitSqlStatements(string script)
+    {
+        // EF's SQLite create script separates statements with ";" followed
+        // by a newline. No procedural blocks exist on SQLite, so this split
+        // is unambiguous.
+        return script
+            .Split([";\r\n", ";\n"], StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => s.Trim())
+            .Where(s => s.Length > 0)
+            .ToList();
     }
 
     private static async Task<HashSet<string>> ReadColumnsAsync(
