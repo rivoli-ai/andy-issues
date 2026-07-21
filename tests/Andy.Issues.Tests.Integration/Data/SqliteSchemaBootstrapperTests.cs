@@ -216,6 +216,171 @@ public class SqliteSchemaBootstrapperTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// Reproduces the whole-missing-TABLE blind spot (the failure mode
+    /// that bit andy-docs' DocumentEmbeddings table): a DB created by an
+    /// older binary lacks an entire table the current model declares.
+    /// EnsureCreated no-ops (other tables exist) and the column heal
+    /// skips the table (zero live columns), so every query against it
+    /// fails with "no such table" forever. HealAsync must recreate the
+    /// table — with all model columns AND its indexes — using
+    /// EnsureCreated's own generated DDL.
+    /// </summary>
+    [Fact]
+    public async Task HealAsync_RecreatesMissingTable_WithColumnsAndIndexes_RoundTrips()
+    {
+        // ARRANGE: create the live schema, then drop a leaf table
+        // (AuditLog — nothing references it) to simulate the
+        // older-binary state.
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+        await ExecuteAsync(@"DROP TABLE ""AuditLog"";");
+
+        // Sanity: the table is gone and querying it fails.
+        await using (var ctx = NewContext())
+        {
+            await Assert.ThrowsAsync<SqliteException>(async () =>
+            {
+                await ctx.AuditLog.ToListAsync();
+            });
+        }
+
+        // ACT: heal the schema.
+        await using (var ctx = NewContext())
+        {
+            var healed = await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.True(healed >= 1, "expected at least the AuditLog table to be healed");
+        }
+
+        // ASSERT: all model columns are present…
+        var columns = await ReadColumnNamesAsync("AuditLog");
+        Assert.Superset(
+            new HashSet<string>
+            {
+                "Id", "UserId", "Action", "ResourceType", "ResourceId", "Details", "CreatedAt"
+            },
+            columns);
+
+        // …the table's indexes were recreated…
+        var indexes = await ReadIndexNamesAsync("AuditLog");
+        Assert.Contains("IX_AuditLog_ResourceType_ResourceId_CreatedAt", indexes);
+        Assert.Contains("IX_AuditLog_UserId", indexes);
+
+        // …and an INSERT/SELECT round-trip works through EF.
+        var entryId = Guid.NewGuid();
+        await using (var ctx = NewContext())
+        {
+            ctx.AuditLog.Add(new AuditLogEntry
+            {
+                Id = entryId,
+                UserId = "user-1",
+                Action = "agent-rules.edit",
+                ResourceType = "Repository",
+                ResourceId = "repo-1",
+                Details = "healed-table round-trip"
+            });
+            await ctx.SaveChangesAsync();
+        }
+        await using (var ctx = NewContext())
+        {
+            var entry = await ctx.AuditLog.FirstOrDefaultAsync(e => e.Id == entryId);
+            Assert.NotNull(entry);
+            Assert.Equal("agent-rules.edit", entry!.Action);
+            Assert.Equal("healed-table round-trip", entry.Details);
+        }
+    }
+
+    /// <summary>
+    /// On a completely empty DB (zero user tables) HealAsync must be a
+    /// no-op: materialising the full schema is EnsureCreated's job, and
+    /// the heal must not race it by creating tables piecemeal.
+    /// </summary>
+    [Fact]
+    public async Task HealAsync_OnEmptyDb_IsNoOp()
+    {
+        await using (var ctx = NewContext())
+        {
+            var healed = await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.Equal(0, healed);
+        }
+
+        // The DB must still be empty — the heal must not have created
+        // any table behind EnsureCreated's back.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';";
+        var tableCount = Convert.ToInt64(await cmd.ExecuteScalarAsync());
+        Assert.Equal(0, tableCount);
+    }
+
+    /// <summary>
+    /// On a fresh, fully-created DB HealAsync (tables + columns) is a
+    /// complete no-op, and re-running it after a table heal finds
+    /// nothing left to do.
+    /// </summary>
+    [Fact]
+    public async Task HealAsync_IsIdempotent()
+    {
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+            var healedFresh = await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.Equal(0, healedFresh);
+        }
+
+        await ExecuteAsync(@"DROP TABLE ""AuditLog"";");
+
+        await using (var ctx = NewContext())
+        {
+            var firstHeal = await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.True(firstHeal >= 1);
+        }
+        await using (var ctx = NewContext())
+        {
+            var secondHeal = await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance);
+            Assert.Equal(0, secondHeal);
+        }
+    }
+
+    private async Task<HashSet<string>> ReadColumnNamesAsync(string tableName)
+    {
+        var columns = new HashSet<string>(StringComparer.Ordinal);
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA table_info(\"{tableName}\");";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            columns.Add(reader.GetString(1));
+        }
+        return columns;
+    }
+
+    private async Task<HashSet<string>> ReadIndexNamesAsync(string tableName)
+    {
+        var indexes = new HashSet<string>(StringComparer.Ordinal);
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = $"PRAGMA index_list(\"{tableName}\");";
+        using var reader = await cmd.ExecuteReaderAsync();
+        while (await reader.ReadAsync())
+        {
+            // PRAGMA index_list columns: seq (0), name (1), unique (2), ...
+            indexes.Add(reader.GetString(1));
+        }
+        return indexes;
+    }
+
     private async Task<Guid> SeedRepoEpicFeatureStoryAsync()
     {
         var repoId = Guid.NewGuid();
