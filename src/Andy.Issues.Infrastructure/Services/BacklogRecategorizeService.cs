@@ -316,56 +316,56 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                         break;
 
                     case "feature":
-                    {
-                        if (a.ParentRef is null || !epicRefs.TryGetValue(a.ParentRef, out var parentEpic))
                         {
-                            errors.Add($"{a.Item}: unknown parentRef '{a.ParentRef}' — skipped.");
-                            continue;
+                            if (a.ParentRef is null || !epicRefs.TryGetValue(a.ParentRef, out var parentEpic))
+                            {
+                                errors.Add($"{a.Item}: unknown parentRef '{a.ParentRef}' — skipped.");
+                                continue;
+                            }
+                            // Table move mirroring RehomeReclassifiedItemsAsync:
+                            // delete the story row, recreate as a Feature with
+                            // ExternalId / labels / title / description preserved.
+                            // Uncategorized stories have no children, so the
+                            // conversion orphans nothing.
+                            var converted = new Feature
+                            {
+                                Id = Guid.NewGuid(),
+                                Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
+                                EpicId = parentEpic.Id,
+                                Title = story.Title,
+                                Description = story.Description,
+                                Order = story.Order,
+                                ExternalId = story.ExternalId,
+                                Labels = story.Labels.ToList(),
+                                GitHubType = story.GitHubType
+                            };
+                            _db.Features.Add(converted);
+                            _db.UserStories.Remove(story);
+                            placedFeatures.Add((converted, parentEpic));
+                            classified++;
+                            break;
                         }
-                        // Table move mirroring RehomeReclassifiedItemsAsync:
-                        // delete the story row, recreate as a Feature with
-                        // ExternalId / labels / title / description preserved.
-                        // Uncategorized stories have no children, so the
-                        // conversion orphans nothing.
-                        var converted = new Feature
-                        {
-                            Id = Guid.NewGuid(),
-                            Seq = await _sequence.AllocateAsync(BacklogEntityType.Feature, ct),
-                            EpicId = parentEpic.Id,
-                            Title = story.Title,
-                            Description = story.Description,
-                            Order = story.Order,
-                            ExternalId = story.ExternalId,
-                            Labels = story.Labels.ToList(),
-                            GitHubType = story.GitHubType
-                        };
-                        _db.Features.Add(converted);
-                        _db.UserStories.Remove(story);
-                        placedFeatures.Add((converted, parentEpic));
-                        classified++;
-                        break;
-                    }
 
                     case "epic":
-                    {
-                        var converted = new Epic
                         {
-                            Id = Guid.NewGuid(),
-                            Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
-                            RepositoryId = repositoryId,
-                            Title = story.Title,
-                            Description = story.Description,
-                            Order = story.Order,
-                            ExternalId = story.ExternalId,
-                            Labels = story.Labels.ToList(),
-                            GitHubType = story.GitHubType
-                        };
-                        _db.Epics.Add(converted);
-                        _db.UserStories.Remove(story);
-                        placedEpics.Add(converted);
-                        classified++;
-                        break;
-                    }
+                            var converted = new Epic
+                            {
+                                Id = Guid.NewGuid(),
+                                Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
+                                RepositoryId = repositoryId,
+                                Title = story.Title,
+                                Description = story.Description,
+                                Order = story.Order,
+                                ExternalId = story.ExternalId,
+                                Labels = story.Labels.ToList(),
+                                GitHubType = story.GitHubType
+                            };
+                            _db.Epics.Add(converted);
+                            _db.UserStories.Remove(story);
+                            placedEpics.Add(converted);
+                            classified++;
+                            break;
+                        }
                 }
             }
             else if (featureByKey.TryGetValue(a.Item, out var inputFeature))
@@ -386,64 +386,64 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                         break;
 
                     case "epic":
-                    {
-                        // A feature with child stories cannot be moved to
-                        // the Epics table without orphaning (the FK cascade
-                        // would delete the children). Refuse per-item.
-                        if (await HasStoriesAsync(inputFeature, ct))
                         {
-                            errors.Add($"{a.Item}: cannot convert a feature that has stories into an epic — skipped.");
-                            continue;
+                            // A feature with child stories cannot be moved to
+                            // the Epics table without orphaning (the FK cascade
+                            // would delete the children). Refuse per-item.
+                            if (await HasStoriesAsync(inputFeature, ct))
+                            {
+                                errors.Add($"{a.Item}: cannot convert a feature that has stories into an epic — skipped.");
+                                continue;
+                            }
+                            var converted = new Epic
+                            {
+                                Id = Guid.NewGuid(),
+                                Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
+                                RepositoryId = repositoryId,
+                                Title = inputFeature.Title,
+                                Description = inputFeature.Description,
+                                Order = inputFeature.Order,
+                                ExternalId = inputFeature.ExternalId,
+                                Labels = inputFeature.Labels.ToList(),
+                                GitHubType = inputFeature.GitHubType
+                            };
+                            _db.Epics.Add(converted);
+                            _db.Features.Remove(inputFeature);
+                            placedEpics.Add(converted);
+                            classified++;
+                            break;
                         }
-                        var converted = new Epic
-                        {
-                            Id = Guid.NewGuid(),
-                            Seq = await _sequence.AllocateAsync(BacklogEntityType.Epic, ct),
-                            RepositoryId = repositoryId,
-                            Title = inputFeature.Title,
-                            Description = inputFeature.Description,
-                            Order = inputFeature.Order,
-                            ExternalId = inputFeature.ExternalId,
-                            Labels = inputFeature.Labels.ToList(),
-                            GitHubType = inputFeature.GitHubType
-                        };
-                        _db.Epics.Add(converted);
-                        _db.Features.Remove(inputFeature);
-                        placedEpics.Add(converted);
-                        classified++;
-                        break;
-                    }
 
                     case "story":
-                    {
-                        if (a.ParentRef is null || !featureRefs.TryGetValue(a.ParentRef, out var parentFeature))
                         {
-                            errors.Add($"{a.Item}: unknown parentRef '{a.ParentRef}' — skipped.");
-                            continue;
+                            if (a.ParentRef is null || !featureRefs.TryGetValue(a.ParentRef, out var parentFeature))
+                            {
+                                errors.Add($"{a.Item}: unknown parentRef '{a.ParentRef}' — skipped.");
+                                continue;
+                            }
+                            if (await HasStoriesAsync(inputFeature, ct))
+                            {
+                                errors.Add($"{a.Item}: cannot convert a feature that has stories into a story — skipped.");
+                                continue;
+                            }
+                            var converted = new UserStory
+                            {
+                                Id = Guid.NewGuid(),
+                                Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
+                                FeatureId = parentFeature.Id,
+                                Title = inputFeature.Title,
+                                Description = inputFeature.Description,
+                                Order = inputFeature.Order,
+                                ExternalId = inputFeature.ExternalId,
+                                Labels = inputFeature.Labels.ToList(),
+                                GitHubType = inputFeature.GitHubType
+                            };
+                            _db.UserStories.Add(converted);
+                            _db.Features.Remove(inputFeature);
+                            placedStories.Add((converted, parentFeature));
+                            classified++;
+                            break;
                         }
-                        if (await HasStoriesAsync(inputFeature, ct))
-                        {
-                            errors.Add($"{a.Item}: cannot convert a feature that has stories into a story — skipped.");
-                            continue;
-                        }
-                        var converted = new UserStory
-                        {
-                            Id = Guid.NewGuid(),
-                            Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
-                            FeatureId = parentFeature.Id,
-                            Title = inputFeature.Title,
-                            Description = inputFeature.Description,
-                            Order = inputFeature.Order,
-                            ExternalId = inputFeature.ExternalId,
-                            Labels = inputFeature.Labels.ToList(),
-                            GitHubType = inputFeature.GitHubType
-                        };
-                        _db.UserStories.Add(converted);
-                        _db.Features.Remove(inputFeature);
-                        placedStories.Add((converted, parentFeature));
-                        classified++;
-                        break;
-                    }
                 }
             }
             else

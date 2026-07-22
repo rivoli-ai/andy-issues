@@ -14,10 +14,10 @@ jobs:
   build-backend:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -31,7 +31,7 @@ jobs:
         run: dotnet test --no-build --configuration Release --verbosity normal --collect:"XPlat Code Coverage"
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-backend
           path: '**/coverage.cobertura.xml'
@@ -42,10 +42,10 @@ jobs:
       run:
         working-directory: client
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
@@ -66,10 +66,10 @@ jobs:
   quality-gates:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -92,10 +92,10 @@ jobs:
   test-sqlite:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
@@ -112,27 +112,30 @@ jobs:
 
   integration-nats:
     runs-on: ubuntu-latest
-    # Sidecar NATS container with JetStream enabled. Port 4222 is the
-    # broker, 8222 is the HTTP monitoring endpoint (unused by tests
-    # themselves but handy for debugging flaky runs).
-    services:
-      nats:
-        image: nats:2-alpine
-        ports:
-          - 4222:4222
-          - 8222:8222
-        options: >-
-          --health-cmd "wget -qO- http://localhost:8222/healthz || exit 1"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Start NATS with JetStream
+        run: |
+          docker run --detach --name nats-js \
+            --publish 4222:4222 \
+            --publish 8222:8222 \
+            nats:2-alpine -js -m 8222
+
+          for _ in {1..30}; do
+            if curl --fail --silent 'http://localhost:8222/healthz?js-enabled-only=true' > /dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs nats-js
+          exit 1
 
       - name: Restore
         run: dotnet restore
@@ -144,16 +147,22 @@ jobs:
         run: dotnet test tests/Andy.Issues.Tests.Integration --no-build --configuration Release --verbosity normal
         env:
           ANDY_ISSUES_TEST_NATS: 'true'
-          # GitHub's `services:` exposes the container on localhost when
-          # the job runs on the host runner (not in a container itself).
           NATS_URL: 'nats://localhost:4222'
+
+      - name: NATS logs
+        if: failure()
+        run: docker logs nats-js
+
+      - name: Stop NATS
+        if: always()
+        run: docker rm --force nats-js
 
   docker:
     needs: [build-backend, build-frontend, quality-gates, test-sqlite, integration-nats]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Build Docker image
         run: docker build -t andy-issues:${{ github.sha }} .
