@@ -4,6 +4,7 @@
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -351,6 +352,149 @@ public class SqliteSchemaBootstrapperTests : IDisposable
                 ctx,
                 NullLogger.Instance);
             Assert.Equal(0, secondHeal);
+        }
+    }
+
+    [Fact]
+    public async Task HealAsync_HistoryOnlyDb_CreatesCompleteSchema()
+    {
+        await ExecuteAsync("""
+            CREATE TABLE "__EFMigrationsHistory" (
+                "MigrationId" TEXT NOT NULL CONSTRAINT "PK___EFMigrationsHistory" PRIMARY KEY,
+                "ProductVersion" TEXT NOT NULL
+            );
+            """);
+
+        await using (var ctx = NewContext())
+        {
+            // EF considers the history table sufficient evidence that
+            // the database has tables, so EnsureCreated itself no-ops.
+            Assert.False(await ctx.Database.EnsureCreatedAsync());
+            Assert.True(await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance) > 0);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            Assert.Empty(await ctx.Repositories.ToListAsync());
+            Assert.Equal(4, await ctx.BacklogSequences.CountAsync());
+        }
+    }
+
+    [Fact]
+    public async Task HealAsync_TableNameDiffersOnlyByCase_IsNoOp()
+    {
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+
+        // SQLite preserves identifier casing but resolves identifiers
+        // case-insensitively. Use a two-step rename because a direct
+        // case-only rename is rejected as the same table name.
+        await ExecuteAsync("""
+            ALTER TABLE "AuditLog" RENAME TO "audit_log_temp";
+            ALTER TABLE "audit_log_temp" RENAME TO "auditlog";
+            """);
+
+        await using (var ctx = NewContext())
+        {
+            Assert.Equal(0, await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance));
+            Assert.Empty(await ctx.AuditLog.ToListAsync());
+        }
+    }
+
+    [Fact]
+    public async Task HealAsync_ExistingTableWithMissingIndex_RecreatesIndex()
+    {
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+        await ExecuteAsync("DROP INDEX \"IX_AuditLog_UserId\";");
+
+        await using (var ctx = NewContext())
+        {
+            Assert.True(await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance) >= 1);
+        }
+
+        var indexes = await ReadIndexNamesAsync("AuditLog");
+        Assert.Contains("IX_AuditLog_UserId", indexes);
+
+        await using (var ctx = NewContext())
+        {
+            Assert.Equal(0, await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance));
+        }
+    }
+
+    [Fact]
+    public async Task HealAsync_IndexCreationFails_RollsBackTableCreation()
+    {
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+        await ExecuteAsync("""
+            DROP TABLE "AuditLog";
+            CREATE TABLE "Dummy" ("UserId" TEXT NULL);
+            CREATE INDEX "IX_AuditLog_UserId" ON "Dummy" ("UserId");
+            """);
+
+        await using (var ctx = NewContext())
+        {
+            await Assert.ThrowsAsync<SqliteException>(() =>
+                SqliteSchemaBootstrapper.HealAsync(ctx, NullLogger.Instance));
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText =
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='AuditLog';";
+        Assert.Equal(0L, Convert.ToInt64(await cmd.ExecuteScalarAsync()));
+    }
+
+    [Fact]
+    public async Task HealAsync_MissingBacklogSequences_ReconcilesExistingMaxima()
+    {
+        await using (var ctx = NewContext())
+        {
+            await ctx.Database.EnsureCreatedAsync();
+        }
+        await SeedRepoEpicFeatureStoryAsync();
+        await ExecuteAsync("""
+            UPDATE "Epics" SET "Seq" = 7;
+            UPDATE "Features" SET "Seq" = 11;
+            UPDATE "UserStories" SET "Seq" = 19;
+            DROP TABLE "backlog_sequences";
+            """);
+
+        await using (var ctx = NewContext())
+        {
+            Assert.True(await SqliteSchemaBootstrapper.HealAsync(
+                ctx,
+                NullLogger.Instance) > 0);
+        }
+
+        await using (var ctx = NewContext())
+        {
+            var counters = await ctx.BacklogSequences
+                .AsNoTracking()
+                .ToDictionaryAsync(x => x.EntityType, x => x.NextSeq);
+            Assert.Equal(8, counters[BacklogEntityType.Epic]);
+            Assert.Equal(12, counters[BacklogEntityType.Feature]);
+            Assert.Equal(20, counters[BacklogEntityType.Story]);
+            Assert.Equal(1, counters[BacklogEntityType.Issue]);
+
+            await using var transaction = await ctx.Database.BeginTransactionAsync();
+            var allocator = new BacklogSequenceAllocator(ctx);
+            Assert.Equal(8, await allocator.AllocateAsync(BacklogEntityType.Epic));
+            await transaction.RollbackAsync();
         }
     }
 
