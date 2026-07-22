@@ -8,8 +8,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      additional_contexts:
-        certs: ./certs
     container_name: andy-issues-embedded
     environment:
       - ASPNETCORE_ENVIRONMENT=Development

@@ -45,8 +45,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      additional_contexts:
-        certs: ./certs
     container_name: andy-issues-api
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
