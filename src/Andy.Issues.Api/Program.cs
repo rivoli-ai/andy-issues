@@ -469,10 +469,11 @@ app.MapFallbackToFile("index.html");
 //      snapshot on a fresh DB. No-op on an already-populated DB.
 //   2. SqliteSchemaBootstrapper.HealAsync — compares the live model
 //      against the actual schema and heals additive drift: creates any
-//      table (plus indexes) the model declares that the DB lacks (using
-//      EnsureCreated's own generated DDL), then adds any columns the
-//      model declares that existing tables are missing. Only additive
-//      changes are healed; destructive changes are left for migrations.
+//      table (plus seed rows) the model declares that the DB lacks,
+//      restores missing indexes, adds missing columns, and reconciles
+//      stateful backlog sequence counters. Structural SQL comes from
+//      EnsureCreated's generated script. Only additive changes are
+//      healed; destructive changes are left for migrations.
 //      Without this, a user whose DB was created by an older binary
 //      stays stuck at the older schema forever (e.g. missing
 //      UserStory.ContentHash → every Story query 500s; a whole missing

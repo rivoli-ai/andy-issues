@@ -1,10 +1,12 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata;
 using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Logging;
+using System.Text;
 
 namespace Andy.Issues.Infrastructure.Data;
 
@@ -25,23 +27,24 @@ namespace Andy.Issues.Infrastructure.Data;
 /// <see cref="DatabaseFacade.EnsureCreatedAsync"/> has had a chance to
 /// run, it compares the live EF model against the actual SQLite schema
 /// and heals ADDITIVE drift only: it creates any entire table (plus its
-/// indexes) the model declares that the live DB lacks — using the exact
-/// DDL EnsureCreated would emit via
-/// <see cref="DatabaseFacade.GenerateCreateScript"/> — and adds any
-/// column the model expects but the table is missing. We never drop,
-/// rename, or alter, because those would risk data loss and the
-/// migrations system is the right tool for those cases.
+/// indexes and model seed rows) the model declares that the live DB
+/// lacks, restores missing indexes on existing tables, adds missing
+/// columns, and reconciles the stateful backlog sequence counters. Table,
+/// index, and seed SQL comes from the exact script EnsureCreated would
+/// emit via <see cref="DatabaseFacade.GenerateCreateScript"/>. We never
+/// drop, rename, or destructively alter existing objects, because those
+/// would risk data loss and the migrations system is the right tool for
+/// those cases.
 /// </summary>
 public static class SqliteSchemaBootstrapper
 {
     /// <summary>
-    /// Heals additive schema drift: first creates any tables the EF
-    /// model declares that the live SQLite DB lacks (using
-    /// EnsureCreated's own generated DDL), then adds any missing
-    /// columns on existing tables. On a completely empty DB (zero user
-    /// tables) it no-ops — materialising the full schema there is
-    /// EnsureCreated's job. Returns the number of healed objects
-    /// (tables + columns).
+    /// Heals additive schema drift: creates missing tables with their
+    /// model seed rows, restores missing indexes, adds missing columns,
+    /// and reconciles stateful backlog sequence counters. On a truly
+    /// empty DB it no-ops — materialising the full schema there is
+    /// EnsureCreated's job. Returns the number of healed objects or
+    /// state rows.
     /// </summary>
     public static async Task<int> HealAsync(
         AppDbContext db,
@@ -57,16 +60,54 @@ public static class SqliteSchemaBootstrapper
         }
 
         var existingTables = await ReadTableNamesAsync(conn, cancellationToken);
-        if (existingTables.Count == 0)
+        if (existingTables.Count == 0 &&
+            !await HasAnyTablesAsync(conn, cancellationToken))
         {
-            // Fresh DB — EnsureCreated materialises the full schema;
-            // nothing to heal.
+            // Truly fresh DB — EnsureCreated materialises the full
+            // schema. A DB containing only __EFMigrationsHistory is
+            // deliberately NOT considered fresh: EnsureCreated sees
+            // that table and no-ops, so the healer must create the
+            // application schema.
             return 0;
         }
 
-        int healed = 0;
-        healed += await HealMissingTablesAsync(db, conn, existingTables, logger, cancellationToken);
-        healed += await HealMissingColumnsAsync(db, logger, cancellationToken);
+        // Keep the combined heal atomic. In particular, never commit a
+        // newly-created table without its indexes or model seed rows;
+        // otherwise a failed startup would see the table on retry and
+        // could silently leave uniqueness constraints absent.
+        var ownedTransaction = db.Database.CurrentTransaction is null
+            ? await db.Database.BeginTransactionAsync(cancellationToken)
+            : null;
+
+        int healed;
+        try
+        {
+            healed = 0;
+            healed += await HealMissingTablesAndIndexesAsync(
+                db,
+                conn,
+                existingTables,
+                logger,
+                cancellationToken);
+            healed += await HealMissingColumnsAsync(db, logger, cancellationToken);
+            healed += await ReconcileBacklogSequencesAsync(
+                db,
+                conn,
+                logger,
+                cancellationToken);
+
+            if (ownedTransaction is not null)
+            {
+                await ownedTransaction.CommitAsync(cancellationToken);
+            }
+        }
+        finally
+        {
+            if (ownedTransaction is not null)
+            {
+                await ownedTransaction.DisposeAsync();
+            }
+        }
 
         if (healed > 0)
         {
@@ -105,7 +146,11 @@ public static class SqliteSchemaBootstrapper
             if (string.IsNullOrEmpty(tableName)) continue;
             if (!IsSafeIdentifier(tableName)) continue;
 
-            var actualColumns = await ReadColumnsAsync(conn, tableName, cancellationToken);
+            var actualColumns = await ReadColumnsAsync(
+                conn,
+                tableName,
+                db.Database.CurrentTransaction?.GetDbTransaction(),
+                cancellationToken);
             if (actualColumns.Count == 0)
             {
                 // Table not created yet — fresh DB, or a table that
@@ -161,9 +206,7 @@ public static class SqliteSchemaBootstrapper
                     columnName,
                     alterSql);
 
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = alterSql;
-                await cmd.ExecuteNonQueryAsync(cancellationToken);
+                await db.Database.ExecuteSqlRawAsync(alterSql, cancellationToken);
                 healed++;
             }
         }
@@ -179,8 +222,9 @@ public static class SqliteSchemaBootstrapper
     }
 
     /// <summary>
-    /// Creates any table (plus its indexes) the EF model declares that
-    /// the live DB lacks. The DDL comes from
+    /// Creates any table (plus its model seed rows) the EF model declares
+    /// that the live DB lacks and restores missing model indexes on all
+    /// existing tables. The SQL comes from
     /// <see cref="DatabaseFacade.GenerateCreateScript"/> — the exact SQL
     /// EnsureCreated would emit — never hand-written statements. This
     /// closes the blind spot where a NEW entity landed after the DB was
@@ -188,7 +232,7 @@ public static class SqliteSchemaBootstrapper
     /// heal skips the table (zero live columns), so every query against
     /// it 500s with "no such table" forever.
     /// </summary>
-    private static async Task<int> HealMissingTablesAsync(
+    private static async Task<int> HealMissingTablesAndIndexesAsync(
         AppDbContext db,
         System.Data.Common.DbConnection conn,
         HashSet<string> existingTables,
@@ -196,7 +240,7 @@ public static class SqliteSchemaBootstrapper
         CancellationToken cancellationToken)
     {
         // Which model tables are absent from the live DB?
-        var missing = new HashSet<string>(StringComparer.Ordinal);
+        var missing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var entityType in db.Model.GetEntityTypes())
         {
             var tableName = entityType.GetTableName();
@@ -204,16 +248,17 @@ public static class SqliteSchemaBootstrapper
             if (!IsSafeIdentifier(tableName)) continue;
             if (!existingTables.Contains(tableName)) missing.Add(tableName);
         }
-        if (missing.Count == 0) return 0;
-
         // EnsureCreated's own DDL — statements separated by ";" at line end.
         var script = db.Database.GenerateCreateScript();
         var statements = SplitSqlStatements(script);
 
-        int created = 0;
+        int healed = 0;
+        var createdTables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        // Create every missing table before inserting seed data so
+        // foreign-keyed seed rows can rely on all model tables existing.
         foreach (var table in missing)
         {
-            // CREATE TABLE first, then its indexes.
             var createTable = statements.FirstOrDefault(s =>
                 s.StartsWith($"CREATE TABLE \"{table}\"", StringComparison.Ordinal));
             if (createTable is null)
@@ -227,31 +272,62 @@ public static class SqliteSchemaBootstrapper
             logger.LogWarning(
                 "andy-issues SQLite schema heal: creating missing table {Table}.",
                 table);
-            using (var cmd = conn.CreateCommand())
-            {
-                cmd.CommandText = createTable;
-                await cmd.ExecuteNonQueryAsync(cancellationToken);
-            }
-            created++;
-
-            foreach (var index in statements.Where(s =>
-                         s.StartsWith("CREATE INDEX", StringComparison.Ordinal) ||
-                         s.StartsWith("CREATE UNIQUE INDEX", StringComparison.Ordinal)))
-            {
-                if (!index.Contains($" ON \"{table}\" ", StringComparison.Ordinal)) continue;
-                using var cmd = conn.CreateCommand();
-                cmd.CommandText = index;
-                await cmd.ExecuteNonQueryAsync(cancellationToken);
-            }
+            await db.Database.ExecuteSqlRawAsync(createTable, cancellationToken);
+            createdTables.Add(table);
+            healed++;
         }
-        return created;
+
+        // GenerateCreateScript includes HasData inserts. Replay only
+        // those targeting tables created above; running them against
+        // existing tables could duplicate or overwrite user data.
+        foreach (var statement in statements)
+        {
+            if (!TryGetInsertTarget(statement, out var table) ||
+                !createdTables.Contains(table))
+            {
+                continue;
+            }
+
+            await db.Database.ExecuteSqlRawAsync(statement, cancellationToken);
+        }
+
+        // Index healing is deliberately independent of table healing.
+        // This makes a retry repair an index missed by an interrupted
+        // older run where the table itself already exists.
+        var existingIndexes = await ReadIndexesAsync(
+            conn,
+            db.Database.CurrentTransaction?.GetDbTransaction(),
+            cancellationToken);
+        foreach (var statement in statements)
+        {
+            if (!TryGetCreateIndexTarget(
+                    statement,
+                    out var indexName,
+                    out var tableName) ||
+                (!existingTables.Contains(tableName) &&
+                 !createdTables.Contains(tableName)) ||
+                existingIndexes.Contains(IndexKey(tableName, indexName)))
+            {
+                continue;
+            }
+
+            logger.LogWarning(
+                "andy-issues SQLite schema heal: creating missing index {Index} on {Table}.",
+                indexName,
+                tableName);
+            await db.Database.ExecuteSqlRawAsync(statement, cancellationToken);
+            existingIndexes.Add(IndexKey(tableName, indexName));
+            healed++;
+        }
+
+        return healed;
     }
 
     private static async Task<HashSet<string>> ReadTableNamesAsync(
         System.Data.Common.DbConnection conn,
         CancellationToken cancellationToken)
     {
-        var tables = new HashSet<string>(StringComparer.Ordinal);
+        var tables = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var cmd = conn.CreateCommand();
         cmd.CommandText =
             "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name <> '__EFMigrationsHistory';";
@@ -261,6 +337,34 @@ public static class SqliteSchemaBootstrapper
             tables.Add(reader.GetString(0));
         }
         return tables;
+    }
+
+    private static async Task<bool> HasAnyTablesAsync(
+        System.Data.Common.DbConnection conn,
+        CancellationToken cancellationToken)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND rootpage IS NOT NULL);";
+        return Convert.ToInt64(await cmd.ExecuteScalarAsync(cancellationToken)) != 0;
+    }
+
+    private static async Task<HashSet<string>> ReadIndexesAsync(
+        System.Data.Common.DbConnection conn,
+        System.Data.Common.DbTransaction? transaction,
+        CancellationToken cancellationToken)
+    {
+        var indexes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
+        cmd.CommandText =
+            "SELECT tbl_name, name FROM sqlite_master WHERE type='index' AND name NOT LIKE 'sqlite_%';";
+        using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            indexes.Add(IndexKey(reader.GetString(0), reader.GetString(1)));
+        }
+        return indexes;
     }
 
     private static List<string> SplitSqlStatements(string script)
@@ -278,10 +382,12 @@ public static class SqliteSchemaBootstrapper
     private static async Task<HashSet<string>> ReadColumnsAsync(
         System.Data.Common.DbConnection conn,
         string tableName,
+        System.Data.Common.DbTransaction? transaction,
         CancellationToken cancellationToken)
     {
-        var columns = new HashSet<string>(StringComparer.Ordinal);
+        var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = transaction;
         cmd.CommandText = $"PRAGMA table_info(\"{tableName}\");";
         using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -291,6 +397,151 @@ public static class SqliteSchemaBootstrapper
         }
         return columns;
     }
+
+    private static async Task<int> ReconcileBacklogSequencesAsync(
+        AppDbContext db,
+        System.Data.Common.DbConnection conn,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        var transaction = db.Database.CurrentTransaction?.GetDbTransaction();
+        var sequenceColumns = await ReadColumnsAsync(
+            conn,
+            "backlog_sequences",
+            transaction,
+            cancellationToken);
+        if (!sequenceColumns.Contains("entity_type") ||
+            !sequenceColumns.Contains("next_seq"))
+        {
+            return 0;
+        }
+
+        var sources = new (int EntityType, string TableName)[]
+        {
+            ((int)BacklogEntityType.Epic, "Epics"),
+            ((int)BacklogEntityType.Feature, "Features"),
+            ((int)BacklogEntityType.Story, "UserStories"),
+            ((int)BacklogEntityType.Issue, "Issues"),
+        };
+
+        int healed = 0;
+        foreach (var source in sources)
+        {
+            var sourceColumns = await ReadColumnsAsync(
+                conn,
+                source.TableName,
+                transaction,
+                cancellationToken);
+            if (!sourceColumns.Contains("Seq"))
+            {
+                logger.LogWarning(
+                    "andy-issues SQLite schema heal: cannot reconcile backlog sequence {EntityType}; {Table}.Seq is missing.",
+                    source.EntityType,
+                    source.TableName);
+                continue;
+            }
+
+            var sql = $"""
+                INSERT INTO "backlog_sequences" ("entity_type", "next_seq")
+                SELECT {source.EntityType}, COALESCE(MAX("Seq"), 0) + 1 FROM "{source.TableName}"
+                WHERE true
+                ON CONFLICT("entity_type") DO UPDATE SET "next_seq" = excluded."next_seq"
+                WHERE "backlog_sequences"."next_seq" < excluded."next_seq";
+                """;
+            healed += await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+        }
+
+        if (healed > 0)
+        {
+            logger.LogWarning(
+                "andy-issues SQLite schema heal: reconciled {Count} backlog sequence row(s).",
+                healed);
+        }
+
+        return healed;
+    }
+
+    private static bool TryGetInsertTarget(string statement, out string tableName)
+    {
+        const string prefix = "INSERT INTO ";
+        tableName = string.Empty;
+        return statement.StartsWith(prefix, StringComparison.Ordinal) &&
+               TryReadQuotedIdentifier(statement, prefix.Length, out tableName, out _);
+    }
+
+    private static bool TryGetCreateIndexTarget(
+        string statement,
+        out string indexName,
+        out string tableName)
+    {
+        const string createIndex = "CREATE INDEX ";
+        const string createUniqueIndex = "CREATE UNIQUE INDEX ";
+
+        indexName = string.Empty;
+        tableName = string.Empty;
+        int offset;
+        if (statement.StartsWith(createUniqueIndex, StringComparison.Ordinal))
+        {
+            offset = createUniqueIndex.Length;
+        }
+        else if (statement.StartsWith(createIndex, StringComparison.Ordinal))
+        {
+            offset = createIndex.Length;
+        }
+        else
+        {
+            return false;
+        }
+
+        if (!TryReadQuotedIdentifier(statement, offset, out indexName, out offset) ||
+            !statement.AsSpan(offset).StartsWith(" ON ", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        offset += " ON ".Length;
+        return TryReadQuotedIdentifier(statement, offset, out tableName, out _);
+    }
+
+    private static bool TryReadQuotedIdentifier(
+        string statement,
+        int offset,
+        out string identifier,
+        out int nextOffset)
+    {
+        identifier = string.Empty;
+        nextOffset = offset;
+        if (offset >= statement.Length || statement[offset] != '"')
+        {
+            return false;
+        }
+
+        var value = new StringBuilder();
+        for (int i = offset + 1; i < statement.Length; i++)
+        {
+            if (statement[i] != '"')
+            {
+                value.Append(statement[i]);
+                continue;
+            }
+
+            if (i + 1 < statement.Length && statement[i + 1] == '"')
+            {
+                value.Append('"');
+                i++;
+                continue;
+            }
+
+            identifier = value.ToString();
+            nextOffset = i + 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private static string IndexKey(string tableName, string indexName) =>
+        $"{tableName}\u001f{indexName}";
 
     private static string ResolveSqliteColumnType(IProperty property)
     {
