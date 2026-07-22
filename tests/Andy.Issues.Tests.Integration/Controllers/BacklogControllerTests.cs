@@ -334,17 +334,29 @@ public class BacklogControllerTests : IClassFixture<TestWebApplicationFactory>
         var seq = DateTime.UtcNow.Ticks; // unique enough across tests
         var epic = new Andy.Issues.Domain.Entities.Epic
         {
-            Id = Guid.NewGuid(), Seq = seq, RepositoryId = repoId, Title = "E", Order = 1
+            Id = Guid.NewGuid(),
+            Seq = seq,
+            RepositoryId = repoId,
+            Title = "E",
+            Order = 1
         };
         db.Epics.Add(epic);
         var feature = new Andy.Issues.Domain.Entities.Feature
         {
-            Id = Guid.NewGuid(), Seq = seq + 1, EpicId = epic.Id, Title = "F", Order = 1
+            Id = Guid.NewGuid(),
+            Seq = seq + 1,
+            EpicId = epic.Id,
+            Title = "F",
+            Order = 1
         };
         db.Features.Add(feature);
         var story = new Andy.Issues.Domain.Entities.UserStory
         {
-            Id = Guid.NewGuid(), Seq = seq + 2, FeatureId = feature.Id, Title = "S", Order = 1
+            Id = Guid.NewGuid(),
+            Seq = seq + 2,
+            FeatureId = feature.Id,
+            Title = "S",
+            Order = 1
         };
         db.UserStories.Add(story);
         await db.SaveChangesAsync();

@@ -421,14 +421,16 @@ public class RepositoryServiceTests : IDisposable
             ctx.Repositories.AddRange(
                 new Repository
                 {
-                    Id = Guid.NewGuid(), OwnerUserId = "alice",
+                    Id = Guid.NewGuid(),
+                    OwnerUserId = "alice",
                     Name = "alice-gh",
                     CloneUrl = "https://github.com/alice/gh.git",
                     Provider = Andy.Issues.Domain.Enums.RepositoryProvider.GitHub
                 });
             var bobAzdo = new Repository
             {
-                Id = Guid.NewGuid(), OwnerUserId = "bob",
+                Id = Guid.NewGuid(),
+                OwnerUserId = "bob",
                 Name = "bob-azdo",
                 CloneUrl = "https://dev.azure.com/bob/_git/azdo",
                 Provider = Andy.Issues.Domain.Enums.RepositoryProvider.AzureDevOps
