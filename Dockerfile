@@ -3,7 +3,7 @@ FROM node:22-alpine AS node-build
 WORKDIR /node-build
 
 # Trust corporate CAs (must happen before apk/npm can reach HTTPS registries)
-COPY --from=certs . /tmp/certs/
+COPY certs/ /tmp/certs/
 RUN find /tmp/certs/ -name '.git*' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name 'README.md' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name '.gitkeep' -delete 2>/dev/null || true && \
@@ -27,7 +27,7 @@ WORKDIR /build
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl && rm -rf /var/lib/apt/lists/*
 
 # Trust corporate CAs for NuGet restore
-COPY --from=certs . /tmp/certs/
+COPY certs/ /tmp/certs/
 RUN find /tmp/certs/ -name '.git*' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name 'README.md' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name '.gitkeep' -delete 2>/dev/null || true && \
@@ -48,7 +48,7 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
 
 COPY Directory.Build.props ./
 COPY nuget.config ./
-RUN mkdir -p local-packages
+COPY local-packages/ local-packages/
 COPY src/Andy.Issues.Api/Andy.Issues.Api.csproj src/Andy.Issues.Api/
 COPY src/Andy.Issues.Application/Andy.Issues.Application.csproj src/Andy.Issues.Application/
 COPY src/Andy.Issues.Domain/Andy.Issues.Domain.csproj src/Andy.Issues.Domain/
@@ -66,7 +66,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl openssl && rm -rf /var/lib/apt/lists/*
 
 # Copy corporate CA certs and install them
-COPY --from=certs . /tmp/certs/
+COPY certs/ /tmp/certs/
 RUN find /tmp/certs/ -name '.git*' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name 'README.md' -delete 2>/dev/null || true && \
     find /tmp/certs/ -name '.gitkeep' -delete 2>/dev/null || true && \
