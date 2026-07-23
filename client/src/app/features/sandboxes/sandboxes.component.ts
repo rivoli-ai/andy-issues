@@ -12,7 +12,6 @@ import {
 
 @Component({
   selector: 'app-sandboxes',
-  standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
     <div class="page-header">

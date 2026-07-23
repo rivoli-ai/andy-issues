@@ -13,7 +13,6 @@ import {
 
 @Component({
   selector: 'app-repositories',
-  standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <h1>Repositories</h1>

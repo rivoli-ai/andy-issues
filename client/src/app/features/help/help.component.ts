@@ -18,7 +18,6 @@ interface HelpTopic extends HelpTopicSummary {
 
 @Component({
   selector: 'app-help',
-  standalone: true,
   imports: [CommonModule],
   template: `
     <div class="help-layout">

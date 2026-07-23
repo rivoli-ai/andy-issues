@@ -96,7 +96,7 @@ RUN openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
       -keyout /tmp/dev.key -out /tmp/dev.crt \
       -subj "/CN=localhost" -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" && \
     openssl pkcs12 -export -out /https/aspnetapp.pfx \
-      -inkey /tmp/dev.key -in /tmp/dev.crt -passout pass:devcert && \
+      -inkey /tmp/dev.key -in /tmp/dev.crt -passout pass: && \
     rm -f /tmp/dev.key /tmp/dev.crt && \
     chown appuser:appuser /https/aspnetapp.pfx
 
@@ -106,8 +106,7 @@ RUN printf '#!/bin/sh\nset -e\nif ls /usr/local/share/ca-certificates/custom/*.c
 
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     SSL_CERT_DIR=/etc/ssl/certs \
-    ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx \
-    ASPNETCORE_Kestrel__Certificates__Default__Password=devcert
+    ASPNETCORE_Kestrel__Certificates__Default__Path=/https/aspnetapp.pfx
 
 EXPOSE 8080 8443
 USER appuser

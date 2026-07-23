@@ -5,10 +5,10 @@
 .idea
 .angular
 
-**/bin
-**/obj
-**/TestResults
-**/coverage
+**/bin/**
+**/obj/**
+**/TestResults/**
+**/coverage/**
 
 client/node_modules
 client/dist
