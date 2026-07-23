@@ -14,7 +14,6 @@ import {
 
 @Component({
   selector: 'app-backlog',
-  standalone: true,
   imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="backlog-header">

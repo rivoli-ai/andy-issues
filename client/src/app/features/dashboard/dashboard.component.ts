@@ -7,7 +7,6 @@ import { ApiService, Repository, Sandbox } from '../../shared/services/api.servi
 
 @Component({
   selector: 'app-dashboard',
-  standalone: true,
   imports: [CommonModule, RouterLink],
   template: `
     <h1>Dashboard</h1>

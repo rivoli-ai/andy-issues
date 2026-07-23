@@ -12,7 +12,6 @@ import {
 
 @Component({
   selector: 'app-settings',
-  standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
     <h1>Settings</h1>
