@@ -414,10 +414,9 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         using var reader = new StreamReader(stream);
         var lastData = string.Empty;
 
-        while (!reader.EndOfStream)
+        string? line;
+        while ((line = await reader.ReadLineAsync()) != null)
         {
-            var line = await reader.ReadLineAsync();
-            if (line is null) break;
             if (line.StartsWith("data: ", StringComparison.Ordinal))
             {
                 var data = line[6..];

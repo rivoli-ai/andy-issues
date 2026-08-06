@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Swagger;
 using Xunit;
 
@@ -35,10 +35,10 @@ public class IssuesOpenApiTests : IClassFixture<TestWebApplicationFactory>
         Assert.True(schema.Paths.TryGetValue("/api/issues", out var pathItem),
             "OpenAPI schema does not contain '/api/issues'.");
 
-        Assert.True(pathItem.Operations.TryGetValue(OperationType.Get, out var op),
+        Assert.True(pathItem!.Operations!.TryGetValue(HttpMethod.Get, out var op),
             "OpenAPI schema does not contain GET on '/api/issues'.");
 
-        var actual = op.Responses.Keys.OrderBy(k => k).ToArray();
+        var actual = op!.Responses!.Keys.OrderBy(k => k).ToArray();
         Assert.Equal(new[] { "200", "400", "401" }.OrderBy(k => k).ToArray(), actual);
     }
 
@@ -49,8 +49,8 @@ public class IssuesOpenApiTests : IClassFixture<TestWebApplicationFactory>
         // protocol method off this schema. Missing a parameter here
         // means the generated client silently drops the filter.
         var schema = GetSchema();
-        var op = schema.Paths["/api/issues"].Operations[OperationType.Get];
-        var names = op.Parameters.Select(p => p.Name).ToHashSet();
+        var op = schema.Paths["/api/issues"].Operations![HttpMethod.Get];
+        var names = op!.Parameters!.Select(p => p.Name).ToHashSet();
         Assert.Contains("state", names);
         Assert.Contains("assignee", names);
         Assert.Contains("repository", names);
@@ -62,7 +62,7 @@ public class IssuesOpenApiTests : IClassFixture<TestWebApplicationFactory>
     public void IssueListResponse_IsRegisteredAsSchema()
     {
         var schema = GetSchema();
-        Assert.True(schema.Components.Schemas.ContainsKey("IssueListResponse"),
+        Assert.True(schema.Components!.Schemas!.ContainsKey("IssueListResponse"),
             "IssueListResponse schema not registered — generated clients would see an inline anonymous object.");
     }
 
@@ -70,7 +70,7 @@ public class IssuesOpenApiTests : IClassFixture<TestWebApplicationFactory>
     public void IssueSummary_IsRegisteredAsSchema()
     {
         var schema = GetSchema();
-        Assert.True(schema.Components.Schemas.ContainsKey("IssueSummary"),
+        Assert.True(schema.Components!.Schemas!.ContainsKey("IssueSummary"),
             "IssueSummary schema not registered.");
     }
 
@@ -78,7 +78,7 @@ public class IssuesOpenApiTests : IClassFixture<TestWebApplicationFactory>
     public void IssueListErrorResponse_IsRegisteredAsSchema()
     {
         var schema = GetSchema();
-        Assert.True(schema.Components.Schemas.ContainsKey("IssueListErrorResponse"),
+        Assert.True(schema.Components!.Schemas!.ContainsKey("IssueListErrorResponse"),
             "IssueListErrorResponse schema not registered — generated clients would see an inline anonymous object on 400 responses.");
     }
 }
