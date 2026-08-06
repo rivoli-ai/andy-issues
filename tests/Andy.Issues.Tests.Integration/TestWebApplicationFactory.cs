@@ -44,10 +44,23 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
 
         builder.ConfigureServices(services =>
         {
-            var dbDescriptor = services.SingleOrDefault(
-                d => d.ServiceType == typeof(DbContextOptions<AppDbContext>));
-            if (dbDescriptor is not null)
+            // EF Core 9+ registers several descriptors per context
+            // (DbContextOptions<T>, IDbContextOptionsConfiguration<T>, the context
+            // itself). Removing only one leaves the Npgsql configuration behind, and
+            // EF 10 then refuses two providers in one container. Remove them all --
+            // note this is deliberately not SingleOrDefault, which now matches more
+            // than one element.
+            var dbDescriptors = services
+                .Where(d => (d.ServiceType.IsGenericType
+                             && d.ServiceType.GetGenericArguments().Contains(typeof(AppDbContext)))
+                         || d.ServiceType == typeof(DbContextOptions)
+                         || d.ServiceType == typeof(AppDbContext))
+                .ToList();
+
+            foreach (var dbDescriptor in dbDescriptors)
+            {
                 services.Remove(dbDescriptor);
+            }
 
             services.AddDbContext<AppDbContext>(options =>
                 options.UseInMemoryDatabase(_databaseName));

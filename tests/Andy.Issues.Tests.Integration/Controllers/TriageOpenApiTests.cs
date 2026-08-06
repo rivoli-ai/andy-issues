@@ -2,7 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.OpenApi.Models;
+using Microsoft.OpenApi;
 using Swashbuckle.AspNetCore.Swagger;
 using Xunit;
 
@@ -33,32 +33,32 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     }
 
     [Theory]
-    [InlineData("/api/triage", OperationType.Post, new[] { "201", "400", "401" })]
-    [InlineData("/api/triage", OperationType.Get, new[] { "200", "401" })]
-    [InlineData("/api/triage/{id}", OperationType.Get, new[] { "200", "401", "404" })]
-    [InlineData("/api/triage/{id}/start", OperationType.Post, new[] { "200", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/complete", OperationType.Post, new[] { "200", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/accept", OperationType.Post, new[] { "200", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/reject", OperationType.Post, new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage", "POST", new[] { "201", "400", "401" })]
+    [InlineData("/api/triage", "GET", new[] { "200", "401" })]
+    [InlineData("/api/triage/{id}", "GET", new[] { "200", "401", "404" })]
+    [InlineData("/api/triage/{id}/start", "POST", new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/complete", "POST", new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/accept", "POST", new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/reject", "POST", new[] { "200", "401", "404", "409" })]
     // Z5 — human-edit + revisions surface
-    [InlineData("/api/triage/{id}/output", OperationType.Patch, new[] { "200", "400", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/revisions", OperationType.Get, new[] { "200", "401", "404" })]
-    [InlineData("/api/triage/{id}/revert", OperationType.Post, new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/output", "PATCH", new[] { "200", "400", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/revisions", "GET", new[] { "200", "401", "404" })]
+    [InlineData("/api/triage/{id}/revert", "POST", new[] { "200", "401", "404", "409" })]
     // Z8 — attachments surface
-    [InlineData("/api/triage/{id}/attachments", OperationType.Get, new[] { "200", "401", "404" })]
-    [InlineData("/api/triage/{id}/attachments", OperationType.Post, new[] { "200", "201", "400", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/attachments/{linkId}", OperationType.Delete, new[] { "204", "401", "404" })]
+    [InlineData("/api/triage/{id}/attachments", "GET", new[] { "200", "401", "404" })]
+    [InlineData("/api/triage/{id}/attachments", "POST", new[] { "200", "201", "400", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/attachments/{linkId}", "DELETE", new[] { "204", "401", "404" })]
     public void TriageOperation_DeclaresExpectedResponseCodes(
-        string path, OperationType verb, string[] expectedCodes)
+        string path, string verb, string[] expectedCodes)
     {
         var schema = GetSchema();
         Assert.True(schema.Paths.TryGetValue(path, out var pathItem),
             $"OpenAPI schema does not contain path '{path}'.");
 
-        Assert.True(pathItem.Operations.TryGetValue(verb, out var op),
+        Assert.True(pathItem!.Operations!.TryGetValue(HttpMethod.Parse(verb), out var op),
             $"OpenAPI schema does not contain {verb} on path '{path}'.");
 
-        var actual = op.Responses.Keys.OrderBy(k => k).ToArray();
+        var actual = op!.Responses!.Keys.OrderBy(k => k).ToArray();
         Assert.Equal(expectedCodes.OrderBy(k => k).ToArray(), actual);
     }
 
@@ -66,7 +66,7 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     public void TriageConflictResponse_IsRegisteredAsSchema()
     {
         var schema = GetSchema();
-        Assert.True(schema.Components.Schemas.ContainsKey("TriageConflictResponse"),
+        Assert.True(schema.Components!.Schemas!.ContainsKey("TriageConflictResponse"),
             "TriageConflictResponse schema not registered — generated clients would see an inline anonymous object.");
     }
 
@@ -74,7 +74,7 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     public void IssueDto_IsRegisteredAsSchema()
     {
         var schema = GetSchema();
-        Assert.True(schema.Components.Schemas.ContainsKey("IssueDto"),
+        Assert.True(schema.Components!.Schemas!.ContainsKey("IssueDto"),
             "IssueDto schema not registered.");
     }
 }
