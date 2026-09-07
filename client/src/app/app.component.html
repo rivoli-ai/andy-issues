@@ -1,13 +1,14 @@
 <!-- Copyright (c) Rivoli AI 2026. All rights reserved. -->
+<a class="rivoli-skip-link" href="#main-content">Skip to content</a>
 <header class="app-header">
-  <nav class="nav-bar">
+  <nav class="nav-bar" aria-label="Issues navigation">
     <a class="logo" routerLink="/">{{ title }}</a>
     <div class="nav-links">
-      <a routerLink="/dashboard" routerLinkActive="active">Dashboard</a>
-      <a routerLink="/repositories" routerLinkActive="active">Repositories</a>
-      <a routerLink="/sandboxes" routerLinkActive="active">Sandboxes</a>
-      <a routerLink="/settings" routerLinkActive="active">Settings</a>
-      <a routerLink="/help" routerLinkActive="active">Help</a>
+      <a routerLink="/dashboard" routerLinkActive="active" ariaCurrentWhenActive="page">Dashboard</a>
+      <a routerLink="/repositories" routerLinkActive="active" ariaCurrentWhenActive="page">Repositories</a>
+      <a routerLink="/sandboxes" routerLinkActive="active" ariaCurrentWhenActive="page">Sandboxes</a>
+      <a routerLink="/settings" routerLinkActive="active" ariaCurrentWhenActive="page">Settings</a>
+      <a routerLink="/help" routerLinkActive="active" ariaCurrentWhenActive="page">Help</a>
     </div>
     <div class="auth-section">
       <span *ngIf="isAuthenticated" class="user-name">{{ userName }}</span>
@@ -16,6 +17,6 @@
     </div>
   </nav>
 </header>
-<main class="app-content">
+<main class="app-content" id="main-content" tabindex="-1">
   <router-outlet></router-outlet>
 </main>

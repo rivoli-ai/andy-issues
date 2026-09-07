@@ -37,8 +37,10 @@ import {
     <div class="modal-backdrop" *ngIf="showAddEpic" (click)="showAddEpic = false">
       <div class="modal" (click)="$event.stopPropagation()">
         <h2>New Epic</h2>
-        <input class="input" placeholder="Title" [(ngModel)]="newEpicTitle" />
-        <textarea class="input textarea" placeholder="Description (optional)" [(ngModel)]="newEpicDesc" rows="3"></textarea>
+        <label for="newEpicTitle">Epic title</label>
+        <input id="newEpicTitle" class="input" placeholder="Title" [(ngModel)]="newEpicTitle" />
+        <label for="newEpicDesc">Epic description (optional)</label>
+        <textarea id="newEpicDesc" class="input textarea" placeholder="Description (optional)" [(ngModel)]="newEpicDesc" rows="3"></textarea>
         <div class="modal-actions">
           <button class="btn-secondary" (click)="showAddEpic = false">Cancel</button>
           <button class="btn-primary" (click)="addEpic()" [disabled]="!newEpicTitle.trim()">Create</button>
@@ -50,7 +52,8 @@ import {
     <div class="modal-backdrop" *ngIf="addFeatureEpicId" (click)="addFeatureEpicId = null">
       <div class="modal" (click)="$event.stopPropagation()">
         <h2>New Feature</h2>
-        <input class="input" placeholder="Title" [(ngModel)]="newFeatureTitle" />
+        <label for="newFeatureTitle">Feature title</label>
+        <input id="newFeatureTitle" class="input" placeholder="Title" [(ngModel)]="newFeatureTitle" />
         <div class="modal-actions">
           <button class="btn-secondary" (click)="addFeatureEpicId = null">Cancel</button>
           <button class="btn-primary" (click)="addFeature()" [disabled]="!newFeatureTitle.trim()">Create</button>
@@ -62,9 +65,12 @@ import {
     <div class="modal-backdrop" *ngIf="addStoryFeatureId" (click)="addStoryFeatureId = null">
       <div class="modal" (click)="$event.stopPropagation()">
         <h2>New Story</h2>
-        <input class="input" placeholder="Title" [(ngModel)]="newStoryTitle" />
-        <textarea class="input textarea" placeholder="Description (optional)" [(ngModel)]="newStoryDesc" rows="2"></textarea>
-        <input class="input" placeholder="Story points" type="number" [(ngModel)]="newStoryPoints" />
+        <label for="newStoryTitle">Story title</label>
+        <input id="newStoryTitle" class="input" placeholder="Title" [(ngModel)]="newStoryTitle" />
+        <label for="newStoryDesc">Story description (optional)</label>
+        <textarea id="newStoryDesc" class="input textarea" placeholder="Description (optional)" [(ngModel)]="newStoryDesc" rows="2"></textarea>
+        <label for="newStoryPoints">Story points</label>
+        <input id="newStoryPoints" class="input" placeholder="Story points" type="number" [(ngModel)]="newStoryPoints" />
         <div class="modal-actions">
           <button class="btn-secondary" (click)="addStoryFeatureId = null">Cancel</button>
           <button class="btn-primary" (click)="addStory()" [disabled]="!newStoryTitle.trim()">Create</button>
