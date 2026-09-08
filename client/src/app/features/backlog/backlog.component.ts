@@ -1,3 +1,4 @@
+import { DialogDirective } from '../../shared/ui/dialog.directive';
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 
 import { Component, OnInit } from '@angular/core';
@@ -14,7 +15,7 @@ import {
 
 @Component({
   selector: 'app-backlog',
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [DialogDirective, CommonModule, FormsModule, RouterLink],
   template: `
     <div class="backlog-header">
       <h1>Backlog</h1>
@@ -35,8 +36,8 @@ import {
 
     <!-- Add Epic modal -->
     <div class="modal-backdrop" *ngIf="showAddEpic" (click)="showAddEpic = false">
-      <div class="modal" (click)="$event.stopPropagation()">
-        <h2>New Epic</h2>
+      <div class="modal" appDialog aria-labelledby="epic-dialog-title" (dialogDismiss)="showAddEpic = false" (click)="$event.stopPropagation()">
+        <h2 id="epic-dialog-title">New Epic</h2>
         <label for="newEpicTitle">Epic title</label>
         <input id="newEpicTitle" class="input" placeholder="Title" [(ngModel)]="newEpicTitle" />
         <label for="newEpicDesc">Epic description (optional)</label>
@@ -50,8 +51,8 @@ import {
 
     <!-- Add Feature modal -->
     <div class="modal-backdrop" *ngIf="addFeatureEpicId" (click)="addFeatureEpicId = null">
-      <div class="modal" (click)="$event.stopPropagation()">
-        <h2>New Feature</h2>
+      <div class="modal" appDialog aria-labelledby="feature-dialog-title" (dialogDismiss)="addFeatureEpicId = null" (click)="$event.stopPropagation()">
+        <h2 id="feature-dialog-title">New Feature</h2>
         <label for="newFeatureTitle">Feature title</label>
         <input id="newFeatureTitle" class="input" placeholder="Title" [(ngModel)]="newFeatureTitle" />
         <div class="modal-actions">
@@ -63,8 +64,8 @@ import {
 
     <!-- Add Story modal -->
     <div class="modal-backdrop" *ngIf="addStoryFeatureId" (click)="addStoryFeatureId = null">
-      <div class="modal" (click)="$event.stopPropagation()">
-        <h2>New Story</h2>
+      <div class="modal" appDialog aria-labelledby="story-dialog-title" (dialogDismiss)="addStoryFeatureId = null" (click)="$event.stopPropagation()">
+        <h2 id="story-dialog-title">New Story</h2>
         <label for="newStoryTitle">Story title</label>
         <input id="newStoryTitle" class="input" placeholder="Title" [(ngModel)]="newStoryTitle" />
         <label for="newStoryDesc">Story description (optional)</label>
@@ -143,7 +144,7 @@ import {
     .empty-sm { color: var(--text-secondary); font-size: 12px; padding: 4px 8px; }
 
     .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.4); display: flex; align-items: center; justify-content: center; z-index: 100; }
-    .modal { background: var(--surface); border-radius: 12px; padding: 24px; min-width: 400px; }
+    .modal { background: var(--surface); border-radius: 12px; padding: 24px; width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; }
     .modal h2 { font-size: 18px; margin-bottom: 16px; }
     .modal .input { width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 4px; font-size: 14px; margin-bottom: 12px; }
     .modal .textarea { resize: vertical; }
