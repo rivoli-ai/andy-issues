@@ -139,7 +139,7 @@ Users attach supporting documents (specs, incident dumps, screenshots, PDFs) to 
 
 andy-issues stores **only the pointer** per the artifacts-in-andy-docs decision — the file payload never lands in this database. State gate: attachments cannot be added or removed once the issue is `Accepted` or `Rejected` (locks the input set at the handoff point).
 
-`IDocsClient` is currently wired to `StubDocsClient`, which accepts any well-formed UUID pair and returns null metadata. The stub stays in place until andy-docs Epic AJ ships the real client; the interface contract is frozen, so the swap is a one-line DI change.
+`IDocsClient` is wired to `AndyDocsClientAdapter` — the real HTTP adapter against andy-docs (#164) — whenever `AndyDocs:BaseUrl` is configured. When the base URL is empty (tests, Conductor-embedded mode where andy-docs is not running) the binding falls back to `StubDocsClient`, which accepts any well-formed UUID pair and returns null metadata. The OBO-aware `DelegatedBearerHandler` exchanges the caller's JWT for a bearer audience-scoped to `urn:andy-docs-api` on every adapter call.
 
 ### Triage-time estimator (Z7 — cold start)
 

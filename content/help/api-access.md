@@ -30,10 +30,14 @@ Authorization: Bearer <your-jwt-token>
 | Repositories | `/api/repositories` | CRUD, sharing, GitHub/Azure DevOps sync |
 | Backlog | `/api/repositories/{id}/backlog` | Epics, features, stories, AI generation |
 | Sandboxes | `/api/sandboxes` | Create, list, connect, destroy dev environments |
-| MCP Configs | `/api/mcp-configs` | Personal + shared MCP server configurations |
-| Artifact Feeds | `/api/artifact-feeds` | NuGet/npm registry management |
+| MCP Configs | `/api/mcp` | Personal + shared MCP server configurations |
+| Artifact Feeds | `/api/artifact` | NuGet/npm/pip registry management |
 | Linked Providers | `/api/linked-providers` | GitHub & Azure DevOps OAuth tokens |
 | Users | `/api/users` | User directory, suggest users for sharing |
+| Issues / Triage | `/api/issues`, `/api/triage` | Triage lifecycle: filing, classification, accept/reject |
+| LLM Settings | `/api/llm-settings` | Per-user LLM provider configuration |
+| Pull Requests | `/api/pr-head-branch` | PR head-branch resolution |
+| Help | `/api/help` | Markdown help topics |
 
 ## MCP (Model Context Protocol)
 
@@ -45,13 +49,17 @@ Connect AI assistants to this service via the `/mcp` endpoint.
 - ChatGPT
 - VS Code extensions (Cline, Roo, Continue)
 
-### Available Tools (17)
+### Available Tools
 
 **Repositories**: ListRepositories, GetRepository, SyncGitHubRepositories, SyncAzureDevOpsRepositories, DeleteRepository
 
 **Backlog**: ListBacklog, CreateEpic, CreateFeature, CreateStory, UpdateStoryStatus, GenerateDraftBacklog
 
 **Sandboxes**: CreateSandbox, ListSandboxes, GetSandboxConnection, DestroySandbox
+
+**Issues / Triage** (Z9): IssueGet, IssueList — exposed as `issue_get`, `issue_list` after `PascalCase → snake_case` conversion
+
+**LLM Settings**: ListLlmSettings, UpdateLlmSetting, DeleteLlmSetting, SetDefaultLlmSetting
 
 **Configuration**: ListMcpConfigs, ListEnabledArtifactFeeds
 

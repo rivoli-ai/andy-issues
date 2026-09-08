@@ -7,7 +7,8 @@ This directory contains seed data for external Andy ecosystem services that
 
 | File | Target service | Purpose |
 |------|---------------|---------|
-| `auth-seed.sql` | Andy Auth | OAuth client registration for andy-issues |
+| `registration.json` | andy-auth / andy-rbac / andy-settings | Single source of truth for ports, OAuth clients, RBAC application/roles, and settings definitions. Auto-discovered by the consuming services. |
+| `auth-seed.sql` | Andy Auth | Legacy OAuth client SQL (superseded by `registration.json` when discovery is wired up). |
 | `rbac-seed.json` | Andy RBAC | Application, roles, and resource types |
 | `andy-settings-seed.json` | Andy Settings | Configuration key definitions |
 

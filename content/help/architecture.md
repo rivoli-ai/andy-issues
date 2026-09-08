@@ -62,7 +62,7 @@ Repository
 
 Sandbox (backed by andy-containers)
 McpServerConfig (personal + shared)
-ArtifactFeedConfig (NuGet / npm)
+ArtifactFeedConfig (NuGet / npm / pip)
 LinkedProvider (GitHub / Azure DevOps)
 LlmSetting (per-user AI config)
 ```
