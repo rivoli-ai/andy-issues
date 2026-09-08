@@ -1,3 +1,4 @@
+import { PageIntroComponent } from '../../shared/ui/page-intro.component';
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 
 import { Component, OnInit } from '@angular/core';
@@ -7,9 +8,9 @@ import { ApiService, Repository, Sandbox } from '../../shared/services/api.servi
 
 @Component({
   selector: 'app-dashboard',
-  imports: [CommonModule, RouterLink],
+  imports: [PageIntroComponent, CommonModule, RouterLink],
   template: `
-    <h1>Dashboard</h1>
+    <app-page-intro eyebrow="Issues" heading="Planning overview" description="Turn repository context into clear epics, features, and stories." [actions]="workflowLinks" />
     <div class="stats">
       <div class="stat-card">
         <div class="stat-value">{{ repoCount }}</div>
@@ -47,6 +48,19 @@ import { ApiService, Repository, Sandbox } from '../../shared/services/api.servi
   `],
 })
 export class DashboardComponent implements OnInit {
+  readonly workflowLinks = [
+  {
+    "path": "/repositories",
+    "title": "Open a repository",
+    "description": "Review its backlog and refine the next story."
+  },
+  {
+    "path": "/sandboxes",
+    "title": "Inspect sandboxes",
+    "description": "Follow the environments supporting your work."
+  }
+];
+
   repoCount = 0;
   sandboxCount = 0;
   runningSandboxes = 0;

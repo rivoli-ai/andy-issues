@@ -1,17 +1,46 @@
+import { ServiceShellComponent, ServiceNavItem } from './shared/ui/service-shell.component';
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 
 import { Component, OnInit } from '@angular/core';
-import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
+import { RouterOutlet } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, CommonModule],
+  imports: [ServiceShellComponent, RouterOutlet, CommonModule],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
 })
 export class AppComponent implements OnInit {
+  get navigation(): ServiceNavItem[] { return [
+  {
+    "path": "/dashboard",
+    "label": "Overview",
+    "group": "Workspace"
+  },
+  {
+    "path": "/repositories",
+    "label": "Repositories",
+    "group": "Plan & refine"
+  },
+  {
+    "path": "/sandboxes",
+    "label": "Sandboxes",
+    "group": "Plan & refine"
+  },
+  {
+    "path": "/settings",
+    "label": "Settings",
+    "group": "Resources"
+  },
+  {
+    "path": "/help",
+    "label": "Help",
+    "group": "Resources"
+  }
+]; }
+
   title = 'Andy Issues';
   isAuthenticated = false;
   userName = '';
