@@ -58,4 +58,5 @@ public record UserStoryDto(
     // so the wire shape is always one of the four kinds; `Refinement`
     // is null until POST /api/stories/{id}/refine completes.
     StoryTriageStateDto? TriageState = null,
-    StoryRefinementDto? Refinement = null);
+    StoryRefinementDto? Refinement = null,
+    Guid? AgentRuleId = null);

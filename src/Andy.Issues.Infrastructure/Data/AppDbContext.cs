@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
         }
     }
 
+    public DbSet<AgentRule> AgentRules => Set<AgentRule>();
     public DbSet<Repository> Repositories => Set<Repository>();
     public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
     public DbSet<Epic> Epics => Set<Epic>();
@@ -145,6 +146,18 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AgentRule>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            e.Property(x => x.NameKey).HasMaxLength(120).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(65536).IsRequired();
+            e.HasOne(x => x.Repository).WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.RepositoryId, x.NameKey }).IsUnique();
+            e.HasIndex(x => x.RepositoryId).IsUnique().HasFilter("\"IsDefault\" = true");
+        });
+        modelBuilder.Entity<UserStory>().HasOne(x => x.AgentRule).WithMany()
+            .HasForeignKey(x => x.AgentRuleId).OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<UserStory>(e =>
         {
             e.HasKey(x => x.Id);

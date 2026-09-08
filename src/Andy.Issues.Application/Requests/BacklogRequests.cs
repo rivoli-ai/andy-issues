@@ -33,7 +33,8 @@ public record CreateUserStoryRequest(
     string? AcceptanceCriteria,
     int? StoryPoints,
     int? Order,
-    string? ExternalId);
+    string? ExternalId,
+    Guid? AgentRuleId = null);
 
 public record UpdateUserStoryRequest(
     string? Title,

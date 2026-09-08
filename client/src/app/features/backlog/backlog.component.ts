@@ -1,3 +1,5 @@
+import { AgentRulesComponent } from './agent-rules.component';
+import { AgentRuleProfile } from '../../shared/services/api.service';
 import { DialogDirective } from '../../shared/ui/dialog.directive';
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 
@@ -15,11 +17,12 @@ import {
 
 @Component({
   selector: 'app-backlog',
-  imports: [DialogDirective, CommonModule, FormsModule, RouterLink],
+  imports: [AgentRulesComponent, DialogDirective, CommonModule, FormsModule, RouterLink],
   template: `
     <div class="backlog-header">
       <h1>Backlog</h1>
       <div class="actions">
+        <button class="btn-secondary" *ngIf="repositoryId" (click)="showRules = !showRules">Agent rules</button>
         <button class="btn-secondary" (click)="showAddEpic = true">Add Epic</button>
         <button class="btn-primary" (click)="generateDraft()" [disabled]="generating">
           {{ generating ? 'Generating...' : 'Generate Draft' }}
@@ -27,6 +30,7 @@ import {
       </div>
     </div>
 
+    <app-agent-rules *ngIf="repositoryId && showRules" [repositoryId]="repositoryId" (saved)="rulesSaved($event)" />
     <p *ngIf="error" class="error-msg">{{ error }}</p>
 
     <div *ngIf="!repositoryId" class="empty">
@@ -72,6 +76,11 @@ import {
         <textarea id="newStoryDesc" class="input textarea" placeholder="Description (optional)" [(ngModel)]="newStoryDesc" rows="2"></textarea>
         <label for="newStoryPoints">Story points</label>
         <input id="newStoryPoints" class="input" placeholder="Story points" type="number" [(ngModel)]="newStoryPoints" />
+        <label for="new-story-rule">Agent rules</label>
+        <select id="new-story-rule" [(ngModel)]="newStoryRuleId">
+          <option [ngValue]="null">Repository default</option>
+          <option *ngFor="let profile of ruleProfiles" [ngValue]="profile.id">{{ profile.name }}</option>
+        </select>
         <div class="modal-actions">
           <button class="btn-secondary" (click)="addStoryFeatureId = null">Cancel</button>
           <button class="btn-primary" (click)="addStory()" [disabled]="!newStoryTitle.trim()">Create</button>
@@ -98,7 +107,11 @@ import {
             <span class="story-status" [class]="'status-' + story.status.toLowerCase()">{{ story.status }}</span>
             <span class="story-title">{{ story.title }}</span>
             <span class="story-points" *ngIf="story.storyPoints">{{ story.storyPoints }}pts</span>
-            <select class="status-select" [ngModel]="story.status" (ngModelChange)="setStatus(story, $event)">
+            <select [attr.aria-label]="'Agent rules for ' + story.title" [ngModel]="story.agentRuleId || null" (ngModelChange)="setRule(story, $event)" [disabled]="pendingRules.has(story.id)">
+              <option [ngValue]="null">Repository default</option>
+              <option *ngFor="let profile of ruleProfiles" [ngValue]="profile.id">{{ profile.name }}</option>
+            </select>
+            <select [attr.aria-label]="'Status for ' + story.title" class="status-select" [ngModel]="story.status" (ngModelChange)="setStatus(story, $event)">
               <option>Draft</option>
               <option>Ready</option>
               <option>InProgress</option>
@@ -156,6 +169,10 @@ export class BacklogComponent implements OnInit {
   backlog: Backlog | null = null;
   error = '';
   generating = false;
+  showRules = false;
+  ruleProfiles: AgentRuleProfile[] = [];
+  newStoryRuleId: string | null = null;
+  pendingRules = new Set<string>();
 
   showAddEpic = false;
   newEpicTitle = '';
@@ -174,7 +191,10 @@ export class BacklogComponent implements OnInit {
   ngOnInit(): void {
     this.route.params.subscribe((params) => {
       this.repositoryId = params['repoId'] || null;
-      if (this.repositoryId) this.load();
+      if (this.repositoryId) {
+        this.load();
+        this.api.listAgentRules(this.repositoryId).subscribe({ next: p => this.ruleProfiles = p, error: () => this.error = 'Failed to load agent-rule profiles' });
+      }
     });
   }
 
@@ -210,9 +230,23 @@ export class BacklogComponent implements OnInit {
       this.newStoryDesc || undefined,
       undefined,
       this.newStoryPoints ?? undefined,
+      this.newStoryRuleId,
     ).subscribe({
-      next: () => { this.addStoryFeatureId = null; this.newStoryTitle = ''; this.newStoryDesc = ''; this.newStoryPoints = null; this.load(); },
+      next: () => { this.addStoryFeatureId = null; this.newStoryTitle = ''; this.newStoryDesc = ''; this.newStoryPoints = null; this.newStoryRuleId = null; this.load(); },
       error: (e) => { this.error = e.error?.error || 'Failed to create story'; },
+    });
+  }
+
+  rulesSaved(profiles: AgentRuleProfile[]): void {
+    this.ruleProfiles = profiles;
+    this.load();
+  }
+
+  setRule(story: UserStory, ruleId: string | null): void {
+    this.pendingRules.add(story.id);
+    this.api.selectAgentRule(story.id, ruleId).subscribe({
+      next: () => { story.agentRuleId = ruleId; this.pendingRules.delete(story.id); },
+      error: e => { this.error = e.error?.error || 'Failed to update agent rules'; this.pendingRules.delete(story.id); },
     });
   }
 

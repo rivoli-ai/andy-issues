@@ -3,4 +3,4 @@
 
 namespace Andy.Issues.Application.Dtos;
 
-public record AgentRulesDto(string Rules);
+public record AgentRulesDto(string Rules, IReadOnlyList<AgentRuleProfileDto>? Profiles = null, bool CanEdit = false);
