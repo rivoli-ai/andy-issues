@@ -27,7 +27,7 @@ Every controller endpoint that accepts `{id}` — including both existing GUID r
 2. Otherwise split on the first `-`; match the prefix against `EPIC` / `FEAT` / `STORY` (case-insensitive); parse the suffix as a positive `long`; look up by `Seq` scoped to the matching entity type.
 3. Anything else is `404`.
 
-See [`BacklogIdentifier.Parse`](../src/Andy.Issues.Application/BacklogIdentifier.cs) for the canonical implementation.
+See [`BacklogIdentifier.Parse`](https://github.com/rivoli-ai/andy-issues/blob/main/src/Andy.Issues.Application/BacklogIdentifier.cs) for the canonical implementation.
 
 ## Allocation
 
