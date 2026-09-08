@@ -61,6 +61,12 @@ public sealed class ApiClient : IDisposable
         await EnsureSuccessAsync(response);
     }
 
+    public async Task PutAsync(string path, object body)
+    {
+        using var response = await _http.PutAsJsonAsync(path, body, JsonOptions);
+        await EnsureSuccessAsync(response);
+    }
+
     public async Task<T?> PatchAsync<T>(string path, object body)
     {
         var content = JsonContent.Create(body, options: JsonOptions);

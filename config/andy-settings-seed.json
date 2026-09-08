@@ -81,6 +81,14 @@
       "scope": "app",
       "type": "string",
       "defaultValue": null
+    },
+    {
+      "key": "andy-issues:agent-rules:system-default",
+      "displayName": "System default agent rules",
+      "description": "Markdown fallback when a repository has no named agent-rule profiles.",
+      "scope": "app",
+      "type": "string",
+      "defaultValue": ""
     }
   ]
 }

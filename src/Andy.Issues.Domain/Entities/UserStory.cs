@@ -22,6 +22,9 @@ public class UserStory
     /// </summary>
     public string DisplayId => $"STORY-{Seq}";
 
+    public Guid? AgentRuleId { get; set; }
+    public AgentRule? AgentRule { get; set; }
+
     public Guid FeatureId { get; set; }
     public Feature Feature { get; set; } = null!;
     public string Title { get; set; } = string.Empty;

@@ -13,6 +13,22 @@ public class CommandParsingTests
     private static readonly Option<string> ApiUrlOption = new("--api-url", () => "https://localhost:5410");
     private static readonly Option<string?> TokenOption = new("--token");
 
+    [Fact]
+    public void RuleCommands_ValidateSelectionAndRequiredFile()
+    {
+        var id = Guid.NewGuid();
+        var stories = RulesCommand.BuildStories(ApiUrlOption, TokenOption);
+        Assert.Empty(stories.Parse($"rule set {id} --default").Errors);
+        Assert.Empty(stories.Parse($"rule set {id} {Guid.NewGuid()}").Errors);
+        Assert.NotEmpty(stories.Parse($"rule set {id}").Errors);
+        Assert.NotEmpty(stories.Parse($"rule set {id} {Guid.NewGuid()} --default").Errors);
+        var repos = ReposCommand.Build(ApiUrlOption, TokenOption);
+        Assert.Empty(repos.Parse($"rules list {id}").Errors);
+        Assert.Empty(repos.Parse($"rules set-default {id}").Errors);
+        Assert.NotEmpty(repos.Parse($"rules put {id} --name Review").Errors);
+        Assert.Empty(repos.Parse($"rules put {id} --name Review --file rules.md").Errors);
+    }
+
     // ── Repos ───────────────────────────────────────────────────────
 
     [Fact]

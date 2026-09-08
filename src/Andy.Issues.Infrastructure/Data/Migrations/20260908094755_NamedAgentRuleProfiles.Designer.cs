@@ -3,6 +3,7 @@ using System;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Andy.Issues.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908094755_NamedAgentRuleProfiles")]
+    partial class NamedAgentRuleProfiles
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -373,25 +376,14 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
-                    b.Property<string>("TriageInputDocsRefs")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("TriageInputDocsRefsJson");
-
                     b.Property<string>("TriageOutput")
                         .HasColumnType("text")
                         .HasColumnName("TriageOutputJson");
 
-                    b.Property<string>("TriageOutputDocRef")
-                        .HasColumnType("text")
-                        .HasColumnName("TriageOutputDocRefJson");
-
                     b.Property<Guid?>("TriageRunId")
-                        .IsConcurrencyToken()
                         .HasColumnType("uuid");
 
                     b.Property<string>("TriageState")
-                        .IsConcurrencyToken()
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
