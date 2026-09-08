@@ -22,3 +22,12 @@ button:disabled { cursor:not-allowed; }
 .btn-secondary { background:var(--surface-card); color:var(--text-primary); border:1px solid var(--border-default); }
 .btn-secondary:hover { background:var(--surface-hover); }
 :where(button,a,input,select,textarea,[tabindex]):focus-visible { outline:2px solid var(--brand-accent); outline-offset:3px; }
+
+/* The published toast service uses this host; applications own its placement. */
+#toast-host { position:fixed; right:16px; bottom:16px; z-index:120; width:min(360px,calc(100vw - 32px)); max-height:40dvh; overflow:auto; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+#toast-host .dp-toast { pointer-events:auto; min-width:0; }
+#toast-host .dp-toast .body { min-width:0; overflow-wrap:anywhere; }
+#toast-host .dp-toast .close svg { width:18px; height:18px; }
+
+/* Shared 0.1.0 labels reduce opacity below text contrast requirements. */
+.sidebar .nav-section-title, .sidebar .sidebar-brand__tagline { opacity:1; color:var(--text-secondary); }
