@@ -124,7 +124,38 @@ public class BacklogGitHubImportTests : IDisposable
             - not a checkbox #77
             """;
         var refs = BacklogGitHubImportService.ParseTaskListReferences(body).ToList();
-        Assert.Equal(new[] { 12, 34, 56 }, refs);
+        Assert.Equal(new[] { 12, 34, 56, 77 }, refs);
+    }
+
+    [Fact]
+    public void ParseTaskListReferences_IgnoresFencesAndForeignRepositories()
+    {
+        const string body = """
+            ```markdown
+            - [ ] #90 example
+            ```
+            ~~~~
+            - [ ] #91 example
+            ~~~~
+              - [ ] ACME/Widgets#12
+            + https://github.com/acme/widgets/issues/34
+            1. #56
+            - [ ] other/project#99
+            - [ ] https://github.com/other/project/issues/98
+            - [ ] #0
+            - [ ] #999999999999999999999999
+            """;
+        Assert.Equal(new[] { 12, 34, 56 },
+            BacklogGitHubImportService.ParseTaskListReferences(body, "acme", "widgets"));
+    }
+
+    [Theory]
+    [InlineData(" Type : Epic ", BacklogGitHubImportService.IssueType.Epic)]
+    [InlineData("type: feature", BacklogGitHubImportService.IssueType.Feature)]
+    [InlineData("TYPE : STORY", BacklogGitHubImportService.IssueType.Story)]
+    public void ClassifyIssue_NormalizesWhitespaceAroundColon(string label, BacklogGitHubImportService.IssueType expected)
+    {
+        Assert.Equal(expected, BacklogGitHubImportService.ClassifyIssue(new[] { label }));
     }
 
     [Fact]

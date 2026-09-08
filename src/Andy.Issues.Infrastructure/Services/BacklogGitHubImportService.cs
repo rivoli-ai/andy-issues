@@ -51,20 +51,13 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         "type:story", "story", "user-story", "user story"
     };
 
-    /// <summary>
-    /// Matches a markdown task-list line (`- [ ] ...` / `* [x] ...`)
-    /// and captures the rest of the line so a reference can be looked
-    /// up anywhere in it — conductor-style epics put the ref at the
-    /// END of the line (`- [ ] **SM.2** — Backend prerequisites (#1976)`).
-    /// </summary>
     private static readonly Regex TaskListLineRegex = new(
-        @"^\s*[-*]\s*\[[ xX]\]\s*(?<rest>.*)$",
-        RegexOptions.Compiled | RegexOptions.Multiline);
-
-    /// <summary>Bare <c>#123</c> issue reference.</summary>
-    private static readonly Regex HashRefRegex = new(
-        @"#(\d+)",
+        @"^\s*(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s*)?(?<rest>.*)$",
         RegexOptions.Compiled);
+
+    private static readonly Regex IssueReferenceRegex = new(
+        @"https?://github\.com/(?<owner>[\w.-]+)/(?<repo>[\w.-]+)/issues/(?<number>\d+)|(?<![\w/])(?<owner>[\w.-]+)/(?<repo>[\w.-]+)#(?<number>\d+)|(?<![\w/#])#(?<number>\d+)",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
     /// <summary>
     /// Fast-path env var to pick up a GitHub PAT when no
@@ -430,7 +423,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     public static IssueType ClassifyIssue(IReadOnlyList<string> labels)
     {
         var normalized = new HashSet<string>(
-            labels.Select(l => l.Trim().ToLowerInvariant()));
+            labels.Select(l => Regex.Replace(l.Trim().ToLowerInvariant(), @"\s*:\s*", ":")));
 
         if (EpicLabels.Any(l => normalized.Contains(l))) return IssueType.Epic;
         if (FeatureLabels.Any(l => normalized.Contains(l))) return IssueType.Feature;
@@ -803,54 +796,52 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             : UserStoryStatus.Draft;
 
     /// <summary>
-    /// Extracts issue references from markdown task-list lines
-    /// (<c>- [ ] ...</c> / <c>* [x] ...</c>). For each task-list line,
-    /// yields the FIRST issue reference found anywhere in the line —
-    /// not just a leading one, so conductor-style trailing refs
-    /// (<c>- [ ] **SM.2** — Backend prerequisites (#1976)</c>) match.
-    /// A reference is either a bare <c>#123</c> or, when
-    /// <paramref name="owner"/>/<paramref name="repo"/> are provided
-    /// (matched case-insensitively), a same-repo issue URL
-    /// (<c>https://github.com/{owner}/{repo}/issues/123</c>).
-    /// At most one ref per line (the earliest of either form); lines
-    /// without a ref yield nothing. Non-task-list lines are ignored.
+    /// Reads the first local issue reference from each markdown list item.
+    /// Supports checkboxes, nested/numbered lists, bare numbers, qualified refs,
+    /// and GitHub URLs. Fenced examples and refs to other repositories are ignored.
     /// </summary>
     public static IEnumerable<int> ParseTaskListReferences(
         string? body, string? owner = null, string? repo = null)
     {
         if (string.IsNullOrEmpty(body)) yield break;
 
-        // The hash regex and the task-list line regex are compiled
-        // statics; the URL form depends on the caller's owner/repo so
-        // it is built per call (uninteresting cost next to the GitHub
-        // round-trips that precede parsing).
-        Regex? urlRefRegex = null;
-        if (!string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repo))
+        char fence = '\0';
+        int fenceLength = 0;
+        foreach (var text in body.Split('\n'))
         {
-            urlRefRegex = new Regex(
-                $@"https://github\.com/{Regex.Escape(owner)}/{Regex.Escape(repo)}/issues/(\d+)",
-                RegexOptions.IgnoreCase);
-        }
-
-        foreach (Match line in TaskListLineRegex.Matches(body))
-        {
-            var rest = line.Groups["rest"].Value;
-
-            var hashMatch = HashRefRegex.Match(rest);
-            var urlMatch = urlRefRegex?.Match(rest) ?? Match.Empty;
-
-            Match? first = null;
-            if (hashMatch.Success && urlMatch.Success)
-                first = hashMatch.Index <= urlMatch.Index ? hashMatch : urlMatch;
-            else if (hashMatch.Success)
-                first = hashMatch;
-            else if (urlMatch.Success)
-                first = urlMatch;
-
-            if (first is not null
-                && int.TryParse(first.Groups[1].ValueSpan, out var number))
+            var trimmed = text.TrimStart();
+            var fenceMatch = Regex.Match(trimmed, @"^(?<fence>`{3,}|~{3,})");
+            if (fenceMatch.Success)
             {
-                yield return number;
+                var marker = fenceMatch.Groups["fence"].Value;
+                if (fence == '\0')
+                {
+                    fence = marker[0];
+                    fenceLength = marker.Length;
+                }
+                else if (marker[0] == fence && marker.Length >= fenceLength
+                    && string.IsNullOrWhiteSpace(trimmed[marker.Length..]))
+                {
+                    fence = '\0';
+                }
+                continue;
+            }
+            if (fence != '\0') continue;
+
+            var line = TaskListLineRegex.Match(text);
+            if (!line.Success) continue;
+            foreach (Match reference in IssueReferenceRegex.Matches(line.Groups["rest"].Value))
+            {
+                if (reference.Groups["owner"].Success
+                    && (!reference.Groups["owner"].Value.Equals(owner, StringComparison.OrdinalIgnoreCase)
+                        || !reference.Groups["repo"].Value.Equals(repo, StringComparison.OrdinalIgnoreCase)))
+                    continue;
+
+                if (int.TryParse(reference.Groups["number"].ValueSpan, out var number) && number > 0)
+                {
+                    yield return number;
+                    break;
+                }
             }
         }
     }
