@@ -284,6 +284,14 @@ public static class ServiceTools
         return Serialize(list);
     }
 
+    [McpServerTool, Description("List the caller's sandboxes with repository names and capacity.")]
+    public static async Task<string> ListMySandboxes(IHttpContextAccessor ctx, ISandboxService svc) =>
+        Serialize(await svc.ListMineAsync(GetUserId(ctx)));
+
+    [McpServerTool, Description("Close every sandbox owned by the caller. Reports partial failures for retry.")]
+    public static async Task<string> CloseAllMySandboxes(IHttpContextAccessor ctx, ISandboxService svc) =>
+        Serialize(await svc.CloseAllMineAsync(GetUserId(ctx)));
+
     [McpServerTool, Description("Get connection info (IDE, VNC, SSH endpoints) for a sandbox.")]
     public static async Task<string> GetSandboxConnection(
         IHttpContextAccessor ctx,

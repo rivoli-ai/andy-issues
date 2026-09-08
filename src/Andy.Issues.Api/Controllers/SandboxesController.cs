@@ -36,9 +36,16 @@ public class SandboxesController : ControllerBase
         [FromBody] CreateSandboxRequest request,
         CancellationToken ct)
     {
-        var dto = await _sandboxes.CreateAsync(request, GetUserId(), ct);
-        if (dto is null) return NotFound();
-        return CreatedAtAction(nameof(GetById), new { id = dto.Id }, dto);
+        try
+        {
+            var dto = await _sandboxes.CreateAsync(request, GetUserId(), ct);
+            if (dto is null) return NotFound();
+            return CreatedAtAction(nameof(GetById), new { id = dto.Id }, dto);
+        }
+        catch (SandboxCapacityExceededException ex)
+        {
+            return Conflict(new { code = "SandboxCapacityExceeded", error = ex.Message, max = ex.Max });
+        }
     }
 
     [HttpGet]
@@ -47,6 +54,14 @@ public class SandboxesController : ControllerBase
         var list = await _sandboxes.ListAsync(GetUserId(), ct);
         return Ok(list);
     }
+
+    [HttpGet("mine")]
+    public async Task<ActionResult<MySandboxesDto>> Mine(CancellationToken ct) =>
+        Ok(await _sandboxes.ListMineAsync(GetUserId(), ct));
+
+    [HttpDelete("mine")]
+    public async Task<ActionResult<CloseMySandboxesDto>> CloseMine(CancellationToken ct) =>
+        Ok(await _sandboxes.CloseAllMineAsync(GetUserId(), ct));
 
     [HttpGet("{id:guid}")]
     public async Task<ActionResult<SandboxDto>> GetById(Guid id, CancellationToken ct)

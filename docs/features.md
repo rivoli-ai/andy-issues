@@ -275,3 +275,32 @@ identity must have Settings `secret:read` permission. A 401/403 is logged by sta
 without exposing the response or credential. Deployment verification must confirm
 that the bundled service receives this URL and the delegated identity has that
 permission; local tests do not establish live RBAC grants.
+
+## Sandbox capacity and bulk close
+
+`GET /api/sandboxes/mine` returns the caller's sandbox summaries and
+`capacity: { current, max, tenantMax }`. Summaries include the repository name,
+status, connection endpoints, creation time, and purpose (`Interactive` for
+sandboxes created by this service). Headless analysis and triage runs are
+owned by andy-containers and are not persisted as interactive sandboxes here.
+
+`andy-issues:sandbox:max-per-user` is resolved from Andy Settings (default 3).
+Every provisioned row except `Destroyed` counts, including stopped and failed
+containers which can still hold resources. Creating at capacity returns HTTP
+409 with code `SandboxCapacityExceeded`. Creation and bulk close serialize
+per owner within the service process. The embedded deployment runs one service
+instance; shared-database multi-replica deployment needs a distributed capacity
+reservation before enabling concurrent replicas. `andy-issues:sandbox:max-per-tenant`
+(default 20) is reported for visibility and is not enforced.
+
+`DELETE /api/sandboxes/mine` returns `{ destroyed: [id], failed: [{ id, reason }] }`.
+It affects only the authenticated caller, continues after an individual remote
+failure, and supports retry. MCP tools are `list_my_sandboxes` and
+`close_all_my_sandboxes`. CLI equivalents are `sandboxes mine [--json]` and
+`sandboxes close-all [--force]` (`sandbox` remains an alias). Bulk close asks for
+confirmation unless `--force` is supplied and exits nonzero on partial failure.
+
+Ordinary Settings reads use `POST /api/effective/resolve` and
+`/api/effective/resolve-batch`, with application and caller context. Values are
+cached only in the scoped client; secret lookups continue using the uncached
+Secrets API.

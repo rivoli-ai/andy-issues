@@ -84,6 +84,13 @@ public sealed class ApiClient : IDisposable
         await EnsureSuccessAsync(response);
     }
 
+    public async Task<T?> DeleteAsync<T>(string path)
+    {
+        using var response = await _http.DeleteAsync(path);
+        await EnsureSuccessAsync(response);
+        return await response.Content.ReadFromJsonAsync<T>(JsonOptions);
+    }
+
     public static string ToJson<T>(T value) =>
         JsonSerializer.Serialize(value, JsonOptions);
 
