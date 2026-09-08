@@ -19,7 +19,10 @@ public static class IssueMapping
         entity.TriagedBy,
         entity.TriageOutput,
         entity.CreatedAt,
-        entity.UpdatedAt);
+        entity.UpdatedAt,
+        entity.TriageRunId,
+        entity.TriageInputDocsRefs,
+        entity.TriageOutputDocRef);
 
     // #187 — lightweight projection for the unified `GET /api/issues`
     // listing endpoint. Skips `Body` and `TriageOutput` so a page of

@@ -24,6 +24,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
     public FakeMcpToolDiscoveryClient FakeMcpToolDiscoveryClient { get; } = new();
     public FakeCodeIndexClient FakeCodeIndexClient { get; } = new();
     public FakeAndySettingsClient FakeAndySettingsClient { get; } = new();
+    public FakeDocsClient FakeDocsClient { get; } = new();
     public FakeSecretStore FakeSecretStore { get; } = new();
     public FakeAgentsClient FakeAgentsClient { get; } = new();
 
@@ -108,6 +109,7 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             if (settingsDescriptor is not null)
                 services.Remove(settingsDescriptor);
             services.AddSingleton<IAndySettingsClient>(FakeAndySettingsClient);
+            services.AddSingleton<IDocsClient>(FakeDocsClient);
 
             var secretStoreDescriptor = services.FirstOrDefault(
                 d => d.ServiceType == typeof(ISecretStore));

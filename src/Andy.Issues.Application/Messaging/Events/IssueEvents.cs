@@ -37,7 +37,11 @@ public sealed record IssueEventPayload(
     string? TriagedBy,
     DateTimeOffset? TriagedAt,
     TriageOutput? TriageOutput = null,
-    string? IssueDisplayId = null)
+    string? IssueDisplayId = null,
+    Guid? RunId = null,
+    IReadOnlyList<DocsRef>? InputDocsRefs = null,
+    DocsRef? OutputDocRef = null,
+    string? Severity = null)
 {
     public const int SchemaVersion = 2;
 

@@ -369,3 +369,11 @@ plaintext is not recoverable from those references.
 
 This storage change does not add the raw AI-config endpoint requested in #93;
 that endpoint remains pending explicit authorization following automated review.
+
+## Triage audit references
+
+Issue detail now exposes `runId`, `triageInputDocsRefs` and `triageOutputDocRef`. Inputs are captured at triage start; later attachment edits do not rewrite the run's input snapshot. The `triaged` event adds `run_id`, `input_docs_refs`, `output_doc_ref` and top-level `severity` while retaining the existing v2 payload fields.
+
+Configure `AndyDocs:BaseUrl` (embedded proxy: `http://localhost:9100/docs/`) and a caller/service identity with access to the referenced documents. Completion with inline classification writes `triage-output.md` through Andy Docs. Alternatively, pass both `outputDocumentId` and `outputLinkId` query parameters to `POST /api/triage/{id}/complete`; the existing classification body remains compatible. A supplied document must have an output link to the current issue or run. With no body, its fenced JSON classification is read from the document. Missing Docs access returns 503 and preserves the active triage state.
+
+Container completion uses the current run's uploaded `triage-output.md` artifact, containing a fenced `json` block matching `triage-output.v1.json`. Missing or malformed output leaves the issue in Triaging; stale run IDs are ignored. Authenticated legacy manual completion without output remains supported and carries no output-document reference. Per-tool action logs and policy snapshots remain in Andy Tasks. Conductor's embedded Docs URL wiring is tracked in [PR2354](https://github.com/rivoli-ai/conductor/pull/2354).

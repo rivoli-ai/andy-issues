@@ -7,7 +7,8 @@ public enum IssueTriageOutcome
 {
     Updated = 0,
     NotFound = 1,
-    InvalidTransition = 2
+    InvalidTransition = 2,
+    DependencyUnavailable = 3
 }
 
 public record IssueTriageResult(

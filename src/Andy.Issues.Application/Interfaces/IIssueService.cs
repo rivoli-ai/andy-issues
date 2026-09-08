@@ -46,7 +46,7 @@ public interface IIssueService
     // run-finish handler will pass the agent-produced output. When
     // present, the output is persisted on the Issue and emitted in the
     // `triaged` event payload.
-    Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default);
+    Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default, DocsRef? outputDocRef = null, Guid? runId = null);
 
     Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default);
     Task<IssueTriageResult> RejectAsync(Guid id, string userId, CancellationToken ct = default);

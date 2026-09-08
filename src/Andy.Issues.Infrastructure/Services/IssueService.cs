@@ -203,6 +203,7 @@ public class IssueService : IIssueService
     public async Task<IssueTriageResult> StartTriageAsync(
         Guid id, string userId, CancellationToken ct = default)
     {
+        using var mutation = await IssueMutationScope.OpenAsync(id, ct);
         var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
         if (issue is null) return IssueTriageResult.NotFound();
         if (issue.OwnerUserId != userId) return IssueTriageResult.NotFound();
@@ -219,10 +220,12 @@ public class IssueService : IIssueService
             return IssueTriageResult.InvalidTransition(ex.Message);
         }
 
+        issue.TriageInputDocsRefs = await InputReferencesAsync(issue.Id, ct);
+        issue.TriageOutputDocRef = null;
+        issue.TriageRunId = null;
         await DispatchTriageRunAsync(issue, ct);
 
-        await _db.SaveChangesAsync(ct);
-        return IssueTriageResult.Ok(issue.ToDto());
+        return await SaveTransitionAsync(issue, ct);
     }
 
     private async Task DispatchTriageRunAsync(Issue issue, CancellationToken ct)
@@ -260,12 +263,7 @@ public class IssueService : IIssueService
         // issue has no attachments. Format in-memory rather than via
         // EF projection so the wire shape is the canonical lowercase
         // Guid format on every provider (SQLite returns uppercase).
-        var linkIds = await _db.IssueAttachments
-            .AsNoTracking()
-            .Where(a => a.IssueId == issue.Id)
-            .Select(a => a.LinkId)
-            .ToListAsync(ct);
-        var inputDocRefs = linkIds.Select(g => g.ToString()).ToList();
+        var inputDocRefs = issue.TriageInputDocsRefs.Select(r => r.LinkId.ToString()).ToList();
 
         var request = new HeadlessRunRequest(
             AgentId: agent.AgentId,
@@ -300,41 +298,78 @@ public class IssueService : IIssueService
         issue.TriageRunId = response.RunId;
     }
 
-    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null, CancellationToken ct = default) =>
-        TransitionAsync(id, userId, issue =>
-            {
-                // Z7 — backfill InitialEstimate from the cold-start
-                // estimator if the agent produced an empty slot
-                // (every percentile field null). Agent-supplied
-                // estimates are preserved as-is.
-                if (output is not null && _estimator is not null && IsEmptyEstimate(output.InitialEstimate))
-                {
-                    var seeded = _estimator.Estimate(userId, output.TemplateId, output.Severity);
-                    output = output with { InitialEstimate = seeded };
-                }
+    private async Task<List<DocsRef>> InputReferencesAsync(Guid issueId, CancellationToken ct)
+    {
+        var attachments = await _db.IssueAttachments.AsNoTracking().Where(x => x.IssueId == issueId).ToListAsync(ct);
+        return attachments.OrderBy(x => x.LinkId).Select(x => new DocsRef(x.DocumentId, x.LinkId)).ToList();
+    }
 
-                issue.CompleteTriage(userId, output);
-                // Z5 — append a revision row for every output that
-                // arrives. AuthorKind=Agent because CompleteTriage is
-                // the path that delivers agent-produced output (Z2's
-                // run.finished consumer). Revisions list null outputs
-                // skipped — Z1 still allows manual completion without
-                // an output payload for testing.
-                if (output is not null)
-                {
-                    _db.TriageOutputRevisions.Add(new TriageOutputRevision
-                    {
-                        Id = Guid.NewGuid(),
-                        IssueId = issue.Id,
-                        Author = userId,
-                        AuthorKind = TriageRevisionAuthorKind.Agent,
-                        TriageOutput = output,
-                        DiffSummary = null,
-                        CreatedAt = DateTimeOffset.UtcNow
-                    });
-                }
-            },
-            terminalKind: IssueEventKind.Triaged, ct);
+    public async Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, TriageOutput? output = null,
+        CancellationToken ct = default, DocsRef? outputDocRef = null, Guid? runId = null)
+    {
+        using var mutation = await IssueMutationScope.OpenAsync(id, ct);
+        var tracked = _db.ChangeTracker.Entries<Issue>().FirstOrDefault(e => e.Entity.Id == id);
+        if (tracked is not null) await tracked.ReloadAsync(ct);
+        var issue = await _db.Issues.FirstOrDefaultAsync(x => x.Id == id, ct);
+        if (issue is null || issue.OwnerUserId != userId) return IssueTriageResult.NotFound();
+        if (issue.TriageState != TriageState.Triaging || (runId is not null && issue.TriageRunId != runId))
+            return IssueTriageResult.InvalidTransition("Triage completion does not match the current active run.");
+        if (output is null && outputDocRef is { } suppliedOutput)
+        {
+            try { output = TriageOutputDocument.Parse(await _docs.GetContentAsync(suppliedOutput.DocumentId, ct)); }
+            catch (HttpRequestException) { return new(IssueTriageOutcome.DependencyUnavailable, null, "Triage output document is unavailable."); }
+            if (output is null) return IssueTriageResult.InvalidTransition("The output document does not contain a valid triage classification.");
+        }
+        if (output is not null && string.IsNullOrWhiteSpace(output.Rationale))
+            return IssueTriageResult.InvalidTransition("TriageOutput.Rationale must be non-empty.");
+        if (output is not null && _estimator is not null && IsEmptyEstimate(output.InitialEstimate))
+            output = output with { InitialEstimate = _estimator.Estimate(userId, output.TemplateId, output.Severity) };
+        if (output is not null) output = output with { InputsDocsRefs = issue.TriageInputDocsRefs.ToList() };
+
+        DocsRef? stored = null;
+        try
+        {
+            if (outputDocRef is { } supplied)
+                stored = await _docs.LinkTriageOutputAsync(supplied, id, issue.TriageRunId, ct);
+            else if (output is not null)
+            {
+                var markdown = "# Triage output\n\n" + output.Rationale + "\n\n```json\n" +
+                    System.Text.Json.JsonSerializer.Serialize(output, Andy.Issues.Application.Messaging.EventJson.Options) + "\n```\n";
+                stored = await _docs.PutTriageOutputAsync(id, issue.TriageRunId, markdown, ct);
+            }
+        }
+        catch (Exception ex) when (ex is HttpRequestException or System.IO.IOException or System.Text.Json.JsonException)
+        {
+            _logger?.LogWarning(ex, "Could not persist triage output document for issue {IssueId}", id);
+        }
+        if ((output is not null || outputDocRef is not null) && stored is null)
+            return new(IssueTriageOutcome.DependencyUnavailable, null, "Triage output could not be stored or linked in Andy Docs. Retry after restoring access.");
+
+        issue.CompleteTriage(userId, output);
+        issue.TriageOutputDocRef = stored;
+        if (output is not null)
+            _db.TriageOutputRevisions.Add(new TriageOutputRevision
+            {
+                Id = Guid.NewGuid(),
+                IssueId = id,
+                Author = userId,
+                AuthorKind = TriageRevisionAuthorKind.Agent,
+                TriageOutput = output,
+                CreatedAt = DateTimeOffset.UtcNow
+            });
+        _db.AppendIssueEvent(issue, IssueEventKind.Triaged);
+        return await SaveTransitionAsync(issue, ct);
+    }
+
+    private async Task<IssueTriageResult> SaveTransitionAsync(Issue issue, CancellationToken ct)
+    {
+        try { await _db.SaveChangesAsync(ct); return IssueTriageResult.Ok(issue.ToDto()); }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return IssueTriageResult.InvalidTransition("The triage state changed during completion. Reload the issue before retrying.");
+        }
+    }
 
     private static bool IsEmptyEstimate(EstimateSlot slot) =>
         slot.CostP50 is null && slot.CostP90 is null
@@ -387,6 +422,7 @@ public class IssueService : IIssueService
     public async Task<IssueAttachmentResult> AttachAsync(
         Guid id, string userId, AttachIssueRequest request, CancellationToken ct = default)
     {
+        using var mutation = await IssueMutationScope.OpenAsync(id, ct);
         var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
         if (issue is null) return IssueAttachmentResult.NotFound();
         if (issue.OwnerUserId != userId) return IssueAttachmentResult.NotFound();
@@ -425,6 +461,11 @@ public class IssueService : IIssueService
             CreatedAt = DateTimeOffset.UtcNow
         };
         _db.IssueAttachments.Add(attachment);
+        if (issue.TriageState == TriageState.NeedsTriage)
+        {
+            issue.TriageInputDocsRefs = await InputReferencesAsync(id, ct);
+            issue.TriageInputDocsRefs.Add(new DocsRef(request.DocumentId, request.LinkId));
+        }
         await _db.SaveChangesAsync(ct);
 
         return IssueAttachmentResult.Ok(await ToDtoAsync(attachment, ct));
@@ -433,7 +474,8 @@ public class IssueService : IIssueService
     public async Task<bool> DetachAsync(
         Guid id, string userId, Guid linkId, CancellationToken ct = default)
     {
-        var issue = await _db.Issues.AsNoTracking()
+        using var mutation = await IssueMutationScope.OpenAsync(id, ct);
+        var issue = await _db.Issues
             .FirstOrDefaultAsync(i => i.Id == id, ct);
         if (issue is null) return false;
         if (issue.OwnerUserId != userId) return false;
@@ -443,6 +485,8 @@ public class IssueService : IIssueService
         if (attachment is null) return false;
 
         _db.IssueAttachments.Remove(attachment);
+        if (issue.TriageState == TriageState.NeedsTriage)
+            issue.TriageInputDocsRefs = issue.TriageInputDocsRefs.Where(r => r.LinkId != linkId).ToList();
         await _db.SaveChangesAsync(ct);
         return true;
     }
@@ -509,6 +553,7 @@ public class IssueService : IIssueService
         CancellationToken ct,
         Func<Issue, bool>? isIdempotentTerminal = null)
     {
+        using var mutation = await IssueMutationScope.OpenAsync(id, ct);
         var issue = await _db.Issues.FirstOrDefaultAsync(i => i.Id == id, ct);
         if (issue is null) return IssueTriageResult.NotFound();
         if (issue.OwnerUserId != userId) return IssueTriageResult.NotFound();
@@ -534,7 +579,6 @@ public class IssueService : IIssueService
         if (terminalKind is { } kind && !idempotent)
             _db.AppendIssueEvent(issue, kind);
 
-        await _db.SaveChangesAsync(ct);
-        return IssueTriageResult.Ok(issue.ToDto());
+        return await SaveTransitionAsync(issue, ct);
     }
 }

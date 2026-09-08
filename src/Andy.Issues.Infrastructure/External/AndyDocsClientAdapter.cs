@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Net;
+using System.Text;
+using Andy.Issues.Domain.ValueTypes;
 using System.Net.Http.Json;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -135,6 +137,49 @@ public class AndyDocsClientAdapter : IDocsClient
         {
             response.Dispose();
         }
+    }
+
+    public async Task<DocsRef?> PutTriageOutputAsync(Guid issueId, Guid? runId, string markdown, CancellationToken ct = default)
+    {
+        using var body = new MultipartFormDataContent();
+        using var file = new StringContent(markdown, Encoding.UTF8, "text/markdown");
+        body.Add(file, "file", "triage-output.md");
+        body.Add(new StringContent(JsonSerializer.Serialize(new
+        {
+            name = "triage-output.md",
+            links = new[] { new { targetType = "issue", targetId = issueId.ToString(), role = "output" } }
+        })), "meta");
+        using var request = new HttpRequestMessage(HttpMethod.Post, "api/documents:put") { Content = body };
+        if (runId is not null) request.Headers.Add("X-Andy-Run-Id", runId.ToString());
+        using var response = await _http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        var reference = await response.Content.ReadFromJsonAsync<DocsRef>(JsonOptions, ct);
+        return reference.DocumentId == Guid.Empty || reference.LinkId == Guid.Empty ? null : reference;
+    }
+
+    public async Task<DocsRef?> LinkTriageOutputAsync(DocsRef reference, Guid issueId, Guid? runId, CancellationToken ct = default)
+    {
+        using var response = await _http.GetAsync($"api/documents/{reference.DocumentId}/links", ct);
+        response.EnsureSuccessStatusCode();
+        var links = await response.Content.ReadFromJsonAsync<DocumentLinkDto[]>(JsonOptions, ct) ?? [];
+        var source = links.FirstOrDefault(x => x.Id == reference.LinkId && x.DocumentId == reference.DocumentId &&
+            x.Role.Equals("output", StringComparison.OrdinalIgnoreCase) &&
+            ((x.TargetType.Equals("issue", StringComparison.OrdinalIgnoreCase) && x.TargetId == issueId.ToString()) ||
+             (runId is not null && x.TargetType.Equals("run", StringComparison.OrdinalIgnoreCase) && x.TargetId == runId.ToString())));
+        if (source is null) return null;
+        if (source.TargetType.Equals("issue", StringComparison.OrdinalIgnoreCase)) return reference;
+        using var attach = await _http.PostAsJsonAsync($"api/documents/{reference.DocumentId}/links",
+            new { targetType = "issue", targetId = issueId.ToString(), role = "output" }, ct);
+        attach.EnsureSuccessStatusCode();
+        var linked = await attach.Content.ReadFromJsonAsync<DocumentLinkDto>(JsonOptions, ct);
+        return linked is null || linked.Id == Guid.Empty || linked.DocumentId != reference.DocumentId ? null : new(reference.DocumentId, linked.Id);
+    }
+
+    public async Task<string?> GetContentAsync(Guid documentId, CancellationToken ct = default)
+    {
+        using var response = await _http.GetAsync($"api/documents/{documentId}", ct);
+        response.EnsureSuccessStatusCode();
+        return (await response.Content.ReadFromJsonAsync<DocumentDto>(JsonOptions, ct))?.Content;
     }
 
     // Local mirrors of the andy-docs DTO shapes. We keep them private
