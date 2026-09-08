@@ -350,3 +350,22 @@ preserve entered values. Dialogs support keyboard focus and Escape dismissal.
 ## Named agent-rule profiles
 
 Repository owners can manage named Markdown instruction profiles from the Backlog's **Agent rules** editor, including a sanitized preview, ordering and one default. Stories select a profile or inherit the repository default; effective rules fall back to the system setting only when no repository profile exists. Existing rule text migrates without changing legacy GET/PUT behavior. REST, MCP and CLI contracts are documented in [Agent rules](help/agent-rules.md).
+
+## LLM credential persistence
+
+New LLM API keys are encrypted with ASP.NET Data Protection before database
+storage. The `protected::llm:v1:` payload is resolved only for provider calls;
+ordinary LLM settings DTOs remain masked. Startup protects existing plaintext
+LLM rows and leaves `secret::` references for the existing Settings resolver.
+An unreadable encrypted payload fails resolution; it is never sent as a key.
+
+Retain the Data Protection key ring across restarts. `DataProtection:KeyRingPath`
+can select a persistent, access-restricted directory; otherwise ASP.NET's
+platform default applies. The application purpose is `andy-issues`. Keep the
+key ring separately protected from database backups. Losing the ring makes
+stored LLM keys unreadable and requires re-entry. Historical Settings references
+created without actually storing a secret also require re-entry; the original
+plaintext is not recoverable from those references.
+
+This storage change does not add the raw AI-config endpoint requested in #93;
+that endpoint remains pending explicit authorization following automated review.

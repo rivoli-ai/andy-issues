@@ -12,8 +12,8 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Andy.Issues.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20260908094755_NamedAgentRuleProfiles")]
-    partial class NamedAgentRuleProfiles
+    [Migration("20260908092739_ProtectLlmCredentials")]
+    partial class ProtectLlmCredentials
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -24,54 +24,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("Andy.Issues.Domain.Entities.AgentRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasMaxLength(65536)
-                        .HasColumnType("character varying(65536)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("NameKey")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryId")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = true");
-
-                    b.HasIndex("RepositoryId", "NameKey")
-                        .IsUnique();
-
-                    b.ToTable("AgentRules");
-                });
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.ArtifactFeedConfig", b =>
                 {
@@ -919,9 +871,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("AgentRuleId")
-                        .HasColumnType("uuid");
-
                     b.Property<int?>("AzureDevOpsWorkItemId")
                         .HasColumnType("integer");
 
@@ -1023,8 +972,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AgentRuleId");
-
                     b.HasIndex("AzureDevOpsWorkItemId");
 
                     b.HasIndex("FeatureId");
@@ -1033,17 +980,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("UserStories");
-                });
-
-            modelBuilder.Entity("Andy.Issues.Domain.Entities.AgentRule", b =>
-                {
-                    b.HasOne("Andy.Issues.Domain.Entities.Repository", "Repository")
-                        .WithMany()
-                        .HasForeignKey("RepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Repository");
                 });
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.BacklogGeneration", b =>
@@ -1129,18 +1065,11 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.UserStory", b =>
                 {
-                    b.HasOne("Andy.Issues.Domain.Entities.AgentRule", "AgentRule")
-                        .WithMany()
-                        .HasForeignKey("AgentRuleId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Andy.Issues.Domain.Entities.Feature", "Feature")
                         .WithMany("Stories")
                         .HasForeignKey("FeatureId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("AgentRule");
 
                     b.Navigation("Feature");
                 });

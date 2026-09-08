@@ -493,8 +493,8 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
                     b.Property<string>("ApiKey")
                         .IsRequired()
-                        .HasMaxLength(2048)
-                        .HasColumnType("character varying(2048)");
+                        .HasMaxLength(8192)
+                        .HasColumnType("character varying(8192)");
 
                     b.Property<string>("BaseUrl")
                         .HasMaxLength(1024)

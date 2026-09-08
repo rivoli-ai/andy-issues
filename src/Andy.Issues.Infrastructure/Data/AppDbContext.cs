@@ -389,7 +389,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.Name).IsRequired().HasMaxLength(256);
             e.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
-            e.Property(x => x.ApiKey).HasMaxLength(2048);
+            e.Property(x => x.ApiKey).HasMaxLength(8192);
             e.Property(x => x.Model).IsRequired().HasMaxLength(256);
             e.Property(x => x.BaseUrl).HasMaxLength(1024);
         });

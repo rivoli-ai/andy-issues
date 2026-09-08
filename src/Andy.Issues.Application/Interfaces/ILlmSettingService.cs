@@ -28,7 +28,7 @@ public enum UpdateLlmSettingResult
 /// manage LLM provider/model/base-url/api-key tuples that individual
 /// repositories can opt into via <c>Repository.LlmSettingId</c>.
 /// API keys go through <see cref="ISecretStore"/>; the <c>ApiKey</c>
-/// column only ever stores a reference key (never plaintext) and the
+/// column stores a protected payload or legacy reference in production, and the
 /// outbound DTO never exposes the value.
 /// Cross-user reads/writes return <c>NotFound</c> so the endpoint
 /// cannot be used to probe for other users' setting IDs.
