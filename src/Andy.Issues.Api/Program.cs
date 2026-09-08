@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Auth.M2MClient;
+using Microsoft.AspNetCore.DataProtection;
 using Andy.Issues.Api.Auth;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
@@ -143,6 +144,11 @@ builder.Services.AddAndyAuthM2M(builder.Configuration);
 var attachBearer = !string.IsNullOrWhiteSpace(builder.Configuration["AndyAuth:ClientId"]);
 
 
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("andy-issues");
+var keyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+if (!string.IsNullOrWhiteSpace(keyRingPath)) dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
+builder.Services.AddScoped<ILlmSecretStore, LlmSecretStore>();
+builder.Services.AddHostedService<LlmKeyMigration>();
 builder.Services.AddMemoryCache();
 var rbacUsersClient = builder.Services.AddHttpClient("AndyRbacUsers", client =>
 {

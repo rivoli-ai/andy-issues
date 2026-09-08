@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Andy.Issues.Domain.Entities;
+using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Domain.Enums;
 
 namespace Andy.Issues.Infrastructure.Services;
@@ -41,7 +42,7 @@ internal static class LlmChatCompletion
     /// <c>DraftBacklogGenerator</c>'s JSON-mode call). Anthropic has no
     /// equivalent switch — the prompt itself must demand strict JSON.
     /// </param>
-    internal static Task<string> CompleteAsync(
+    internal static async Task<string> CompleteAsync(
         IHttpClientFactory httpClientFactory,
         LlmSetting setting,
         string systemPrompt,
@@ -49,16 +50,20 @@ internal static class LlmChatCompletion
         int maxTokens,
         double temperature,
         bool requestJsonObject,
-        CancellationToken ct)
+        CancellationToken ct,
+        ISecretStore? secrets = null)
     {
-        return setting.Provider switch
+        var apiKey = secrets is null ? setting.ApiKey : await secrets.ResolveAsync(setting.ApiKey, ct);
+        if (apiKey is null && !string.IsNullOrEmpty(setting.ApiKey))
+            throw new InvalidOperationException("The stored LLM credential could not be resolved.");
+        return await (setting.Provider switch
         {
             LlmProvider.Anthropic => CallAnthropicAsync(
-                httpClientFactory, setting, systemPrompt, userPrompt, maxTokens, temperature, ct),
+                httpClientFactory, setting, systemPrompt, userPrompt, maxTokens, temperature, ct, apiKey ?? ""),
             _ => CallOpenAiChatAsync(
                 httpClientFactory, setting, systemPrompt, userPrompt,
-                maxTokens, temperature, requestJsonObject, ct)
-        };
+                maxTokens, temperature, requestJsonObject, ct, apiKey ?? "")
+        });
     }
 
     private static async Task<string> CallOpenAiChatAsync(
@@ -69,12 +74,12 @@ internal static class LlmChatCompletion
         int maxTokens,
         double temperature,
         bool requestJsonObject,
-        CancellationToken ct)
+        CancellationToken ct, string apiKey)
     {
         var baseUrl = GetBaseUrl(setting);
         var client = httpClientFactory.CreateClient("LlmProvider");
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", setting.ApiKey);
+            new AuthenticationHeaderValue("Bearer", apiKey);
 
         object payload = requestJsonObject
             ? new
@@ -132,7 +137,7 @@ internal static class LlmChatCompletion
         string userPrompt,
         int maxTokens,
         double temperature,
-        CancellationToken ct)
+        CancellationToken ct, string apiKey)
     {
         var baseUrl = GetBaseUrl(setting);
         var client = httpClientFactory.CreateClient("LlmProvider");
@@ -157,7 +162,7 @@ internal static class LlmChatCompletion
                 },
                 options: JsonOptions)
         };
-        request.Headers.Add("x-api-key", setting.ApiKey);
+        request.Headers.Add("x-api-key", apiKey);
         request.Headers.Add("anthropic-version", "2023-06-01");
 
         using var response = await client.SendAsync(request, ct);

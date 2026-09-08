@@ -346,3 +346,22 @@ The Sandboxes page displays current/max capacity, disables creation at capacity,
 and refreshes every ten seconds. “Close all mine” requires confirmation, prevents
 duplicate submissions, and lists per-sandbox failures for retry. Create errors
 preserve entered values. Dialogs support keyboard focus and Escape dismissal.
+
+## LLM credential persistence
+
+New LLM API keys are encrypted with ASP.NET Data Protection before database
+storage. The `protected::llm:v1:` payload is resolved only for provider calls;
+ordinary LLM settings DTOs remain masked. Startup protects existing plaintext
+LLM rows and leaves `secret::` references for the existing Settings resolver.
+An unreadable encrypted payload fails resolution; it is never sent as a key.
+
+Retain the Data Protection key ring across restarts. `DataProtection:KeyRingPath`
+can select a persistent, access-restricted directory; otherwise ASP.NET's
+platform default applies. The application purpose is `andy-issues`. Keep the
+key ring separately protected from database backups. Losing the ring makes
+stored LLM keys unreadable and requires re-entry. Historical Settings references
+created without actually storing a secret also require re-entry; the original
+plaintext is not recoverable from those references.
+
+This storage change does not add the raw AI-config endpoint requested in #93;
+that endpoint remains pending explicit authorization following automated review.

@@ -5,6 +5,8 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Andy.Issues.Application.Dtos;
+using Andy.Issues.Application.Interfaces;
+using Andy.Issues.Infrastructure.Services;
 using Andy.Issues.Application.Requests;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
@@ -50,6 +52,40 @@ public class LlmSettingsControllerTests : IClassFixture<TestWebApplicationFactor
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
         var dto = await response.Content.ReadFromJsonAsync<LlmSettingDto>(JsonOptions);
         return dto!;
+    }
+
+    [Fact]
+    public async Task SavedKeys_AreEncryptedAndRemainResolvableAcrossScopes()
+    {
+        var dto = await CreateOneAsync(apiKey: "test-plaintext-credential");
+        using var scope = _factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var stored = await db.LlmSettings.AsNoTracking().Where(l => l.Id == dto.Id).Select(l => l.ApiKey).SingleAsync();
+        Assert.StartsWith(LlmSecretStore.Prefix, stored);
+        Assert.DoesNotContain("test-plaintext-credential", stored);
+        Assert.Equal("test-plaintext-credential", await scope.ServiceProvider.GetRequiredService<ILlmSecretStore>().ResolveAsync(stored));
+    }
+
+    [Fact]
+    public async Task LegacyMigration_ProtectsPlaintextAndPreservesExternalReferences()
+    {
+        var id = Guid.NewGuid();
+        var referenceId = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.LlmSettings.AddRange(
+                new LlmSetting { Id = id, OwnerUserId = "migration-user", Name = "legacy", Model = "m", ApiKey = "legacy-test-key" },
+                new LlmSetting { Id = referenceId, OwnerUserId = "migration-user", Name = "reference", Model = "m", ApiKey = "secret::external" });
+            await db.SaveChangesAsync();
+        }
+        await new Andy.Issues.Api.Infrastructure.LlmKeyMigration(_factory.Services.GetRequiredService<IServiceScopeFactory>()).StartAsync(CancellationToken.None);
+        using var verify = _factory.Services.CreateScope();
+        var database = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var row = await database.LlmSettings.FindAsync(id);
+        Assert.StartsWith(LlmSecretStore.Prefix, row!.ApiKey);
+        Assert.Equal("legacy-test-key", await verify.ServiceProvider.GetRequiredService<ILlmSecretStore>().ResolveAsync(row.ApiKey));
+        Assert.Equal("secret::external", (await database.LlmSettings.FindAsync(referenceId))!.ApiKey);
     }
 
     [Fact]
