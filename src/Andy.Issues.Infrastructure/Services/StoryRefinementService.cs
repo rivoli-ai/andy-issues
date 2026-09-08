@@ -88,6 +88,7 @@ public sealed class StoryRefinementService : IStoryRefinementService
         string userId,
         CancellationToken ct = default)
     {
+        using var storyLock = await _tracker.LockAsync(storyId, ct);
         var story = await _db.UserStories
             .Include(s => s.Feature).ThenInclude(f => f.Epic)
             .FirstOrDefaultAsync(s => s.Id == storyId, ct);
@@ -160,6 +161,41 @@ public sealed class StoryRefinementService : IStoryRefinementService
         return StoryRefineResult.Queued(new StoryRefineRunDto(refineRunId, targetVersion));
     }
 
+    public async Task<StoryRefineAbortOutcome> AbortAsync(Guid storyId, string userId, CancellationToken ct = default)
+    {
+        using var storyLock = await _tracker.LockAsync(storyId, ct);
+        var story = await _db.UserStories.Include(s => s.Feature).ThenInclude(f => f.Epic)
+            .FirstOrDefaultAsync(s => s.Id == storyId, ct);
+        if (story is null || !await _guard.CanViewAsync(story.Feature.Epic.RepositoryId, userId, ct))
+            return StoryRefineAbortOutcome.NotFound;
+
+        var runs = _tracker.ForStory(storyId);
+        if (runs.Count == 0)
+            return story.RefinedAt is null ? StoryRefineAbortOutcome.NotFound : StoryRefineAbortOutcome.Completed;
+
+        story.RefinedAt = null;
+        story.StoryContentHashAtTriage = null;
+        story.UpdatedAt = _clock.UtcNow;
+        foreach (var run in runs)
+        {
+            _db.Outbox.Add(new OutboxEntry
+            {
+                Id = Guid.NewGuid(),
+                Subject = $"andy.issues.events.story.{storyId}.refine.aborted",
+                PayloadType = typeof(StoryRefinementAbortedEvent).FullName,
+                PayloadJson = JsonSerializer.Serialize(new StoryRefinementAbortedEvent(
+                    storyId, story.Feature.Epic.RepositoryId, run.Value.RefineRunId,
+                    StoryTriageStateDto.NotTriaged.Instance), EventJson.Options),
+                CorrelationId = storyId,
+                CreatedAt = _clock.UtcNow
+            });
+        }
+        await _db.SaveChangesAsync(ct);
+        // Soft cancellation: an agent may finish, but its stale result can no longer commit.
+        foreach (var run in runs) _tracker.Remove(run.Key);
+        return StoryRefineAbortOutcome.Aborted;
+    }
+
     private async Task ExecuteRefineAsync(
         StoryTriageAgentInput input,
         Guid refineRunId,
@@ -181,6 +217,10 @@ public sealed class StoryRefinementService : IStoryRefinementService
                     input.AgentId, input.StoryId);
                 return;
             }
+
+            using var completionLock = await _tracker.LockAsync(input.StoryId);
+            if (!_tracker.TryGet(key, out var active) || active.RefineRunId != refineRunId)
+                return;
 
             using var scope = _scopeFactory.CreateScope();
             var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -222,6 +262,7 @@ public sealed class StoryRefinementService : IStoryRefinementService
             AppendTriageEvent(db, story);
 
             await db.SaveChangesAsync();
+            _tracker.Remove(key);
         }
         catch (Exception ex)
         {
@@ -231,7 +272,9 @@ public sealed class StoryRefinementService : IStoryRefinementService
         }
         finally
         {
-            _tracker.Remove(key);
+            using var cleanupLock = await _tracker.LockAsync(input.StoryId);
+            if (_tracker.TryGet(key, out var active) && active.RefineRunId == refineRunId)
+                _tracker.Remove(key);
         }
     }
 
@@ -297,6 +340,8 @@ public sealed class StoryRefinementService : IStoryRefinementService
 // tasks across test classes can't race the same dictionary.
 public interface IStoryRefinementTracker
 {
+    Task<IDisposable> LockAsync(Guid storyId, CancellationToken ct = default);
+    IReadOnlyList<KeyValuePair<StoryRefinementService.RefineKey, StoryRefinementService.InFlightEntry>> ForStory(Guid storyId);
     bool TryGet(StoryRefinementService.RefineKey key, out StoryRefinementService.InFlightEntry entry);
     void Set(StoryRefinementService.RefineKey key, StoryRefinementService.InFlightEntry entry);
     void Remove(StoryRefinementService.RefineKey key);
@@ -308,6 +353,22 @@ public sealed class InMemoryStoryRefinementTracker : IStoryRefinementTracker
 {
     private readonly ConcurrentDictionary<StoryRefinementService.RefineKey, StoryRefinementService.InFlightEntry> _inFlight = new();
     private readonly ConcurrentBag<Task> _outstandingTasks = new();
+    private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _locks = new();
+
+    public async Task<IDisposable> LockAsync(Guid storyId, CancellationToken ct = default)
+    {
+        var gate = _locks.GetOrAdd(storyId, _ => new SemaphoreSlim(1, 1));
+        await gate.WaitAsync(ct);
+        return new ReleaseLock(gate);
+    }
+
+    private sealed class ReleaseLock(SemaphoreSlim gate) : IDisposable
+    {
+        public void Dispose() => gate.Release();
+    }
+
+    public IReadOnlyList<KeyValuePair<StoryRefinementService.RefineKey, StoryRefinementService.InFlightEntry>> ForStory(Guid storyId) =>
+        _inFlight.Where(pair => pair.Key.StoryId == storyId).ToArray();
 
     public bool TryGet(StoryRefinementService.RefineKey key, out StoryRefinementService.InFlightEntry entry) =>
         _inFlight.TryGetValue(key, out entry);

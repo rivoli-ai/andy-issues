@@ -275,3 +275,15 @@ identity must have Settings `secret:read` permission. A 401/403 is logged by sta
 without exposing the response or credential. Deployment verification must confirm
 that the bundled service receives this URL and the delegated identity has that
 permission; local tests do not establish live RBAC grants.
+
+## Cancelling story refinement
+
+`DELETE /api/stories/{id}/refine` uses the same authentication and repository
+access checks as refinement initiation. It returns 204 when in-flight work is
+soft-cancelled, 404 when no accessible run exists, and 409 when the refinement
+has already completed. Resync after 409. Soft cancellation suppresses late agent
+results and the corresponding `triaged` event; it does not promise to stop token
+usage inside an external agent. The durable outbox publishes
+`andy.issues.events.story.{id}.refine.aborted` with the run ID and `NotTriaged`
+state. Cancellation and completion serialize using the existing single-process
+tracker. A new refinement can be started immediately after cancellation.

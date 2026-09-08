@@ -328,6 +328,53 @@ public class StoryRefinementServiceTests : IDisposable
         Assert.IsType<StoryTriageStateDto.Obsolete>(dto.TriageState);
     }
 
+    [Fact]
+    public async Task Abort_SuppressesLateAgentOutputAndAllowsFreshRun()
+    {
+        var storyId = await SeedStoryAsync("alice");
+        var gate = new GatedAgent();
+        using var scope = _serviceProvider.CreateScope();
+        var tracker = _serviceProvider.GetRequiredService<IStoryRefinementTracker>();
+        var service = new StoryRefinementService(
+            scope.ServiceProvider.GetRequiredService<AppDbContext>(),
+            scope.ServiceProvider.GetRequiredService<IRepositoryAccessGuard>(), gate,
+            _serviceProvider.GetRequiredService<IServiceScopeFactory>(), tracker);
+        await service.RefineAsync(storyId, new RefineStoryRequest(), "alice");
+        await gate.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(StoryRefineAbortOutcome.NotFound, await service.AbortAsync(storyId, "mallory"));
+        Assert.Equal(StoryRefineAbortOutcome.Aborted, await service.AbortAsync(storyId, "alice"));
+        Assert.Equal(StoryRefineAbortOutcome.NotFound, await service.AbortAsync(storyId, "alice"));
+
+        // A fresh run may complete before the cancelled agent returns.
+        using var freshScope = _serviceProvider.CreateScope();
+        await NewService(freshScope).RefineAsync(storyId, new RefineStoryRequest(), "alice");
+        await WaitForRefinementAsync(storyId);
+        gate.Release.TrySetResult();
+        await tracker.DrainOutstandingTasksAsync();
+
+        using var verify = _serviceProvider.CreateScope();
+        var db = verify.ServiceProvider.GetRequiredService<AppDbContext>();
+        var story = await db.UserStories.AsNoTracking().SingleAsync(s => s.Id == storyId);
+        Assert.Equal(1, story.RefineVersion);
+        Assert.Single(await db.Outbox.Where(e => e.Subject.EndsWith(".triaged")).ToListAsync());
+        var aborted = Assert.Single(await db.Outbox.Where(e => e.Subject.EndsWith(".refine.aborted")).ToListAsync());
+        using var payload = JsonDocument.Parse(aborted.PayloadJson);
+        Assert.Equal("NotTriaged", payload.RootElement.GetProperty("triage_state").GetProperty("kind").GetString());
+        Assert.Equal(StoryRefineAbortOutcome.Completed, await NewService(verify).AbortAsync(storyId, "alice"));
+    }
+
+    private sealed class GatedAgent : IStoryTriageAgent
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<StoryTriageAgentOutput> RefineAsync(StoryTriageAgentInput input, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            return await new EchoStoryTriageAgent().RefineAsync(input, ct);
+        }
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────
 
     private async Task WaitForRefinementAsync(Guid storyId, int timeoutMs = 5000)

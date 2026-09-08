@@ -36,3 +36,8 @@ public sealed record StoryTriageCompletedEvent(
 
     public int Schema_Version => SchemaVersion;
 }
+
+public sealed record StoryRefinementAbortedEvent(Guid StoryId, Guid RepositoryId, Guid RefineRunId, StoryTriageStateDto TriageState)
+{
+    public int Schema_Version => 1;
+}
