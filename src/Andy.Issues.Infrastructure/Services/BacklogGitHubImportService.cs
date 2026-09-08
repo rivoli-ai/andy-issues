@@ -73,6 +73,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
     /// backed flow in Conductor ships.
     /// </summary>
     internal const string EnvironmentPatVariable = "GITHUB_PAT";
+    internal const string SettingsPatReference = "secret::sourceControl.github.pat";
 
     private readonly AppDbContext _db;
     private readonly IGitHubClient _gitHubClient;
@@ -129,11 +130,19 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
         string? accessToken = null;
         if (provider is not null)
         {
-            accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct) ?? provider.AccessToken;
+            accessToken = await _secretStore.ResolveAsync(provider.AccessToken, ct);
         }
 
-        if (string.IsNullOrEmpty(accessToken))
+        if (string.IsNullOrWhiteSpace(accessToken))
         {
+            // The shared Settings PAT works without a separately linked provider.
+            // Keep the resolved value in memory; do not duplicate it in our database.
+            accessToken = await _secretStore.ResolveAsync(SettingsPatReference, ct);
+        }
+
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            accessToken = null;
             // Fast-path fallback (issue #76): pick up a PAT from the
             // GITHUB_PAT env var when no LinkedProvider is registered.
             // Conductor forwards its CONDUCTOR_GITHUB_TOKEN / GITHUB_TOKEN
@@ -142,7 +151,7 @@ public class BacklogGitHubImportService : IBacklogGitHubImportService
             // var because the check above sets `accessToken` first.
             // Deprecated once conductor#540 (Settings UI) lands.
             var envPat = _environmentReader(EnvironmentPatVariable);
-            if (!string.IsNullOrEmpty(envPat))
+            if (!string.IsNullOrWhiteSpace(envPat))
             {
                 _logger.LogInformation(
                     "Using {EnvVar} env-var fallback for {Owner}/{Repo} (no LinkedProvider).",

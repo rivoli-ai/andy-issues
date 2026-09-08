@@ -34,7 +34,7 @@ public class SecretStore : ISecretStore
             return valueOrRef; // Raw value — return as-is
 
         var secretKey = valueOrRef[SecretPrefix.Length..];
-        var resolved = await _settings.GetAsync<string>(secretKey, ct);
+        var resolved = await _settings.GetSecretAsync(secretKey, ct);
 
         if (resolved is null)
             _logger.LogWarning("Secret ref '{Key}' could not be resolved from andy-settings.", secretKey);

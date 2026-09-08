@@ -99,6 +99,9 @@ public class SecretStoreTests
             return Task.FromResult<T?>(default);
         }
 
+        public Task<string?> GetSecretAsync(string key, CancellationToken ct = default) =>
+            GetAsync<string>(key, ct);
+
         public Task<IReadOnlyDictionary<string, string>> GetBatchAsync(
             IEnumerable<string> keys, CancellationToken ct = default)
         {

@@ -257,3 +257,21 @@ User stories attached to Azure-DevOps-backed repositories can be mirrored to Wor
   - **Azure DevOps is authoritative for done/closed state.** When the remote Work Item is in `Closed`, `Done`, or `Removed`, the local story is forced to `Done`. Other remote states (`New`, `Active`, `Resolved`, ...) are ignored on pull so local progress is never rolled back.
   - **Andy Issues is authoritative for title and description.** Pulled snapshots never overwrite local text fields; push is the only direction in which title/description flow.
 - Local status → AzDO state mapping used on push: `Draft → New`, `Ready/InProgress → Active`, `InReview → Resolved`, `Done → Closed`.
+
+## GitHub import credentials
+
+GitHub issue import resolves credentials in this order: the caller's linked GitHub
+provider, the shared Machine-scoped `sourceControl.github.pat` secret in Andy
+Settings, then the legacy `GITHUB_PAT` environment variable. Without credentials,
+public repositories remain importable anonymously. An unresolved `secret::`
+reference is never used as a bearer token, and shared secrets are not copied into
+`LinkedProviders`.
+
+Configure `AndySettings:ApiBaseUrl` to select the HTTP client; otherwise the local
+configuration fallback is used. Secret references use
+`GET /api/secrets/{key}?scopeType=Machine`, not the ordinary settings endpoint.
+The existing delegated bearer targets `urn:andy-settings-api`; its effective
+identity must have Settings `secret:read` permission. A 401/403 is logged by status
+without exposing the response or credential. Deployment verification must confirm
+that the bundled service receives this URL and the delegated identity has that
+permission; local tests do not establish live RBAC grants.

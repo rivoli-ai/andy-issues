@@ -75,6 +75,34 @@ public class AndySettingsClient : IAndySettingsClient
         }
     }
 
+    public async Task<string?> GetSecretAsync(string key, CancellationToken ct = default)
+    {
+        try
+        {
+            var encoded = Uri.EscapeDataString(key);
+            using var response = await _http.GetAsync($"api/secrets/{encoded}?scopeType=Machine", ct);
+            if (response.StatusCode == HttpStatusCode.NotFound)
+                return null;
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogWarning("andy-settings secret lookup for {Key} returned {Status}.", key, (int)response.StatusCode);
+                return null;
+            }
+
+            await using var stream = await response.Content.ReadAsStreamAsync(ct);
+            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
+            return doc.RootElement.TryGetProperty("value", out var value)
+                && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Do not log response bodies or exception details from secret lookups.
+            _logger.LogWarning("andy-settings secret lookup failed for {Key} ({ErrorType}).", key, ex.GetType().Name);
+            return null;
+        }
+    }
+
     public async Task<IReadOnlyDictionary<string, string>> GetBatchAsync(
         IEnumerable<string> keys,
         CancellationToken ct = default)
