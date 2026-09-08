@@ -372,7 +372,7 @@ that endpoint remains pending explicit authorization following automated review.
 
 ## Shared UI primitives
 
-The web client now uses published Andy UI shell, sidebar, breadcrumbs, theme toggle and mutation toasts. Light/dark preference persists, and the mobile drawer preserves keyboard focus. See [UI conventions](help/ui-conventions.md) for the remaining upstream dock, Markdown, Mermaid and lightbox dependencies.
+The web client now uses published Andy UI shell, sidebar, breadcrumbs, theme toggle and mutation toasts. Light/dark preference persists, and the mobile drawer preserves keyboard focus. See [UI conventions](https://github.com/rivoli-ai/andy-issues/blob/main/content/help/ui-conventions.md) for the remaining upstream dock, Markdown, Mermaid and lightbox dependencies.
 ## Triage audit references
 
 Issue detail now exposes `runId`, `triageInputDocsRefs` and `triageOutputDocRef`. Inputs are captured at triage start; later attachment edits do not rewrite the run's input snapshot. The `triaged` event adds `run_id`, `input_docs_refs`, `output_doc_ref` and top-level `severity` while retaining the existing v2 payload fields.
