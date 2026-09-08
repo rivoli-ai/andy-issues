@@ -72,6 +72,8 @@ public class Issue
     // run-event consumer for IssueId-correlated runs and by Z6 audit
     // queries.
     public Guid? TriageRunId { get; set; }
+    public List<DocsRef> TriageInputDocsRefs { get; set; } = [];
+    public DocsRef? TriageOutputDocRef { get; set; }
 
     // Set when triage produces output (state moves to Triaged) and when
     // a human accepts/rejects. Captures who acted and when, distinct

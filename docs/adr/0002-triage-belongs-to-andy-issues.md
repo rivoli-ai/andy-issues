@@ -77,3 +77,11 @@ Rejected during Z1 design. Overloads `UserStory` with two unrelated state machin
 - [`docs/features.md`](../features.md#triage-workflow) — REST/MCP/CLI surface tables.
 - Epic Z (#108) — full cross-service plan and story breakdown.
 - Architecture memos: `project_triage_planning_architecture.md`, `project_service_boundaries.md`, `project_artifacts_in_andy_docs.md`.
+
+### Triage audit references (Z6)
+
+At run dispatch, Issues snapshots the issue's attachment references. Completion pins an Andy Docs output reference, then persists the classification, reference and outbox event together. Events expose `run_id`, `input_docs_refs`, `output_doc_ref`, and top-level `severity` for Andy Tasks audit/retention consumers. Full action logs and policy snapshots remain owned by Andy Tasks; large payloads remain in Andy Docs.
+
+Current container events identify runs with `run_id` and `output_artifacts`. Issues matches its current `TriageRunId`, reads `triage-output.md`, verifies its structured JSON, and links the document to the issue as `output`. A stale run or missing/malformed artifact does not mark triage complete. Documents must be accessible to the delegated caller or configured service identity under Andy Docs' ownership checks; a service credential is not an ownership bypass.
+
+Inline completion uploads a Markdown document through `POST /api/documents:put`. Failed uploads or link creation leave triage unchanged; the REST path returns 503 and the event path permits redelivery with the same message ID. Database state, references and outbox writes are atomic. The external upload itself cannot share the Issues database transaction: a crash between upload and commit can leave an unreferenced output document, retained under Andy Docs' policies. No raw document body is placed in a new local audit table.

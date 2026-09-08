@@ -195,3 +195,5 @@ User → Angular SPA → Andy Auth (OIDC) → JWT Token → API (Bearer Auth)
 - **Andy Auth** (port 5001) - OAuth2/OIDC identity provider
 - **Andy RBAC** (port 5003) - Role-based access control
 - **Andy Settings** (port 5300) - Centralized configuration (optional)
+
+Triage audit history is owned by **Andy Tasks**, with input/output payloads in **Andy Docs**. Issues keeps document references and the correlated run ID, alongside its existing classification state; it does not create a second per-tool action-log store.

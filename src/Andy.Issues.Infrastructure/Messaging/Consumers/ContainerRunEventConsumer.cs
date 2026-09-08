@@ -105,8 +105,7 @@ public sealed class ContainerRunEventConsumer : BackgroundService
             return;
         }
 
-        if (payload is null
-            || (payload.StoryId is null && payload.IssueId is null))
+        if (payload is null)
         {
             // Run was not correlated to anything we own — nothing to do.
             await msg.AckAsync(ct);
@@ -123,18 +122,24 @@ public sealed class ContainerRunEventConsumer : BackgroundService
             return;
         }
 
-        using var scope = _scopeFactory.CreateScope();
-
-        // Z2 — IssueId-correlated runs (triage agent invocations) take
-        // precedence when both are set, since IssueId is the more
-        // specific signal. In practice the publisher only sets one.
-        if (payload.IssueId is not null)
+        try
         {
-            await HandleIssueAsync(scope, payload, kind, ct);
+            using var scope = _scopeFactory.CreateScope();
+            // Current container events correlate by run_id; issue_id is a legacy optional field.
+            if (payload.IssueId is null && payload.StoryId is null)
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                var issueId = await db.Issues.Where(i => i.TriageRunId == payload.RunId).Select(i => (Guid?)i.Id).FirstOrDefaultAsync(ct);
+                payload = payload with { IssueId = issueId };
+            }
+            if (payload.IssueId is not null) await HandleIssueAsync(scope, payload, kind, ct);
+            else if (payload.StoryId is not null) await HandleStoryAsync(scope, payload, kind, ct);
         }
-        else
+        catch
         {
-            await HandleStoryAsync(scope, payload, kind, ct);
+            // A failed Docs request must be retried, not suppressed as an already-processed message.
+            _recentMsgIds.TryRemove(msg.Headers.MsgId, out _);
+            throw;
         }
 
         await msg.AckAsync(ct);
@@ -200,7 +205,7 @@ public sealed class ContainerRunEventConsumer : BackgroundService
                 // are skipped — the run event is either premature
                 // (StartTriage hasn't fired yet) or stale (a human
                 // already moved the issue forward).
-                if (issue.TriageState != TriageState.Triaging)
+                if (issue.TriageState != TriageState.Triaging || issue.TriageRunId != payload.RunId)
                 {
                     _logger.LogInformation(
                         "Run {RunId} finished for issue {IssueId} but state is {State}; skipping",
@@ -208,16 +213,26 @@ public sealed class ContainerRunEventConsumer : BackgroundService
                     return;
                 }
 
-                // Output extraction from the run lands in PR B (Z2 dispatch).
-                // For now the cold-start estimator (Z7) backfills any
-                // empty estimate slot, so the issue still ends up
-                // Triaged with a useful default.
+                var artifact = payload.OutputArtifacts?.FirstOrDefault(a => a.Name == "triage-output.md" && a.DocsRef is not null);
+                if (artifact?.DocsRef is not { } reference)
+                {
+                    _logger.LogWarning("Triage run {RunId} finished without an uploaded triage-output.md; issue remains Triaging", payload.RunId);
+                    return;
+                }
+                var docs = scope.ServiceProvider.GetRequiredService<IDocsClient>();
+                var markdown = await docs.GetContentAsync(reference.DocumentId, ct);
+                var output = Andy.Issues.Infrastructure.Services.TriageOutputDocument.Parse(markdown);
+                if (output is null)
+                {
+                    _logger.LogWarning("Triage run {RunId} has no valid structured output; issue remains Triaging", payload.RunId);
+                    return;
+                }
                 var issueService = scope.ServiceProvider.GetRequiredService<IIssueService>();
                 var result = await issueService.CompleteTriageAsync(
-                    id: issue.Id,
-                    userId: issue.OwnerUserId,
-                    output: null,
-                    ct: ct);
+                    id: issue.Id, userId: issue.OwnerUserId, output: output, ct: ct,
+                    outputDocRef: reference, runId: payload.RunId);
+                if (result.Outcome == Andy.Issues.Application.Dtos.IssueTriageOutcome.DependencyUnavailable)
+                    throw new HttpRequestException("Triage output link could not be persisted; retry delivery.");
                 _logger.LogInformation(
                     "Issue {IssueId} CompleteTriage outcome={Outcome} after run {RunId}",
                     issue.Id, result.Outcome, payload.RunId);

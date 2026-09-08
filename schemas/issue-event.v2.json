@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Andy Issues event v2",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "issue_id",
+    "owner_user_id",
+    "title",
+    "triage_state"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 2
+    },
+    "issue_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "owner_user_id": {
+      "type": "string"
+    },
+    "title": {
+      "type": "string"
+    },
+    "triage_state": {
+      "type": "string"
+    },
+    "run_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "input_docs_refs": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/docs_ref"
+      }
+    },
+    "output_doc_ref": {
+      "$ref": "#/$defs/docs_ref"
+    },
+    "severity": {
+      "enum": [
+        "info",
+        "moderate",
+        "critical"
+      ]
+    },
+    "triage_output": {
+      "$ref": "triage-output.v1.json"
+    }
+  },
+  "$defs": {
+    "docs_ref": {
+      "type": "object",
+      "required": [
+        "document_id",
+        "link_id"
+      ],
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "link_id": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

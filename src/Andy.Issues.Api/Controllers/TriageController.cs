@@ -88,11 +88,21 @@ public class TriageController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status409Conflict)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(TriageConflictResponse), StatusCodes.Status503ServiceUnavailable)]
     public Task<ActionResult<IssueDto>> Complete(
         Guid id,
         [FromBody] Andy.Issues.Domain.ValueTypes.TriageOutput? output,
-        CancellationToken ct) =>
-        Transition(_issues.CompleteTriageAsync(id, GetUserId(), output, ct));
+        CancellationToken ct,
+        [FromQuery] Guid? outputDocumentId = null,
+        [FromQuery] Guid? outputLinkId = null)
+    {
+        if (outputDocumentId.HasValue != outputLinkId.HasValue)
+            return Task.FromResult<ActionResult<IssueDto>>(BadRequest(new TriageConflictResponse("Both outputDocumentId and outputLinkId are required.")));
+        Andy.Issues.Domain.ValueTypes.DocsRef? reference = outputDocumentId is { } documentId
+            ? new(documentId, outputLinkId!.Value) : null;
+        return Transition(_issues.CompleteTriageAsync(id, GetUserId(), output, ct, reference));
+    }
 
     [HttpPost("{id:guid}/accept")]
     [ProducesResponseType(typeof(IssueDto), StatusCodes.Status200OK)]
@@ -215,6 +225,7 @@ public class TriageController : ControllerBase
         {
             IssueTriageOutcome.Updated => Ok(result.Issue),
             IssueTriageOutcome.NotFound => NotFound(),
+            IssueTriageOutcome.DependencyUnavailable => StatusCode(503, new TriageConflictResponse(result.Error ?? "Triage output could not be stored.")),
             IssueTriageOutcome.InvalidTransition => Conflict(new TriageConflictResponse(result.Error ?? string.Empty)),
             _ => StatusCode(StatusCodes.Status500InternalServerError)
         };

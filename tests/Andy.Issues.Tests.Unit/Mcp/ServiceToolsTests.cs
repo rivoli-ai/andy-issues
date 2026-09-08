@@ -808,7 +808,7 @@ file class StubIssueService : IIssueService
         return Task.FromResult(StartTriageResult!);
     }
 
-    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, Andy.Issues.Domain.ValueTypes.TriageOutput? output = null, CancellationToken ct = default) =>
+    public Task<IssueTriageResult> CompleteTriageAsync(Guid id, string userId, Andy.Issues.Domain.ValueTypes.TriageOutput? output = null, CancellationToken ct = default, Andy.Issues.Domain.ValueTypes.DocsRef? outputDocRef = null, Guid? runId = null) =>
         Task.FromResult(IssueTriageResult.NotFound());
 
     public Task<IssueTriageResult> AcceptAsync(Guid id, string userId, CancellationToken ct = default) =>

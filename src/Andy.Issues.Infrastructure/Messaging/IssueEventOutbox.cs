@@ -45,7 +45,11 @@ public static class IssueEventOutbox
             // null for issues with Seq == 0 (legacy fixtures or
             // pre-AH6 rows that haven't been backfilled yet) — the
             // andy-tasks side already tolerates that case.
-            IssueDisplayId: issue.Seq > 0 ? issue.DisplayId : null);
+            IssueDisplayId: issue.Seq > 0 ? issue.DisplayId : null,
+            RunId: issue.TriageRunId,
+            InputDocsRefs: issue.TriageInputDocsRefs,
+            OutputDocRef: issue.TriageOutputDocRef,
+            Severity: issue.TriageOutput?.Severity.ToString().ToLowerInvariant());
 
         var subject = $"andy.issues.events.issue.{issue.Id}.{kind.ToSubjectKind()}";
 
