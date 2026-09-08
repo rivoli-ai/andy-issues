@@ -107,6 +107,19 @@ export interface Sandbox {
   updatedAt: string | null;
 }
 
+export interface SandboxSummary extends Omit<Sandbox, 'ownerUserId' | 'updatedAt'> {
+  repositoryName: string;
+  purpose: string;
+}
+export interface MySandboxes {
+  items: SandboxSummary[];
+  capacity: { current: number; max: number; tenantMax: number };
+}
+export interface CloseMySandboxes {
+  destroyed: string[];
+  failed: { id: string; reason: string }[];
+}
+
 export interface SandboxConnection {
   ideEndpoint: string | null;
   vncEndpoint: string | null;
@@ -253,6 +266,14 @@ export class ApiService {
 
   listSandboxes(): Observable<Sandbox[]> {
     return this.http.get<Sandbox[]>(`${this.baseUrl}/sandboxes`);
+  }
+
+  listMySandboxes(): Observable<MySandboxes> {
+    return this.http.get<MySandboxes>(`${this.baseUrl}/sandboxes/mine`);
+  }
+
+  closeAllMySandboxes(): Observable<CloseMySandboxes> {
+    return this.http.delete<CloseMySandboxes>(`${this.baseUrl}/sandboxes/mine`);
   }
 
   getSandboxConnection(id: string): Observable<SandboxConnection> {

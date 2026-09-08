@@ -316,3 +316,8 @@ usage inside an external agent. The durable outbox publishes
 `andy.issues.events.story.{id}.refine.aborted` with the run ID and `NotTriaged`
 state. Cancellation and completion serialize using the existing single-process
 tracker. A new refinement can be started immediately after cancellation.
+
+The Sandboxes page displays current/max capacity, disables creation at capacity,
+and refreshes every ten seconds. “Close all mine” requires confirmation, prevents
+duplicate submissions, and lists per-sandbox failures for retry. Create errors
+preserve entered values. Dialogs support keyboard focus and Escape dismissal.

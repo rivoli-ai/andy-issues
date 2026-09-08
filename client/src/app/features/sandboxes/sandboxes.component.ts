@@ -3,34 +3,58 @@
 import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subject, takeUntil } from 'rxjs';
+import { DialogDirective } from '../../shared/ui/dialog.directive';
 import {
   ApiService,
-  Sandbox,
+  SandboxSummary,
   SandboxConnection,
   Repository,
 } from '../../shared/services/api.service';
 
 @Component({
   selector: 'app-sandboxes',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, DialogDirective],
   template: `
     <div class="page-header">
-      <h1>Sandboxes</h1>
-      <button class="btn-primary" (click)="showCreate = true">Create Sandbox</button>
+      <h1>Sandboxes <small aria-live="polite">{{ capacity.current }}/{{ capacity.max }}</small></h1>
+      <div class="card-actions">
+        <button class="btn-secondary" (click)="showCloseAll = true" [disabled]="pending || loading || sandboxes.length === 0">Close all mine</button>
+        <button class="btn-primary" (click)="showCreate = true" [disabled]="pending || loading || capacity.current >= capacity.max">Create Sandbox</button>
+      </div>
+    </div>
+
+    <p role="alert" *ngIf="error">{{ error }}</p>
+    <ul *ngIf="closeFailures.length" aria-label="Sandboxes that could not be closed">
+      <li *ngFor="let failure of closeFailures">{{ failure.id }}: {{ failure.reason }}</li>
+    </ul>
+    <div class="modal-backdrop" *ngIf="showCloseAll" (click)="dismissCloseAll()">
+      <div class="modal" appDialog aria-labelledby="close-all-title" (dialogDismiss)="dismissCloseAll()" (click)="$event.stopPropagation()">
+        <h2 id="close-all-title">Close all your sandboxes?</h2>
+        <p role="alert" *ngIf="error">{{ error }}</p>
+        <p>This destroys your {{ sandboxes.length }} environments. Save your work first.</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" [disabled]="pending" (click)="dismissCloseAll()">Cancel</button>
+          <button class="btn-primary" [disabled]="pending" (click)="closeAll()">{{ pending ? 'Closing…' : 'Close all mine' }}</button>
+        </div>
+      </div>
     </div>
 
     <!-- Create modal -->
-    <div class="modal-backdrop" *ngIf="showCreate" (click)="showCreate = false">
-      <div class="modal" (click)="$event.stopPropagation()">
-        <h2>Create Sandbox</h2>
-        <select class="input" [(ngModel)]="createRepoId">
+    <div class="modal-backdrop" *ngIf="showCreate" (click)="dismissCreate()">
+      <div class="modal" appDialog aria-labelledby="create-sandbox-title" (dialogDismiss)="dismissCreate()" (click)="$event.stopPropagation()">
+        <h2 id="create-sandbox-title">Create Sandbox</h2>
+        <p role="alert" *ngIf="error">{{ error }}</p>
+        <label for="sandbox-repository">Repository</label>
+        <select id="sandbox-repository" class="input" [(ngModel)]="createRepoId" [disabled]="pending">
           <option value="">Select repository...</option>
           <option *ngFor="let r of repos" [value]="r.id">{{ r.name }}</option>
         </select>
-        <input class="input" placeholder="Branch" [(ngModel)]="createBranch" />
+        <label for="sandbox-branch">Branch</label>
+        <input id="sandbox-branch" class="input" [(ngModel)]="createBranch" [disabled]="pending" />
         <div class="modal-actions">
-          <button class="btn-secondary" (click)="showCreate = false">Cancel</button>
-          <button class="btn-primary" (click)="doCreate()" [disabled]="!createRepoId || !createBranch.trim()">Create</button>
+          <button class="btn-secondary" (click)="dismissCreate()" [disabled]="pending">Cancel</button>
+          <button class="btn-primary" (click)="doCreate()" [disabled]="pending || !createRepoId || !createBranch.trim() || capacity.current >= capacity.max">{{ pending ? 'Creating…' : 'Create' }}</button>
         </div>
       </div>
     </div>
@@ -44,20 +68,20 @@ import {
         </div>
         <div class="card-body">
           <p class="card-meta">Container: <code>{{ s.containerId | slice:0:12 }}</code></p>
-          <p class="card-meta">Repo: {{ s.repositoryId | slice:0:8 }}...</p>
+          <p class="card-meta">{{ s.repositoryName }} · {{ s.purpose }}</p>
         </div>
         <div class="card-actions">
           <button class="btn-sm btn-secondary" (click)="connect(s)">Connect</button>
-          <button class="btn-sm btn-secondary btn-danger" (click)="destroy(s)">Destroy</button>
+          <button class="btn-sm btn-secondary btn-danger" (click)="destroy(s)" [disabled]="pending">Destroy</button>
         </div>
 
         <!-- Connection info -->
         <div *ngIf="connections[s.id]" class="connection-info">
           <p *ngIf="connections[s.id].ideEndpoint">
-            IDE: <a [href]="connections[s.id].ideEndpoint!" target="_blank">{{ connections[s.id].ideEndpoint }}</a>
+            IDE: <a [href]="connections[s.id].ideEndpoint!" target="_blank" rel="noopener noreferrer">{{ connections[s.id].ideEndpoint }}</a>
           </p>
           <p *ngIf="connections[s.id].vncEndpoint">
-            VNC: <a [href]="connections[s.id].vncEndpoint!" target="_blank">{{ connections[s.id].vncEndpoint }}</a>
+            VNC: <a [href]="connections[s.id].vncEndpoint!" target="_blank" rel="noopener noreferrer">{{ connections[s.id].vncEndpoint }}</a>
           </p>
           <p *ngIf="connections[s.id].sshEndpoint">
             SSH: <code>{{ connections[s.id].sshEndpoint }}</code>
@@ -100,7 +124,13 @@ import {
   `],
 })
 export class SandboxesComponent implements OnInit, OnDestroy {
-  sandboxes: Sandbox[] = [];
+  sandboxes: SandboxSummary[] = [];
+  capacity = { current: 0, max: 0, tenantMax: 20 };
+  pending = false;
+  error = '';
+  closeFailures: { id: string; reason: string }[] = [];
+  showCloseAll = false;
+  private readonly destroyed$ = new Subject<void>();
   repos: Repository[] = [];
   connections: Record<string, SandboxConnection> = {};
   loading = false;
@@ -121,37 +151,62 @@ export class SandboxesComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     if (this.pollInterval) clearInterval(this.pollInterval);
+    this.destroyed$.next();
+    this.destroyed$.complete();
   }
 
   load(): void {
+    if (this.loading || this.pending) return;
     this.loading = true;
-    this.api.listSandboxes().subscribe({
-      next: (list) => { this.sandboxes = list; this.loading = false; },
-      error: () => { this.loading = false; },
+    this.api.listMySandboxes().pipe(takeUntil(this.destroyed$)).subscribe({
+      next: (result) => { this.sandboxes = result.items; this.capacity = result.capacity; this.loading = false; },
+      error: () => { this.loading = false; this.error = 'Could not load your sandboxes. Retrying shortly.'; },
     });
   }
 
   loadRepos(): void {
-    this.api.listRepositories('mine', 1, 100).subscribe({
+    this.api.listRepositories('mine', 1, 100).pipe(takeUntil(this.destroyed$)).subscribe({
       next: (r) => { this.repos = r.items; },
     });
   }
 
+  dismissCreate(): void { if (!this.pending) this.showCreate = false; }
+  dismissCloseAll(): void { if (!this.pending) this.showCloseAll = false; }
+
   doCreate(): void {
-    this.api.createSandbox(this.createRepoId, this.createBranch).subscribe({
-      next: () => { this.showCreate = false; this.createRepoId = ''; this.createBranch = ''; this.load(); },
+    if (this.pending || !this.createRepoId || !this.createBranch.trim()) return;
+    this.pending = true;
+    this.error = '';
+    this.api.createSandbox(this.createRepoId, this.createBranch.trim()).pipe(takeUntil(this.destroyed$)).subscribe({
+      next: () => { this.pending = false; this.showCreate = false; this.createRepoId = ''; this.createBranch = ''; this.load(); },
+      error: (err) => { this.pending = false; this.error = err.status === 409 ? 'Sandbox capacity reached. Close an environment and retry.' : 'Could not create the sandbox. Your entries are preserved.'; this.load(); },
     });
   }
 
-  connect(sandbox: Sandbox): void {
-    this.api.getSandboxConnection(sandbox.id).subscribe({
+  closeAll(): void {
+    if (this.pending || !this.showCloseAll) return;
+    this.pending = true;
+    this.error = '';
+    this.closeFailures = [];
+    this.api.closeAllMySandboxes().pipe(takeUntil(this.destroyed$)).subscribe({
+      next: (result) => { this.pending = false; this.showCloseAll = false; this.closeFailures = result.failed; this.connections = {}; this.load(); },
+      error: () => { this.pending = false; this.error = 'Could not close your sandboxes. Retry to close any remaining environments.'; },
+    });
+  }
+
+  connect(sandbox: SandboxSummary): void {
+    this.api.getSandboxConnection(sandbox.id).pipe(takeUntil(this.destroyed$)).subscribe({
       next: (conn) => { this.connections[sandbox.id] = conn; },
     });
   }
 
-  destroy(sandbox: Sandbox): void {
-    if (confirm('Destroy this sandbox?')) {
-      this.api.destroySandbox(sandbox.id).subscribe(() => this.load());
+  destroy(sandbox: SandboxSummary): void {
+    if (!this.pending && confirm('Destroy this sandbox?')) {
+      this.pending = true;
+      this.api.destroySandbox(sandbox.id).pipe(takeUntil(this.destroyed$)).subscribe({
+        next: () => { this.pending = false; delete this.connections[sandbox.id]; this.load(); },
+        error: () => { this.pending = false; this.error = 'Could not destroy this sandbox. Please retry.'; },
+      });
     }
   }
 }
