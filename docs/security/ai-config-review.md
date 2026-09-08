@@ -47,8 +47,22 @@ backups may still contain plaintext and require separate retention handling.
 
 ## Approval status
 
-Automatic approval review rejected the raw-key endpoint and its new access-audit
-changes because broad issue-work authorization did not explicitly authorize
-credential exposure. Explicit user approval was requested. The current patch
-contains only encrypted LLM storage, legacy plaintext protection, and provider
-credential resolution; it adds no raw-key API. The endpoint portion remains open.
+The user explicitly approved this owner-only endpoint and its safeguards on
+2026-09-08, after reviewing the credential exposure. Encrypted storage was
+already merged; the endpoint now uses the existing append-only AuditLog table.
+Each request receives correlated attempt/outcome entries containing only caller,
+repository identifier, time and status. The response stays in memory until the
+outcome is persisted; failure of either audit write returns 503 without a key.
+Rejected authorization, malformed input and rate-limit responses are audited too.
+
+The fixed-window limit is ten requests per minute per caller **per service
+instance**, with no queue. Scale-out deployments must additionally enforce the
+aggregate limit at the authenticated gateway. Keyless local providers can return
+an empty key. Unreadable or unresolved stored credentials return a generic 503.
+No repository override falls back to a foreign configuration. With no override,
+an owned repository uses the caller's default; missing configuration returns 404.
+
+Consumers must use TLS at the remote edge (only the embedded loopback proxy may
+use local HTTP), keep keys in memory solely for injection, and never persist them
+in Keychain or ordinary settings caches. The dedicated route must remain excluded
+from any future HTTP body logging, response caching or telemetry payload capture.
