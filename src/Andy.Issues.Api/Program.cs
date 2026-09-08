@@ -1,6 +1,8 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
 using Andy.Auth.M2MClient;
 using Microsoft.AspNetCore.DataProtection;
 using Andy.Issues.Api.Auth;
@@ -303,6 +305,21 @@ builder.Services.AddScoped<IBacklogRecategorizeService, BacklogRecategorizeServi
 builder.Services.AddScoped<ISecretStore, SecretStore>();
 builder.Services.AddScoped<ILinkedProviderService, LinkedProviderService>();
 builder.Services.AddScoped<ILlmSettingService, LlmSettingService>();
+builder.Services.AddScoped<IAiConfigService, AiConfigService>();
+builder.Services.AddAuthorization(options => options.AddPolicy("AiConfigOwner", policy =>
+    policy.RequireAuthenticatedUser()));
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("AiConfig", context => RateLimitPartition.GetFixedWindowLimiter(
+        context.User.RequireUserId(), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true
+        }));
+});
 builder.Services.AddHttpClient<IGitHubClient, GitHubClient>();
 builder.Services.AddHttpClient<IAzureDevOpsClient, AzureDevOpsClient>();
 
@@ -455,7 +472,9 @@ app.UseStaticFiles();
 
 app.UseCors("AllowAngularApp");
 app.UseAuthentication();
+app.UseMiddleware<AiConfigAccessMiddleware>();
 app.UseAuthorization();
+app.UseRateLimiter();
 
 app.MapControllers();
 
