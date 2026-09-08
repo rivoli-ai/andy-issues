@@ -66,6 +66,25 @@
     "testUserRole": "admin"
   },
   "settings": {
-    "definitions": []
+    "definitions": [
+      {
+        "key": "andy-issues:sandbox:max-per-user",
+        "displayName": "Sandbox capacity per user",
+        "description": "Maximum provisioned sandboxes per user. Zero disables creation.",
+        "category": "Sandboxes",
+        "dataType": "Integer",
+        "defaultValue": "3",
+        "isSecret": false
+      },
+      {
+        "key": "andy-issues:sandbox:max-per-tenant",
+        "displayName": "Sandbox capacity per tenant",
+        "description": "Informational tenant capacity; not enforced yet.",
+        "category": "Sandboxes",
+        "dataType": "Integer",
+        "defaultValue": "20",
+        "isSecret": false
+      }
+    ]
   }
 }
