@@ -3,6 +3,7 @@ using System;
 using Andy.Issues.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace Andy.Issues.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260908081430_AddRecategorizationJobs")]
+    partial class AddRecategorizationJobs
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,54 +24,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
-
-            modelBuilder.Entity("Andy.Issues.Domain.Entities.AgentRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasMaxLength(65536)
-                        .HasColumnType("character varying(65536)");
-
-                    b.Property<DateTimeOffset>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<bool>("IsDefault")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<string>("NameKey")
-                        .IsRequired()
-                        .HasMaxLength(120)
-                        .HasColumnType("character varying(120)");
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
-
-                    b.Property<DateTimeOffset?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryId")
-                        .IsUnique()
-                        .HasFilter("\"IsDefault\" = true");
-
-                    b.HasIndex("RepositoryId", "NameKey")
-                        .IsUnique();
-
-                    b.ToTable("AgentRules");
-                });
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.ArtifactFeedConfig", b =>
                 {
@@ -373,25 +328,14 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .HasMaxLength(512)
                         .HasColumnType("character varying(512)");
 
-                    b.Property<string>("TriageInputDocsRefs")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("TriageInputDocsRefsJson");
-
                     b.Property<string>("TriageOutput")
                         .HasColumnType("text")
                         .HasColumnName("TriageOutputJson");
 
-                    b.Property<string>("TriageOutputDocRef")
-                        .HasColumnType("text")
-                        .HasColumnName("TriageOutputDocRefJson");
-
                     b.Property<Guid?>("TriageRunId")
-                        .IsConcurrencyToken()
                         .HasColumnType("uuid");
 
                     b.Property<string>("TriageState")
-                        .IsConcurrencyToken()
                         .IsRequired()
                         .HasMaxLength(32)
                         .HasColumnType("character varying(32)");
@@ -504,8 +448,8 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
                     b.Property<string>("ApiKey")
                         .IsRequired()
-                        .HasMaxLength(8192)
-                        .HasColumnType("character varying(8192)");
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
 
                     b.Property<string>("BaseUrl")
                         .HasMaxLength(1024)
@@ -968,9 +912,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("AgentRuleId")
-                        .HasColumnType("uuid");
-
                     b.Property<int?>("AzureDevOpsWorkItemId")
                         .HasColumnType("integer");
 
@@ -1072,8 +1013,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AgentRuleId");
-
                     b.HasIndex("AzureDevOpsWorkItemId");
 
                     b.HasIndex("FeatureId");
@@ -1082,17 +1021,6 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("UserStories");
-                });
-
-            modelBuilder.Entity("Andy.Issues.Domain.Entities.AgentRule", b =>
-                {
-                    b.HasOne("Andy.Issues.Domain.Entities.Repository", "Repository")
-                        .WithMany()
-                        .HasForeignKey("RepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Repository");
                 });
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.BacklogGeneration", b =>
@@ -1187,18 +1115,11 @@ namespace Andy.Issues.Infrastructure.Data.Migrations
 
             modelBuilder.Entity("Andy.Issues.Domain.Entities.UserStory", b =>
                 {
-                    b.HasOne("Andy.Issues.Domain.Entities.AgentRule", "AgentRule")
-                        .WithMany()
-                        .HasForeignKey("AgentRuleId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("Andy.Issues.Domain.Entities.Feature", "Feature")
                         .WithMany("Stories")
                         .HasForeignKey("FeatureId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
-
-                    b.Navigation("AgentRule");
 
                     b.Navigation("Feature");
                 });

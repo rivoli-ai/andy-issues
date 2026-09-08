@@ -40,6 +40,8 @@ public class AppDbContext : DbContext
     public DbSet<Issue> Issues => Set<Issue>();
     public DbSet<TriageOutputRevision> TriageOutputRevisions => Set<TriageOutputRevision>();
     public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
+    public DbSet<RecategorizationJob> RecategorizationJobs => Set<RecategorizationJob>();
+
     public DbSet<BacklogGeneration> BacklogGenerations => Set<BacklogGeneration>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
@@ -267,6 +269,16 @@ public class AppDbContext : DbContext
         // late-join path is a fast point lookup; cascade with the
         // owning Repository so old runs disappear when the repo is
         // deleted.
+        modelBuilder.Entity<RecategorizationJob>(e =>
+        {
+            e.ToTable("recategorization_jobs");
+            e.HasKey(x => x.Id);
+            e.Property(x => x.UserId).HasMaxLength(256).IsRequired();
+            e.Property(x => x.Phase).HasMaxLength(64).IsRequired();
+            e.HasIndex(x => new { x.RepositoryId, x.CompletedAt });
+            e.HasOne<Repository>().WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<BacklogGeneration>(e =>
         {
             e.HasKey(x => x.Id);

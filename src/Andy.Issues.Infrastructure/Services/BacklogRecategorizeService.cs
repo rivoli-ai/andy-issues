@@ -76,7 +76,8 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
         Guid repositoryId,
         string userId,
         bool applyToGitHub,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Func<string, Task>? progress = null)
     {
         // Same access rule as the importer's sync path: CanView,
         // null → controller 404. Ownership is deliberately NOT
@@ -134,6 +135,8 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
             .Where(f => f.ExternalId is null || !f.ExternalId.EndsWith("/stories", StringComparison.Ordinal))
             .ToList();
 
+        if (progress is not null) await progress("CallingLlm");
+
         // ── LLM call
         var prompt = BuildPrompt(repo.Name, existingEpics, existingFeatures, inputFeatures, inputStories);
         string llmResponse;
@@ -169,6 +172,8 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                 RecategorizeOutcome.ParseFailed,
                 Message: $"Could not parse LLM response: {ex.Message}");
         }
+
+        if (progress is not null) await progress("Applying");
 
         // ── Apply locally
         var errors = new List<string>();
@@ -459,6 +464,7 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
         // ── Optional GitHub write-back
         if (applyToGitHub)
         {
+            if (progress is not null) await progress("WritingBackToGitHub");
             var accessToken = await ResolveGitHubPatAsync(userId, ct);
             if (string.IsNullOrEmpty(accessToken))
             {

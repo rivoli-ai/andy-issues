@@ -2,6 +2,10 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Api.Auth;
+using Andy.Issues.Api.Infrastructure;
+using Andy.Issues.Infrastructure.Data;
+using Microsoft.EntityFrameworkCore;
+using System.Text.Json;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Requests;
@@ -19,7 +23,6 @@ public class RepositoriesController : ControllerBase
     private readonly IPullRequestService _pullRequestService;
     private readonly IDraftBacklogGenerator _draftBacklogGenerator;
     private readonly IBacklogGitHubImportService _backlogGitHubImportService;
-    private readonly IBacklogRecategorizeService _backlogRecategorizeService;
     private readonly IAgentRulesService _agentRulesService;
 
     public RepositoriesController(
@@ -27,14 +30,12 @@ public class RepositoriesController : ControllerBase
         IPullRequestService pullRequestService,
         IDraftBacklogGenerator draftBacklogGenerator,
         IBacklogGitHubImportService backlogGitHubImportService,
-        IBacklogRecategorizeService backlogRecategorizeService,
         IAgentRulesService agentRulesService)
     {
         _repositoryService = repositoryService;
         _pullRequestService = pullRequestService;
         _draftBacklogGenerator = draftBacklogGenerator;
         _backlogGitHubImportService = backlogGitHubImportService;
-        _backlogRecategorizeService = backlogRecategorizeService;
         _agentRulesService = agentRulesService;
     }
 
@@ -242,46 +243,47 @@ public class RepositoriesController : ControllerBase
     /// "Uncategorized" buckets into a proper epic → feature → story
     /// hierarchy using the repository's configured LLM, optionally
     /// writing labels / new issues / sub-issue links back to GitHub.
-    /// Response shape is PINNED — the Conductor client is built
-    /// against these exact field names.
+    /// Returns an accepted job immediately; poll the Location for progress and final counts.
     /// </summary>
     [HttpPost("{id:guid}/recategorize")]
     public async Task<ActionResult<object>> Recategorize(
         Guid id,
         [FromBody] RecategorizeBacklogRequest? request,
+        [FromServices] IRepositoryAccessGuard guard,
+        [FromServices] RecategorizationWorker worker,
         CancellationToken ct)
     {
         var userId = GetUserId();
-        var result = await _backlogRecategorizeService.RecategorizeAsync(
-            id, userId, request?.ApplyToGitHub ?? false, ct);
-        if (result is null) return NotFound();
+        if (!await guard.CanViewAsync(id, userId, ct)) return NotFound();
+        var job = await worker.EnqueueAsync(id, userId, request?.ApplyToGitHub ?? false, HttpContext, ct);
+        if (job is null) return Conflict(new { error = "recategorization_busy" });
+        return AcceptedAtAction(nameof(GetRecategorization), new { id, jobId = job.Id },
+            new { id = job.Id, jobId = job.Id, phase = job.Phase });
+    }
 
-        return result.Outcome switch
+    [HttpGet("{id:guid}/recategorize/{jobId:guid}")]
+    public async Task<ActionResult<object>> GetRecategorization(Guid id, Guid jobId,
+        [FromServices] AppDbContext db, [FromServices] IRepositoryAccessGuard guard, CancellationToken ct)
+    {
+        var userId = GetUserId();
+        if (!await guard.CanViewAsync(id, userId, ct)) return NotFound();
+        var row = await db.RecategorizationJobs.AsNoTracking()
+            .FirstOrDefaultAsync(j => j.Id == jobId && j.RepositoryId == id && j.UserId == userId, ct);
+        if (row is null) return NotFound();
+        var result = row.ResultJson is null ? null : JsonSerializer.Deserialize<RecategorizeResult>(row.ResultJson, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        return Ok(new
         {
-            RecategorizeOutcome.NoLlmSetting => BadRequest(new
-            {
-                error = "no_llm_setting",
-                message = result.Message
-            }),
-            RecategorizeOutcome.LlmCallFailed or RecategorizeOutcome.ParseFailed => StatusCode(502, new
-            {
-                error = "llm_failed",
-                message = result.Message
-            }),
-            // Recategorized and NothingToDo both map to 200 — the
-            // latter simply carries all-zero counts and no errors.
-            _ => Ok(new
-            {
-                classified = result.Classified,
-                epicsCreated = result.EpicsCreated,
-                featuresCreated = result.FeaturesCreated,
-                storiesReparented = result.StoriesReparented,
-                labelsApplied = result.LabelsApplied,
-                subIssuesLinked = result.SubIssuesLinked,
-                githubIssuesCreated = result.GithubIssuesCreated,
-                errors = result.Errors
-            })
-        };
+            errorCode = result?.Outcome == RecategorizeOutcome.NoLlmSetting ? "no_llm_setting"
+                : row.Phase == "Failed" ? "llm_failed" : null,
+            row.Id,
+            row.RepositoryId,
+            row.Phase,
+            row.Error,
+            row.StartedAt,
+            row.UpdatedAt,
+            row.CompletedAt,
+            result
+        });
     }
 
     [HttpPatch("{id:guid}/llm-setting")]

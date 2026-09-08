@@ -10,6 +10,7 @@ using Andy.Issues.Infrastructure.Data;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Xunit;
 
 namespace Andy.Issues.Tests.Integration.Controllers;
@@ -50,7 +51,7 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
     }
 
     [Fact]
-    public async Task Recategorize_HappyPath_Returns200WithPinnedContractShape()
+    public async Task Recategorize_HappyPath_Returns202ThenPinnedResultShape()
     {
         var repoId = await SeedRepoWithUncategorizedAsync(withLlm: true);
         _llmHandler.AssistantContent = """
@@ -62,8 +63,9 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
             $"/api/repositories/{repoId}/recategorize",
             new { applyToGitHub = false });
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
+        var status = await WaitForJobAsync(response);
+        Assert.Equal("Completed", status.GetProperty("phase").GetString());
+        var body = status.GetProperty("result");
 
         // The PINNED contract — the Conductor client is built against
         // these exact field names. Every one must be present.
@@ -88,7 +90,7 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
     }
 
     [Fact]
-    public async Task Recategorize_NoLlmSetting_Returns400WithPinnedErrorShape()
+    public async Task Recategorize_NoLlmSetting_ReportsFailedJob()
     {
         var repoId = await SeedRepoWithUncategorizedAsync(withLlm: false);
 
@@ -96,14 +98,14 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
             $"/api/repositories/{repoId}/recategorize",
             new { applyToGitHub = false });
 
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-        var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-        Assert.Equal("no_llm_setting", body.GetProperty("error").GetString());
-        Assert.False(string.IsNullOrEmpty(body.GetProperty("message").GetString()));
+        var body = await WaitForJobAsync(response);
+        Assert.Equal("Failed", body.GetProperty("phase").GetString());
+        Assert.Equal("no_llm_setting", body.GetProperty("errorCode").GetString());
+        Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
     }
 
     [Fact]
-    public async Task Recategorize_LlmFailure_Returns502WithPinnedErrorShape()
+    public async Task Recategorize_LlmFailure_ReportsFailedJob()
     {
         var repoId = await SeedRepoWithUncategorizedAsync(withLlm: true);
         _llmHandler.StatusCode = HttpStatusCode.InternalServerError;
@@ -113,10 +115,10 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
                 $"/api/repositories/{repoId}/recategorize",
                 new { applyToGitHub = false });
 
-            Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
-            var body = await response.Content.ReadFromJsonAsync<JsonElement>();
-            Assert.Equal("llm_failed", body.GetProperty("error").GetString());
-            Assert.False(string.IsNullOrEmpty(body.GetProperty("message").GetString()));
+            var body = await WaitForJobAsync(response);
+            Assert.Equal("Failed", body.GetProperty("phase").GetString());
+            Assert.Equal("llm_failed", body.GetProperty("errorCode").GetString());
+            Assert.False(string.IsNullOrEmpty(body.GetProperty("error").GetString()));
         }
         finally
         {
@@ -132,6 +134,87 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
             new { applyToGitHub = false });
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    private async Task<JsonElement> WaitForJobAsync(HttpResponseMessage accepted)
+    {
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        Assert.NotNull(accepted.Headers.Location);
+        for (var attempt = 0; attempt < 200; attempt++)
+        {
+            var status = await _client.GetFromJsonAsync<JsonElement>(accepted.Headers.Location);
+            if (status.GetProperty("phase").GetString() is "Completed" or "Failed") return status;
+            await Task.Delay(25);
+        }
+        throw new TimeoutException("Job did not reach a terminal phase.");
+    }
+
+    [Fact]
+    public async Task SlowLlm_ReturnsImmediatelySurvivesRequestCancellationAndRejectsDuplicate()
+    {
+        var repoId = await SeedRepoWithUncategorizedAsync(withLlm: true);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _llmHandler.BeforeResponse = async ct => { entered.TrySetResult(); await release.Task.WaitAsync(ct); };
+        _llmHandler.AssistantContent = """
+            { "epics": [], "features": [], "assignments": [
+                { "item": "gh:12", "role": "story", "parentRef": "existing:45" } ] }
+            """;
+        using var requestCancellation = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var accepted = await _client.PostAsJsonAsync($"/api/repositories/{repoId}/recategorize",
+            new { applyToGitHub = false }, requestCancellation.Token);
+        Assert.Equal(HttpStatusCode.Accepted, accepted.StatusCode);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        requestCancellation.Cancel();
+        var status = await _client.GetFromJsonAsync<JsonElement>(accepted.Headers.Location);
+        Assert.Equal("CallingLlm", status.GetProperty("phase").GetString());
+        var duplicate = await _client.PostAsJsonAsync($"/api/repositories/{repoId}/recategorize", new { });
+        Assert.Equal(HttpStatusCode.Conflict, duplicate.StatusCode);
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var jobId = status.GetProperty("id").GetGuid();
+            var phases = await db.Outbox.Where(o => o.CorrelationId == jobId).Select(o => o.PayloadJson).ToListAsync();
+            Assert.Contains(phases, p => p.Contains("CallingLlm"));
+            var job = await db.RecategorizationJobs.FindAsync(jobId);
+            job!.UserId = "another-user";
+            await db.SaveChangesAsync();
+            Assert.Equal(HttpStatusCode.NotFound, (await _client.GetAsync(accepted.Headers.Location)).StatusCode);
+            job.UserId = TestAuthHandler.UserId;
+            await db.SaveChangesAsync();
+        }
+        release.SetResult();
+        Assert.Equal("Completed", (await WaitForJobAsync(accepted)).GetProperty("phase").GetString());
+    }
+
+    [Fact]
+    public async Task Startup_ReportsInterruptedJobsBeforeAcceptingWork()
+    {
+        var repoId = await SeedRepoWithUncategorizedAsync(withLlm: false);
+        var id = Guid.NewGuid();
+        using (var scope = _factory.Services.CreateScope())
+        {
+            var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            db.RecategorizationJobs.Add(new RecategorizationJob
+            {
+                Id = id,
+                RepositoryId = repoId,
+                UserId = TestAuthHandler.UserId,
+                Phase = "CallingLlm"
+            });
+            await db.SaveChangesAsync();
+        }
+        using var worker = new Andy.Issues.Api.Infrastructure.RecategorizationWorker(
+            _factory.Services.GetRequiredService<IServiceScopeFactory>(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Andy.Issues.Api.Infrastructure.RecategorizationWorker>.Instance);
+        await worker.StartAsync(CancellationToken.None);
+        try
+        {
+            var status = await _client.GetFromJsonAsync<JsonElement>($"/api/repositories/{repoId}/recategorize/{id}");
+            Assert.Equal("Failed", status.GetProperty("phase").GetString());
+            Assert.Contains("restarted", status.GetProperty("error").GetString());
+        }
+        finally { await worker.StopAsync(CancellationToken.None); }
     }
 
     // MARK: - Seeding
@@ -237,17 +320,19 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
     {
         public HttpStatusCode StatusCode { get; set; } = HttpStatusCode.OK;
         public string AssistantContent { get; set; } = "{}";
+        public Func<CancellationToken, Task>? BeforeResponse { get; set; }
 
-        protected override Task<HttpResponseMessage> SendAsync(
+        protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (BeforeResponse is not null) await BeforeResponse(cancellationToken);
             if (StatusCode != HttpStatusCode.OK)
-                return Task.FromResult(new HttpResponseMessage(StatusCode)
+                return new HttpResponseMessage(StatusCode)
                 {
                     Content = new StringContent("upstream error")
-                });
+                };
 
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = JsonContent.Create(new
                 {
@@ -256,7 +341,7 @@ public class RecategorizeEndpointTests : IClassFixture<TestWebApplicationFactory
                         new { message = new { role = "assistant", content = AssistantContent } }
                     }
                 })
-            });
+            };
         }
     }
 }

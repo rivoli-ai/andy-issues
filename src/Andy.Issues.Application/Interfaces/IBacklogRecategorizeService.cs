@@ -65,5 +65,6 @@ public interface IBacklogRecategorizeService
         Guid repositoryId,
         string userId,
         bool applyToGitHub,
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        Func<string, Task>? progress = null);
 }

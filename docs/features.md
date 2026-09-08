@@ -317,6 +317,31 @@ usage inside an external agent. The durable outbox publishes
 state. Cancellation and completion serialize using the existing single-process
 tracker. A new refinement can be started immediately after cancellation.
 
+## Asynchronous recategorization
+
+`POST /api/repositories/{id}/recategorize` accepts `{ applyToGitHub: false }`
+and returns HTTP 202 with `{ id, jobId, phase }` and a `Location` header.
+The LLM and write-back run in a fresh background scope, independent of the
+request cancellation token. A duplicate active job for the repository or a
+full queue returns 409 (`recategorization_busy`). The queue is bounded to 32
+jobs per service instance; each execution has a 15-minute timeout.
+
+`GET /api/repositories/{id}/recategorize/{jobId}` requires the submitting user
+and current repository access. It returns persisted phase, timestamps, error,
+errorCode, and the final `result` with the existing classification counts.
+Phases are `CollectingItems`, `CallingLlm`, `Applying`, optional
+`WritingBackToGitHub`, and `Completed` or `Failed`. Progress uses the existing
+SignalR `BacklogGenerationProgress` notification and transactional NATS events
+on `andy.issues.events.recategorization.{jobId}.progress` (schema version 1).
+Polling remains available if notification delivery fails.
+
+Queued work retains the caller bearer only in memory for delegated downstream
+requests. A restart marks unfinished jobs failed before accepting new work;
+submit again to retry. The single embedded service instance owns its queue;
+multiple replicas require a distributed queue and reservation before use.
+Conductor companion [#2351](https://github.com/rivoli-ai/conductor/issues/2351)
+adds compatible job polling and phase display and must ship before this API
+contract change.
 ## Administrative users
 
 Settings → Users appears only for a caller with the admin user-read permission.

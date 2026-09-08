@@ -207,6 +207,9 @@ else
     builder.Services.AddScoped<IAndySettingsClient, LocalSettingsClient>();
 }
 
+builder.Services.AddSingleton<RecategorizationWorker>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<RecategorizationWorker>());
+
 // --- Services ---
 builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
