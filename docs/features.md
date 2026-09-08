@@ -317,6 +317,31 @@ usage inside an external agent. The durable outbox publishes
 state. Cancellation and completion serialize using the existing single-process
 tracker. A new refinement can be started immediately after cancellation.
 
+## Administrative users
+
+Settings → Users appears only for a caller with the admin user-read permission.
+It searches and filters the authoritative RBAC application membership, supports
+pagination, and links to role management via the `andy-rbac:admin-url` setting.
+No role changes or local user-directory fallback are provided.
+
+`GET /api/admin/users?query=&role=&skip=0&take=50` returns `{ items, total }`.
+The named `AdminUsersRead` policy requires the authenticated caller's
+`permission` claim `andy-issues:admin-users:read`, registered for the admin role.
+The original issue spelling `andy-issues:admin:users:read` is accepted as an alias;
+the seeded spelling follows the service:resource:action registration schema.
+There is no development authentication bypass for this permission.
+`GET /api/admin/users/access` exposes only the caller's visibility decision and
+configured management link so the client can hide the tab.
+
+Configure `Rbac:ApiBaseUrl` (including the `/rbac/` prefix when using the embedded
+proxy). Requests use delegated authentication for `urn:andy-rbac-api` and call
+RBAC's landed `GET /api/applications/by-code/andy-issues/users` contract
+([RBAC #9](https://github.com/rivoli-ai/andy-rbac/issues/9)). Results are cached
+for 30 seconds per caller, search, role, and page; failures are not cached.
+Browser responses use `no-store`. The MCP `admin_list_users` tool uses the same
+policy for discovery and invocation. CLI: `andy-issues admin users list
+[--query alice] [--role admin] [--skip 0] [--take 50]`.
+
 The Sandboxes page displays current/max capacity, disables creation at capacity,
 and refreshes every ten seconds. “Close all mine” requires confirmation, prevents
 duplicate submissions, and lists per-sandbox failures for retry. Create errors

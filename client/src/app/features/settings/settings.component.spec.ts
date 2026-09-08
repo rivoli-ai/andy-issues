@@ -25,6 +25,7 @@ describe('SettingsComponent', () => {
     httpMock.expectOne('/api/linked-providers').flush([]);
     httpMock.expectOne('/api/mcp').flush([]);
     httpMock.expectOne('/api/artifact').flush([]);
+    httpMock.expectOne('/api/admin/users/access').flush({ canRead: false, manageUrl: null });
   }
 
   it('should create', () => {
@@ -39,6 +40,7 @@ describe('SettingsComponent', () => {
     ]);
     httpMock.expectOne('/api/mcp').flush([]);
     httpMock.expectOne('/api/artifact').flush([]);
+    httpMock.expectOne('/api/admin/users/access').flush({ canRead: false, manageUrl: null });
 
     fixture.detectChanges();
     expect(component.providers.length).toBe(1);

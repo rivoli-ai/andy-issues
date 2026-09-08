@@ -3,6 +3,7 @@
 
 using Andy.Auth.M2MClient;
 using Microsoft.AspNetCore.DataProtection;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
 using Andy.Issues.Api.Telemetry;
@@ -108,6 +109,9 @@ else
     });
 }
 
+builder.Services.AddAuthorization(options => options.AddPolicy(AdminUsersAuthorization.Policy,
+    policy => policy.RequireAuthenticatedUser().RequireAssertion(context => AdminUsersAuthorization.CanRead(context.User))));
+
 // --- RBAC (Andy.Rbac.Client) ---
 var rbacBaseUrl = builder.Configuration["Rbac:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(rbacBaseUrl) && builder.Environment.IsDevelopment())
@@ -145,6 +149,20 @@ var keyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
 if (!string.IsNullOrWhiteSpace(keyRingPath)) dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
 builder.Services.AddScoped<ILlmSecretStore, LlmSecretStore>();
 builder.Services.AddHostedService<LlmKeyMigration>();
+builder.Services.AddMemoryCache();
+var rbacUsersClient = builder.Services.AddHttpClient("AndyRbacUsers", client =>
+{
+    if (!string.IsNullOrWhiteSpace(rbacBaseUrl)) client.BaseAddress = new Uri(rbacBaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+if (attachBearer)
+{
+    rbacUsersClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        sp.GetRequiredService<IDelegatedTokenProvider>(), sp.GetRequiredService<IServiceTokenProvider>(),
+        sp.GetRequiredService<IHttpContextAccessor>(), "urn:andy-rbac-api",
+        sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+}
+builder.Services.AddScoped<IAndyRbacUsersClient, AndyRbacUsersClient>();
 
 // --- LLM provider client (BacklogAiService / DraftBacklogGenerator /
 // BacklogRecategorizeService via LlmChatCompletion) ---
@@ -409,6 +427,7 @@ builder.Services.AddGrpc();
 builder.Services
     .AddMcpServer()
     .WithHttpTransport()
+    .AddAuthorizationFilters()
     .WithToolsFromAssembly();
 
 var app = builder.Build();
