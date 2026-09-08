@@ -29,6 +29,7 @@ public class SandboxesControllerTests : IClassFixture<TestWebApplicationFactory>
         _factory = factory;
         _client = factory.CreateClient();
         _factory.FakeContainersClient.Reset();
+        _factory.FakeAndySettingsClient.Reset();
     }
 
     private async Task<Guid> SeedRepoAsync(string owner = "dev-user")
@@ -45,6 +46,32 @@ public class SandboxesControllerTests : IClassFixture<TestWebApplicationFactory>
         db.Repositories.Add(repo);
         await db.SaveChangesAsync();
         return repo.Id;
+    }
+
+    [Fact]
+    public async Task Mine_EnforcesCapacityAndClosesOnlyCallerSandboxes()
+    {
+        await _client.DeleteAsync("/api/sandboxes/mine");
+        _factory.FakeAndySettingsClient.Set("andy-issues:sandbox:max-per-user", "1");
+        try
+        {
+            var repoId = await SeedRepoAsync();
+            var created = await _client.PostAsJsonAsync("/api/sandboxes", new CreateSandboxRequest(repoId, "main", null));
+            Assert.Equal(HttpStatusCode.Created, created.StatusCode);
+            var full = await _client.PostAsJsonAsync("/api/sandboxes", new CreateSandboxRequest(repoId, "other", null));
+            Assert.Equal(HttpStatusCode.Conflict, full.StatusCode);
+            Assert.Contains("SandboxCapacityExceeded", await full.Content.ReadAsStringAsync());
+            var mine = await _client.GetFromJsonAsync<MySandboxesDto>("/api/sandboxes/mine");
+            Assert.Equal(1, mine!.Capacity.Current);
+            Assert.Equal(1, mine.Capacity.Max);
+            Assert.Contains(mine.Items, i => i.RepositoryId == repoId && i.Purpose == "Interactive");
+            var closed = await _client.DeleteAsync("/api/sandboxes/mine");
+            var result = await closed.Content.ReadFromJsonAsync<CloseMySandboxesDto>();
+            Assert.Single(result!.Destroyed);
+            Assert.Empty(result.Failed);
+            Assert.Equal(0, (await _client.GetFromJsonAsync<MySandboxesDto>("/api/sandboxes/mine"))!.Capacity.Current);
+        }
+        finally { _factory.FakeAndySettingsClient.Reset(); }
     }
 
     [Fact]

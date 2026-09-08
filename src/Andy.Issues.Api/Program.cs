@@ -188,7 +188,11 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
             SettingsAudience,
             sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
     }
-    builder.Services.AddScoped<IAndySettingsClient, AndySettingsClient>();
+    builder.Services.AddScoped<IAndySettingsClient>(sp => new AndySettingsClient(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<AndySettingsClient>>(),
+        sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User.FindFirst("sub")?.Value
+            ?? sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value));
 }
 else
 {
@@ -277,6 +281,7 @@ if (attachBearer)
         sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
 }
 
+builder.Services.AddSingleton<SandboxCapacityLock>();
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IArtifactFeedService, ArtifactFeedService>();
 builder.Services.AddScoped<IMcpConfigService, McpConfigService>();

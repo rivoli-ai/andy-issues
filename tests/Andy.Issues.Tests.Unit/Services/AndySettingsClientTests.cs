@@ -83,13 +83,10 @@ public class AndySettingsClientTests
     public async Task Http_GetAsync_CachesAcrossRepeatedCalls()
     {
         var callCount = 0;
-        // The andy-settings API returns { "value": "cached-value" }; the client
-        // reads the raw JSON text of the "value" property, which for a string is
-        // `"cached-value"` (with quotes). Deserialize<string> strips them.
         var handler = new CountingHandler(() =>
         {
             callCount++;
-            return Respond(HttpStatusCode.OK, new { value = "cached-value" });
+            return Respond(HttpStatusCode.OK, new { key = "test.key", effectiveValue = "\"cached-value\"" });
         });
         var client = CreateHttpClient(handler);
 
@@ -127,7 +124,7 @@ public class AndySettingsClientTests
         var handler = new CountingHandler(() =>
         {
             callCount++;
-            return Respond(HttpStatusCode.OK, new { key1 = "v1", key2 = "v2" });
+            return Respond(HttpStatusCode.OK, new[] { new { key = "key1", effectiveValue = "\"v1\"" }, new { key = "key2", effectiveValue = "\"v2\"" } });
         });
         var client = CreateHttpClient(handler);
 
@@ -142,6 +139,7 @@ public class AndySettingsClientTests
         var result2 = await client.GetBatchAsync(new[] { "key1", "key2" });
         Assert.Equal(2, result2.Count);
         Assert.Equal(1, callCount); // No additional HTTP call
+        Assert.Equal("v1", await client.GetAsync<string>("key1"));
     }
 
     [Fact]
@@ -154,6 +152,22 @@ public class AndySettingsClientTests
         var result = await client.GetAsync<string>("broken.key");
 
         Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task Http_Settings_UseEffectiveResolutionContract()
+    {
+        var handler = new RequestHandler(request =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/effective/resolve", request.RequestUri!.AbsolutePath);
+            var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            using var doc = JsonDocument.Parse(body);
+            Assert.Equal("andy-issues:sandbox:max-per-user", doc.RootElement.GetProperty("key").GetString());
+            Assert.Equal("andy-issues", doc.RootElement.GetProperty("context").GetProperty("applicationCode").GetString());
+            return Respond(HttpStatusCode.OK, new { key = "andy-issues:sandbox:max-per-user", effectiveValue = "2", isValid = true });
+        });
+        Assert.Equal(2, await CreateHttpClient(handler).GetAsync<int?>("andy-issues:sandbox:max-per-user"));
     }
 
     [Fact]

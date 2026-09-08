@@ -59,6 +59,22 @@
       "defaultValue": null
     },
     {
+      "key": "andy-issues:sandbox:max-per-user",
+      "displayName": "Sandbox capacity per user",
+      "description": "Maximum provisioned sandboxes per user. Zero disables creation.",
+      "scope": "app",
+      "type": "integer",
+      "defaultValue": "3"
+    },
+    {
+      "key": "andy-issues:sandbox:max-per-tenant",
+      "displayName": "Sandbox capacity per tenant",
+      "description": "Informational tenant capacity; not enforced yet.",
+      "scope": "app",
+      "type": "integer",
+      "defaultValue": "20"
+    },
+    {
       "key": "andy-rbac:admin-url",
       "displayName": "Andy RBAC administration URL",
       "description": "Role-management link in the admin users view.",

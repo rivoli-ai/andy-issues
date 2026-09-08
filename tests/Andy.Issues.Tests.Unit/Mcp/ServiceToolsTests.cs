@@ -850,6 +850,10 @@ file class StubDraftBacklogGenerator : IDraftBacklogGenerator
 
 file class StubSandboxService : ISandboxService
 {
+    public Task<MySandboxesDto> ListMineAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult(new MySandboxesDto([], new(0, 3, 20)));
+    public Task<CloseMySandboxesDto> CloseAllMineAsync(string userId, CancellationToken ct = default) =>
+        Task.FromResult(new CloseMySandboxesDto([], []));
     public SandboxDto? CreateResult { get; set; }
     public IReadOnlyList<SandboxDto>? ListResult { get; set; }
     public SandboxDto? GetResult { get; set; }

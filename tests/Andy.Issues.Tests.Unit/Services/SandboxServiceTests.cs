@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Issues.Application.Requests;
+using Andy.Issues.Application.Dtos;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
@@ -66,6 +67,67 @@ public class SandboxServiceTests : IDisposable
         ctx.Repositories.Add(repo);
         await ctx.SaveChangesAsync();
         return repo.Id;
+    }
+
+    [Fact]
+    public async Task ConcurrentCreates_CannotOverrunTheLastSlot()
+    {
+        _config["andy-issues:sandbox:max-per-user"] = "1";
+        var repoId = await SeedRepoAsync();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _containers.BeforeCreate = async () => { entered.TrySetResult(); await release.Task; };
+        await using var firstContext = NewContext();
+        await using var secondContext = NewContext();
+        var first = NewService(firstContext).CreateAsync(new(repoId, "first", null), "alice");
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = NewService(secondContext).CreateAsync(new(repoId, "second", null), "alice");
+        Assert.False(second.IsCompleted);
+        release.SetResult();
+        Assert.NotNull(await first);
+        await Assert.ThrowsAsync<SandboxCapacityExceededException>(() => second);
+        Assert.Single(_containers.CreateCalls);
+    }
+
+    [Fact]
+    public async Task Capacity_UsesConfiguredLimitAndDoesNotCreateRemoteContainerWhenFull()
+    {
+        _config["andy-issues:sandbox:max-per-user"] = "1";
+        var repoId = await SeedRepoAsync();
+        await using var ctx = NewContext();
+        var svc = NewService(ctx);
+        await svc.CreateAsync(new(repoId, "main", null), "alice");
+        var ex = await Assert.ThrowsAsync<SandboxCapacityExceededException>(() =>
+            svc.CreateAsync(new(repoId, "another", null), "alice"));
+        Assert.Equal(1, ex.Max);
+        Assert.Single(_containers.CreateCalls);
+        var mine = await svc.ListMineAsync("alice");
+        Assert.Equal(new SandboxCapacityDto(1, 1, 20), mine.Capacity);
+        Assert.Equal("my-repo", Assert.Single(mine.Items).RepositoryName);
+        Assert.Empty((await svc.ListMineAsync("bob")).Items);
+    }
+
+    [Fact]
+    public async Task CloseAll_IsOwnerScopedReportsPartialFailureAndCanBeRetried()
+    {
+        var aliceRepo = await SeedRepoAsync();
+        var bobRepo = await SeedRepoAsync("bob");
+        await using var ctx = NewContext();
+        var svc = NewService(ctx);
+        var first = await svc.CreateAsync(new(aliceRepo, "one", null), "alice");
+        var second = await svc.CreateAsync(new(aliceRepo, "two", null), "alice");
+        var bob = await svc.CreateAsync(new(bobRepo, "main", null), "bob");
+        _containers.DestroyError = id => id == first!.ContainerId ? new HttpRequestException("secret response") : null;
+        var result = await svc.CloseAllMineAsync("alice");
+        Assert.Equal(second!.Id, Assert.Single(result.Destroyed));
+        var failed = Assert.Single(result.Failed);
+        Assert.Equal(first!.Id, failed.Id);
+        Assert.DoesNotContain("secret", failed.Reason);
+        Assert.DoesNotContain(bob!.ContainerId, _containers.DestroyCalls);
+        _containers.DestroyError = null;
+        Assert.Equal(first.Id, Assert.Single((await svc.CloseAllMineAsync("alice")).Destroyed));
+        Assert.Empty((await svc.CloseAllMineAsync("alice")).Destroyed);
+        Assert.Single((await svc.ListMineAsync("bob")).Items);
     }
 
     [Fact]

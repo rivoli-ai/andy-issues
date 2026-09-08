@@ -12,6 +12,10 @@ public interface ISandboxService
 
     Task<IReadOnlyList<SandboxDto>> ListAsync(string userId, CancellationToken ct = default);
 
+    Task<MySandboxesDto> ListMineAsync(string userId, CancellationToken ct = default);
+
+    Task<CloseMySandboxesDto> CloseAllMineAsync(string userId, CancellationToken ct = default);
+
     Task<SandboxDto?> GetAsync(Guid sandboxId, string userId, CancellationToken ct = default);
 
     Task<bool> DestroyAsync(Guid sandboxId, string userId, CancellationToken ct = default);
