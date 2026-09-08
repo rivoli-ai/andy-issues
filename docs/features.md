@@ -304,3 +304,15 @@ Ordinary Settings reads use `POST /api/effective/resolve` and
 `/api/effective/resolve-batch`, with application and caller context. Values are
 cached only in the scoped client; secret lookups continue using the uncached
 Secrets API.
+
+## Cancelling story refinement
+
+`DELETE /api/stories/{id}/refine` uses the same authentication and repository
+access checks as refinement initiation. It returns 204 when in-flight work is
+soft-cancelled, 404 when no accessible run exists, and 409 when the refinement
+has already completed. Resync after 409. Soft cancellation suppresses late agent
+results and the corresponding `triaged` event; it does not promise to stop token
+usage inside an external agent. The durable outbox publishes
+`andy.issues.events.story.{id}.refine.aborted` with the run ID and `NotTriaged`
+state. Cancellation and completion serialize using the existing single-process
+tracker. A new refinement can be started immediately after cancellation.

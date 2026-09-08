@@ -280,6 +280,20 @@ public class BacklogController : ControllerBase
     // to the `andy.issues.events.story.{id}.triaged` outbox topic to
     // observe completion. Idempotent under (storyId, agentId) for 5
     // minutes — see StoryRefinementService.IdempotencyWindow.
+    [HttpDelete("api/stories/{storyId:guid}/refine")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public async Task<IActionResult> AbortRefinement(Guid storyId, CancellationToken ct)
+    {
+        return await _refinement.AbortAsync(storyId, GetUserId(), ct) switch
+        {
+            StoryRefineAbortOutcome.Aborted => NoContent(),
+            StoryRefineAbortOutcome.Completed => Conflict(new { error = "refinement_completed" }),
+            _ => NotFound()
+        };
+    }
+
     [HttpPost("api/stories/{storyId:guid}/refine")]
     [ProducesResponseType(typeof(StoryRefineRunDto), StatusCodes.Status202Accepted)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
