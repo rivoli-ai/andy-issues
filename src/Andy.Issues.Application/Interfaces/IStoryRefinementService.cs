@@ -25,6 +25,8 @@ namespace Andy.Issues.Application.Interfaces;
 // dispatching a second agent run.
 public interface IStoryRefinementService
 {
+    Task<StoryRefineAbortOutcome> AbortAsync(Guid storyId, string userId, CancellationToken ct = default);
+
     Task<StoryRefineResult> RefineAsync(
         Guid storyId,
         RefineStoryRequest request,
@@ -54,3 +56,5 @@ public sealed record StoryRefineResult(
     public static StoryRefineResult AgentUnavailable(string error) =>
         new(StoryRefineOutcome.AgentUnavailable, null, error);
 }
+
+public enum StoryRefineAbortOutcome { Aborted, NotFound, Completed }

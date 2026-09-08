@@ -49,6 +49,25 @@ public class StoryRefineTests : IClassFixture<TestWebApplicationFactory>
         _client = factory.CreateClient();
     }
 
+    [Fact]
+    public async Task Abort_CompletedRefinement_ReturnsConflict()
+    {
+        var storyId = await SeedStoryAsync(TestAuthHandler.UserId);
+        var started = await _client.PostAsJsonAsync($"/api/stories/{storyId}/refine", new { });
+        Assert.Equal(HttpStatusCode.Accepted, started.StatusCode);
+        await _factory.Services.GetRequiredService<IStoryRefinementTracker>().DrainOutstandingTasksAsync();
+        var response = await _client.DeleteAsync($"/api/stories/{storyId}/refine");
+        Assert.Equal(HttpStatusCode.Conflict, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Abort_MissingOrInaccessibleRun_ReturnsNotFound()
+    {
+        var storyId = await SeedStoryAsync("another-user");
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/stories/{storyId}/refine")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _client.DeleteAsync($"/api/stories/{Guid.NewGuid()}/refine")).StatusCode);
+    }
+
     private async Task<Guid> SeedStoryAsync(string ownerUserId, IEnumerable<string>? labels = null)
     {
         using var scope = _factory.Services.CreateScope();
