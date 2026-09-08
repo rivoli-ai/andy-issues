@@ -80,6 +80,8 @@ export interface AgentRuleProfile {
 }
 
 export interface UserStory {
+  triageState?: { kind: string; refineRunId?: string };
+  refinement?: { refinedDescription: string | null; acceptanceCriteria: string[]; risks: string[]; testPlan: string[] } | null;
   agentRuleId?: string | null;
   id: string;
   featureId: string;
@@ -278,6 +280,10 @@ export class ApiService {
 
   selectAgentRule(storyId: string, agentRuleId: string | null): Observable<void> {
     return this.http.put<void>(`${this.baseUrl}/stories/${storyId}/agent-rule`, { agentRuleId });
+  }
+
+  refineStory(storyId: string): Observable<{ refineRunId: string; refineVersion: number }> {
+    return this.http.post<{ refineRunId: string; refineVersion: number }>(`${this.baseUrl}/stories/${storyId}/refine`, {});
   }
 
   updateStoryStatus(storyId: string, status: string, pullRequestUrl?: string): Observable<UserStory> {

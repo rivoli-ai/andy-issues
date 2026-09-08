@@ -13,6 +13,8 @@ describe('Mutation toasts', () => {
     expect(toast.success).not.toHaveBeenCalled();
     client.post('/api/repositories', {}).subscribe(); http.expectOne('/api/repositories').flush({});
     expect(toast.success).toHaveBeenCalledWith('Changes saved.');
+    client.post('/api/stories/id/refine', {}).subscribe(); http.expectOne('/api/stories/id/refine').flush({}, {status:202,statusText:'Accepted'});
+    expect(toast.success).toHaveBeenCalledWith('Request accepted.');
     client.delete('/api/repositories/id').subscribe({ error: () => {} });
     http.expectOne('/api/repositories/id').flush({}, { status: 500, statusText: 'Failure' });
     expect(toast.error).toHaveBeenCalled(); http.verify();
