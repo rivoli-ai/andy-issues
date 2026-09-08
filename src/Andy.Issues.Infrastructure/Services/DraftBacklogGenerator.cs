@@ -23,6 +23,7 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
     };
 
     private readonly AppDbContext _db;
+    private readonly ILlmSecretStore? _llmSecrets;
     private readonly IRepositoryAccessGuard _guard;
     private readonly ICodeIndexClient _codeIndex;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -37,9 +38,10 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         IHttpClientFactory httpClientFactory,
         IBacklogSequenceAllocator sequence,
         ILogger<DraftBacklogGenerator> logger,
-        IBacklogGenerationTracker? tracker = null)
+        IBacklogGenerationTracker? tracker = null, ILlmSecretStore? llmSecrets = null)
     {
         _db = db;
+        _llmSecrets = llmSecrets;
         _guard = guard;
         _codeIndex = codeIndex;
         _httpClientFactory = httpClientFactory;
@@ -199,10 +201,13 @@ public class DraftBacklogGenerator : IDraftBacklogGenerator
         string codeSummary,
         CancellationToken ct)
     {
+        var apiKey = _llmSecrets is null ? setting.ApiKey : await _llmSecrets.ResolveAsync(setting.ApiKey, ct);
+        if (apiKey is null && !string.IsNullOrEmpty(setting.ApiKey))
+            throw new InvalidOperationException("The stored LLM credential could not be resolved.");
         var baseUrl = GetBaseUrl(setting);
         var client = _httpClientFactory.CreateClient("LlmProvider");
         client.DefaultRequestHeaders.Authorization =
-            new AuthenticationHeaderValue("Bearer", setting.ApiKey);
+            new AuthenticationHeaderValue("Bearer", apiKey ?? "");
 
         var prompt = BuildPrompt(repoName, codeSummary);
         var payload = new

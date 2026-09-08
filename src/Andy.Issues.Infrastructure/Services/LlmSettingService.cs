@@ -21,10 +21,11 @@ public class LlmSettingService : ILlmSettingService
     public LlmSettingService(
         AppDbContext db,
         ISecretStore secretStore,
-        IBacklogAiService backlogAi)
+        IBacklogAiService backlogAi,
+        ILlmSecretStore? llmSecrets = null)
     {
         _db = db;
-        _secretStore = secretStore;
+        _secretStore = llmSecrets ?? secretStore;
         _backlogAi = backlogAi;
     }
 
@@ -74,10 +75,7 @@ public class LlmSettingService : ILlmSettingService
             CreatedAt = DateTimeOffset.UtcNow
         };
 
-        // Store the API key via the secret store and persist only the
-        // returned reference. LocalSettingsClient / dev-mode may return
-        // the raw string unchanged; that's fine — the column type and
-        // the DTO contract still guarantee it never leaves the server.
+        // Production injects the encrypted LLM store; DTOs never expose this payload.
         entity.ApiKey = await _secretStore.StoreAsync(
             $"andy.issues.user.{ownerUserId}.llm.{entity.Id}.apiKey",
             request.ApiKey,
@@ -195,7 +193,9 @@ public class LlmSettingService : ILlmSettingService
         if (row is null)
             return (TestLlmSettingOutcome.NotFound, null);
 
-        var resolvedKey = await _secretStore.ResolveAsync(row.ApiKey, ct) ?? row.ApiKey;
+        var resolvedKey = await _secretStore.ResolveAsync(row.ApiKey, ct);
+        if (resolvedKey is null && !string.IsNullOrEmpty(row.ApiKey))
+            return (TestLlmSettingOutcome.ProviderRejected, "The stored LLM credential could not be resolved. Re-enter the key.");
         var settingForCall = new LlmSetting
         {
             Id = row.Id,
@@ -204,7 +204,7 @@ public class LlmSettingService : ILlmSettingService
             Provider = row.Provider,
             Model = row.Model,
             BaseUrl = row.BaseUrl,
-            ApiKey = resolvedKey,
+            ApiKey = resolvedKey ?? "",
             IsDefault = row.IsDefault,
             CreatedAt = row.CreatedAt,
             UpdatedAt = row.UpdatedAt
