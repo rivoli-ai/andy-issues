@@ -5,6 +5,8 @@ using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Domain.Entities;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Infrastructure.Data;
+using Andy.Issues.Infrastructure.External;
+using Microsoft.Extensions.Configuration;
 using Andy.Issues.Infrastructure.Services;
 using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
@@ -40,8 +42,8 @@ public class BacklogGitHubImportTests : IDisposable
     private BacklogGitHubImportService NewImporter(
         AppDbContext ctx,
         StubGitHubClient gh,
-        Func<string, string?>? environmentReader = null) =>
-        new(ctx, gh, new RepositoryAccessGuard(ctx), new StubSecretStore(),
+        Func<string, string?>? environmentReader = null, ISecretStore? secretStore = null) =>
+        new(ctx, gh, new RepositoryAccessGuard(ctx), secretStore ?? new StubSecretStore(),
             new BacklogSequenceAllocator(ctx),
             NullLogger<BacklogGitHubImportService>.Instance,
             environmentReader);
@@ -386,6 +388,47 @@ public class BacklogGitHubImportTests : IDisposable
         Assert.NotNull(result);
         Assert.Single(result!.Errors);
         Assert.Contains("publicly accessible", result.Errors[0]);
+    }
+
+    [Theory]
+    [InlineData(null, "settings-pat", "env-pat", "settings-pat")]
+    [InlineData("linked-pat", "settings-pat", "env-pat", "linked-pat")]
+    [InlineData("secret::sourceControl.github.pat", "settings-pat", "env-pat", "settings-pat")]
+    [InlineData("secret::missing", "settings-pat", "env-pat", "settings-pat")]
+    [InlineData("secret::missing", null, "env-pat", "env-pat")]
+    [InlineData("secret::missing", null, null, "")]
+    [InlineData(null, "  ", "env-pat", "env-pat")]
+    public async Task Import_ResolvesCredentialsWithoutPersistingSharedSecret(
+        string? linked, string? settingsPat, string? envPat, string expected)
+    {
+        var repoId = await SeedRepoWithoutProviderAsync();
+        await using var ctx = NewContext();
+        if (linked is not null)
+        {
+            ctx.LinkedProviders.Add(new LinkedProvider
+            {
+                Id = Guid.NewGuid(),
+                OwnerUserId = "alice",
+                Provider = LinkedProviderKind.GitHub,
+                AccessToken = linked
+            });
+            await ctx.SaveChangesAsync();
+        }
+
+        var config = new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["sourceControl.github.pat"] = settingsPat }).Build();
+        var secrets = new SecretStore(new LocalSettingsClient(config), NullLogger<SecretStore>.Instance);
+        var gh = new StubGitHubClient().IssuesFor("acme", "widgets", new[] { Issue(1, "Imported", "story") });
+
+        var result = await NewImporter(ctx, gh, _ => envPat, secrets).ImportAsync(repoId, "alice");
+
+        Assert.NotNull(result);
+        Assert.Empty(result.Errors);
+        Assert.Equal(1, result.Added);
+        Assert.Equal(expected, gh.ListIssuesTokens.Single());
+        Assert.Equal(linked is null ? 0 : 1, await ctx.LinkedProviders.CountAsync());
+        if (linked is not null)
+            Assert.Equal(linked, (await ctx.LinkedProviders.SingleAsync()).AccessToken);
     }
 
     [Fact]

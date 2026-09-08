@@ -19,6 +19,12 @@ public interface IAndySettingsClient
     Task<T?> GetAsync<T>(string key, CancellationToken ct = default);
 
     /// <summary>
+    /// Reads a Machine-scoped secret through the secret:read permission gate.
+    /// Secret values must not enter the ordinary settings cache.
+    /// </summary>
+    Task<string?> GetSecretAsync(string key, CancellationToken ct = default);
+
+    /// <summary>
     /// Gets multiple settings in a single round-trip. Keys that don't exist
     /// are omitted from the result dictionary.
     /// </summary>

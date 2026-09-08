@@ -32,6 +32,9 @@ public class FakeAndySettingsClient : IAndySettingsClient
         }
     }
 
+    public Task<string?> GetSecretAsync(string key, CancellationToken ct = default) =>
+        GetAsync<string>(key, ct);
+
     public Task<IReadOnlyDictionary<string, string>> GetBatchAsync(
         IEnumerable<string> keys,
         CancellationToken ct = default)

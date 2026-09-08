@@ -12,7 +12,7 @@ namespace Andy.Issues.Tests.Unit.Services;
 public class StubSecretStore : ISecretStore
 {
     public Task<string?> ResolveAsync(string? valueOrRef, CancellationToken ct = default) =>
-        Task.FromResult(valueOrRef);
+        Task.FromResult(valueOrRef?.StartsWith("secret::", StringComparison.Ordinal) == true ? null : valueOrRef);
 
     public Task<string> StoreAsync(string key, string value, CancellationToken ct = default) =>
         Task.FromResult(value);

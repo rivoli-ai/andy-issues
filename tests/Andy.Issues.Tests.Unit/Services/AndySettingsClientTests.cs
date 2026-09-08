@@ -156,6 +156,49 @@ public class AndySettingsClientTests
         Assert.Null(result);
     }
 
+    [Fact]
+    public async Task Http_Secret_UsesSecretsEndpointAndDoesNotCachePlaintext()
+    {
+        var calls = 0;
+        var handler = new RequestHandler(request =>
+        {
+            Assert.Equal("/api/secrets/sourceControl.github.pat?scopeType=Machine", request.RequestUri!.PathAndQuery);
+            calls++;
+            return Respond(HttpStatusCode.OK, new { definitionKey = "sourceControl.github.pat", value = $"rotated-{calls}" });
+        });
+        var client = CreateHttpClient(handler);
+        var store = new Andy.Issues.Infrastructure.Services.SecretStore(client, NullLogger<Andy.Issues.Infrastructure.Services.SecretStore>.Instance);
+
+        Assert.Equal("rotated-1", await store.ResolveAsync("secret::sourceControl.github.pat"));
+        Assert.Equal("rotated-2", await store.ResolveAsync("secret::sourceControl.github.pat"));
+        Assert.Equal(2, calls);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.NotFound)]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    public async Task Http_Secret_FailedReadNeverReturnsErrorBodyAsCredential(HttpStatusCode status)
+    {
+        var handler = new CountingHandler(() => Respond(status, new { value = "not-a-token" }));
+        Assert.Null(await CreateHttpClient(handler).GetSecretAsync("sourceControl.github.pat"));
+    }
+
+    [Fact]
+    public async Task Http_Secret_CancellationPropagates()
+    {
+        var handler = new RequestHandler(_ => throw new OperationCanceledException());
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            CreateHttpClient(handler).GetSecretAsync("sourceControl.github.pat"));
+    }
+
+    private sealed class RequestHandler(Func<HttpRequestMessage, HttpResponseMessage> respond) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(respond(request));
+    }
+
     // Helpers
 
     private static IConfiguration BuildConfig(Dictionary<string, string?> values)
