@@ -13,7 +13,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
   styleUrls: ['./app.component.scss'],
 })
 export class AppComponent implements OnInit {
-  get navigation(): ServiceNavItem[] { return [
+  readonly navigation: ServiceNavItem[] = [
   {
     "path": "/dashboard",
     "label": "Overview",
@@ -39,7 +39,7 @@ export class AppComponent implements OnInit {
     "label": "Help",
     "group": "Resources"
   }
-]; }
+];
 
   title = 'Andy Issues';
   isAuthenticated = false;

@@ -369,3 +369,7 @@ plaintext is not recoverable from those references.
 
 This storage change does not add the raw AI-config endpoint requested in #93;
 that endpoint remains pending explicit authorization following automated review.
+
+## Shared UI primitives
+
+The web client now uses published Andy UI shell, sidebar, breadcrumbs, theme toggle and mutation toasts. Light/dark preference persists, and the mobile drawer preserves keyboard focus. See [UI conventions](help/ui-conventions.md) for the remaining upstream dock, Markdown, Mermaid and lightbox dependencies.
