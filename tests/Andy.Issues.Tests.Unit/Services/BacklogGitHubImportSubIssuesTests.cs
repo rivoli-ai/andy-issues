@@ -361,9 +361,9 @@ public class BacklogGitHubImportSubIssuesTests : IDisposable
             * [ ] depends on #56
             """;
         var refs = BacklogGitHubImportService.ParseTaskListReferences(body).ToList();
-        // One ref max per task-list line, the FIRST one; non-task-list
+        // One ref max per list line, the FIRST one; non-list
         // lines and ref-less lines yield nothing.
-        Assert.Equal(new[] { 12, 1976, 56 }, refs);
+        Assert.Equal(new[] { 12, 1976, 77, 56 }, refs);
     }
 
     [Fact]
