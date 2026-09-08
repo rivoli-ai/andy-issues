@@ -11,6 +11,7 @@ export const routes: Routes = [
   },
   {
     path: 'dashboard',
+    data: { breadcrumb: 'Overview' },
     loadComponent: () =>
       import('./features/dashboard/dashboard.component').then(
         (m) => m.DashboardComponent
@@ -19,6 +20,7 @@ export const routes: Routes = [
   },
   {
     path: 'repositories',
+    data: { breadcrumb: 'Repositories' },
     loadComponent: () =>
       import('./features/repositories/repositories.component').then(
         (m) => m.RepositoriesComponent
@@ -27,6 +29,7 @@ export const routes: Routes = [
   },
   {
     path: 'backlog/:repoId',
+    data: { breadcrumb: 'Backlog' },
     loadComponent: () =>
       import('./features/backlog/backlog.component').then(
         (m) => m.BacklogComponent
@@ -35,6 +38,7 @@ export const routes: Routes = [
   },
   {
     path: 'sandboxes',
+    data: { breadcrumb: 'Sandboxes' },
     loadComponent: () =>
       import('./features/sandboxes/sandboxes.component').then(
         (m) => m.SandboxesComponent
@@ -43,6 +47,7 @@ export const routes: Routes = [
   },
   {
     path: 'settings',
+    data: { breadcrumb: 'Settings' },
     loadComponent: () =>
       import('./features/settings/settings.component').then(
         (m) => m.SettingsComponent
@@ -51,6 +56,7 @@ export const routes: Routes = [
   },
   {
     path: 'help',
+    data: { breadcrumb: 'Help' },
     loadComponent: () =>
       import('./features/help/help.component').then(
         (m) => m.HelpComponent
@@ -58,6 +64,7 @@ export const routes: Routes = [
   },
   {
     path: 'callback',
+    data: { breadcrumb: 'Sign in' },
     loadComponent: () =>
       import('./core/auth/callback.component').then(
         (m) => m.CallbackComponent

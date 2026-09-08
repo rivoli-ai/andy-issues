@@ -10,6 +10,8 @@
   },
   "private": true,
   "dependencies": {
+    "@andy-ui/angular": "0.1.0",
+    "@andy-ui/tokens": "0.1.0",
     "@angular/common": "^20.3.30",
     "@angular/compiler": "^20.3.30",
     "@angular/core": "^20.3.30",
