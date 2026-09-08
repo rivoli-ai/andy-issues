@@ -1,6 +1,8 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Domain.ValueTypes;
+
 namespace Andy.Issues.Application.Messaging.Events;
 
 // Incoming payload from andy-containers' run.* publisher (see
@@ -18,4 +20,8 @@ public sealed record ContainerRunEventPayload(
     string Status,
     int? ExitCode,
     double? DurationSeconds,
-    Guid? IssueId = null);
+    Guid? IssueId = null,
+    IReadOnlyList<ContainerRunOutputArtifact>? OutputArtifacts = null);
+
+public sealed record ContainerRunOutputArtifact(string Name, string RelativePath, long SizeBytes,
+    string Sha256, string? ContentType, DocsRef? DocsRef = null);

@@ -272,7 +272,7 @@ public class ContainerRunEventConsumerTests : IDisposable
     // ── Z2 — IssueId-correlated runs ────────────────────────────────
 
     [Fact]
-    public async Task IssueFinished_WhileTriaging_TransitionsToTriaged()
+    public async Task IssueFinished_WithoutMatchingRunAndOutput_LeavesTriaging()
     {
         var issueId = await SeedIssueAsync(TriageState.Triaging);
         var msg = BuildIssueMessage(issueId, Guid.NewGuid(), "finished");
@@ -281,7 +281,7 @@ public class ContainerRunEventConsumerTests : IDisposable
 
         await using var verify = new AppDbContext(_options);
         var issue = await verify.Issues.FirstAsync(i => i.Id == issueId);
-        Assert.Equal(TriageState.Triaged, issue.TriageState);
+        Assert.Equal(TriageState.Triaging, issue.TriageState);
         Assert.True(msg.Acked);
     }
 

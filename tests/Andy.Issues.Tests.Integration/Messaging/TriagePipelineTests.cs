@@ -63,7 +63,7 @@ public class TriagePipelineTests : IClassFixture<TestWebApplicationFactory>
         var issueId = await CreateIssueAsync();
         var (runId, _) = await StartTriageAsync(issueId);
 
-        await PublishRunEventAsync(runId, issueId, "finished");
+        await PublishRunEventAsync(runId, issueId, "finished", omitIssueId: true);
 
         var triagedRow = await WaitForOutboxAsync(
             issueId, $"andy.issues.events.issue.{issueId}.triaged");
@@ -77,6 +77,10 @@ public class TriagePipelineTests : IClassFixture<TestWebApplicationFactory>
         Assert.Equal(issueId, payload!.IssueId);
         Assert.Equal(TriageState.Triaged.ToString(), payload.TriageState);
         Assert.Equal(IssueEventPayload.SchemaVersion, payload.Schema_Version);
+        Assert.Equal(runId, payload.RunId);
+        Assert.Equal("critical", payload.Severity);
+        Assert.NotNull(payload.OutputDocRef);
+        Assert.Contains("Investigate the reported failure", _factory.FakeDocsClient.Content[payload.OutputDocRef!.Value.DocumentId]);
 
         // Issue persisted as Triaged
         using var verifyScope = NewScope();
@@ -213,18 +217,23 @@ public class TriagePipelineTests : IClassFixture<TestWebApplicationFactory>
     }
 
     private async Task PublishRunEventAsync(
-        Guid runId, Guid issueId, string kind, MessageHeaders? headers = null)
+        Guid runId, Guid issueId, string kind, MessageHeaders? headers = null, bool omitIssueId = false)
     {
         using var scope = _factory.Services.CreateScope();
         var bus = scope.ServiceProvider.GetRequiredService<IMessageBus>();
 
+        var output = new Andy.Issues.Domain.ValueTypes.TriageOutput(TriageTemplateId.BugFix, TriageSeverity.Critical,
+            null, "Investigate the reported failure.", [], new(null, null, null, null, null));
+        var reference = await _factory.FakeDocsClient.PutTriageOutputAsync(issueId, runId,
+            "# Triage output\n\n```json\n" + JsonSerializer.Serialize(output, EventJson.Options) + "\n```\n");
         var payload = new ContainerRunEventPayload(
             RunId: runId,
             StoryId: null,
             Status: kind,
             ExitCode: kind == "finished" ? 0 : 1,
             DurationSeconds: 1.5,
-            IssueId: issueId);
+            IssueId: omitIssueId ? null : issueId,
+            OutputArtifacts: [new("triage-output.md", "triage-output.md", 300, "sha256", "text/markdown", reference)]);
 
         await bus.PublishAsync(
             $"andy.containers.events.run.{runId}.{kind}",

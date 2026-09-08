@@ -1,6 +1,8 @@
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
+using Andy.Issues.Domain.ValueTypes;
+
 namespace Andy.Issues.Application.Interfaces;
 
 // Thin client into andy-docs (AJ2). Z8 uses two methods:
@@ -23,6 +25,11 @@ public interface IDocsClient
         CancellationToken ct = default);
 
     Task<DocsMetadata?> GetMetadataAsync(Guid documentId, CancellationToken ct = default);
+
+    // Missing/configuration-free adapters fail closed rather than inventing durable references.
+    Task<DocsRef?> PutTriageOutputAsync(Guid issueId, Guid? runId, string markdown, CancellationToken ct = default) => Task.FromResult<DocsRef?>(null);
+    Task<DocsRef?> LinkTriageOutputAsync(DocsRef reference, Guid issueId, Guid? runId, CancellationToken ct = default) => Task.FromResult<DocsRef?>(null);
+    Task<string?> GetContentAsync(Guid documentId, CancellationToken ct = default) => Task.FromResult<string?>(null);
 }
 
 // Subset of andy-docs document metadata — only what andy-issues needs

@@ -35,6 +35,78 @@ public class AndyDocsClientAdapterTests
         return new StubHandler(_ => new HttpResponseMessage(status));
     }
 
+    [Fact]
+    public async Task PutTriageOutput_UsesMultipartIssueOutputLinkAndRunHeader()
+    {
+        var issue = Guid.NewGuid(); var run = Guid.NewGuid();
+        var reference = new Andy.Issues.Domain.ValueTypes.DocsRef(Guid.NewGuid(), Guid.NewGuid());
+        string? multipart = null;
+        using var handler = new AsyncHandler(async request =>
+        {
+            Assert.Equal("/api/documents:put", request.RequestUri!.AbsolutePath);
+            Assert.Equal(run.ToString(), Assert.Single(request.Headers.GetValues("X-Andy-Run-Id")));
+            Assert.Equal("multipart/form-data", request.Content!.Headers.ContentType!.MediaType);
+            multipart = await request.Content.ReadAsStringAsync();
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(reference), Encoding.UTF8, "application/json") };
+        });
+        Assert.Equal(reference, await CreateClient(handler).PutTriageOutputAsync(issue, run, "# Original output"));
+        Assert.Contains("triage-output.md", multipart!); Assert.Contains("# Original output", multipart!);
+        Assert.Contains(issue.ToString(), multipart!); Assert.Contains("\"role\":\"output\"", multipart!);
+    }
+
+    [Fact]
+    public async Task LinkTriageOutput_RejectsMismatchedDocumentOrTarget()
+    {
+        var reference = new Andy.Issues.Domain.ValueTypes.DocsRef(Guid.NewGuid(), Guid.NewGuid());
+        var issue = Guid.NewGuid();
+        using var handler = RespondJson(HttpStatusCode.OK, new[] { new {
+            id = reference.LinkId, documentId = Guid.NewGuid(), targetType = "Issue", targetId = issue.ToString(),
+            role = "Output", createdAt = DateTime.UtcNow, createdBy = Guid.NewGuid()
+        } });
+        Assert.Null(await CreateClient(handler).LinkTriageOutputAsync(reference, issue, null));
+    }
+
+    [Fact]
+    public async Task LinkTriageOutput_AttachesRunOutputToIssueWithoutCopyingBytes()
+    {
+        var reference = new Andy.Issues.Domain.ValueTypes.DocsRef(Guid.NewGuid(), Guid.NewGuid());
+        var issue = Guid.NewGuid(); var run = Guid.NewGuid(); var issueLink = Guid.NewGuid(); var calls = 0;
+        using var handler = new AsyncHandler(async request =>
+        {
+            calls++;
+            Assert.Equal($"/api/documents/{reference.DocumentId}/links", request.RequestUri!.AbsolutePath);
+            if (request.Method == HttpMethod.Get)
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = System.Net.Http.Json.JsonContent.Create(new[] { new {
+                    id = reference.LinkId, documentId = reference.DocumentId, targetType = "Run", targetId = run.ToString(),
+                    role = "Output", createdAt = DateTime.UtcNow, createdBy = Guid.NewGuid()
+                } })
+                };
+            var content = await request.Content!.ReadAsStringAsync(); Assert.Contains(issue.ToString(), content); Assert.Contains("output", content);
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = System.Net.Http.Json.JsonContent.Create(new
+                {
+                    id = issueLink,
+                    documentId = reference.DocumentId,
+                    targetType = "Issue",
+                    targetId = issue.ToString(),
+                    role = "Output",
+                    createdAt = DateTime.UtcNow,
+                    createdBy = Guid.NewGuid()
+                })
+            };
+        });
+        var linked = await CreateClient(handler).LinkTriageOutputAsync(reference, issue, run);
+        Assert.Equal(reference.DocumentId, linked!.Value.DocumentId); Assert.Equal(issueLink, linked.Value.LinkId); Assert.Equal(2, calls);
+    }
+
+    private sealed class AsyncHandler(Func<HttpRequestMessage, Task<HttpResponseMessage>> action) : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => action(request);
+    }
+
     // ── VerifyLinkAsync ────────────────────────────────────────────────
 
     [Fact]
