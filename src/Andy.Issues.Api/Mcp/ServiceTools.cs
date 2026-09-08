@@ -304,6 +304,16 @@ public static class ServiceTools
         return ok ? "Sandbox destroyed." : "Sandbox not found.";
     }
 
+    [McpServerTool, Description("List users with roles in Andy Issues. Requires the admin user-read permission.")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = Andy.Issues.Api.Auth.AdminUsersAuthorization.Policy)]
+    public static async Task<string> AdminListUsers(IHttpContextAccessor ctx, IAndyRbacUsersClient users,
+        string? query = null, string? role = null, int skip = 0, int take = 50)
+    {
+        if (!Andy.Issues.Api.Auth.AdminUsersAuthorization.CanRead(ctx.HttpContext?.User ?? new System.Security.Claims.ClaimsPrincipal()))
+            throw new UnauthorizedAccessException("Admin user-read permission required.");
+        return Serialize(await users.ListAsync(GetUserId(ctx), query, role, skip, take));
+    }
+
     // ── Issues / Triage (Z9) ────────────────────────────────────────
     //
     // The MCP SDK converts these PascalCase method names to snake_case at

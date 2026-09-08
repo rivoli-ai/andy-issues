@@ -57,6 +57,14 @@
       "scope": "user",
       "type": "string",
       "defaultValue": null
+    },
+    {
+      "key": "andy-rbac:admin-url",
+      "displayName": "Andy RBAC administration URL",
+      "description": "Role-management link in the admin users view.",
+      "scope": "app",
+      "type": "string",
+      "defaultValue": null
     }
   ]
 }

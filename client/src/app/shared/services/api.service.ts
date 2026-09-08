@@ -94,6 +94,11 @@ export interface Backlog {
 
 // ── Sandbox ─────────────────────────────────────────────────────────
 
+export interface AdminUsers {
+  items: { userId: string; email: string | null; displayName: string | null; roles: string[]; lastSeenAt: string | null }[];
+  total: number;
+}
+
 export interface Sandbox {
   id: string;
   containerId: string;
@@ -246,6 +251,14 @@ export class ApiService {
   }
 
   // ── Sandboxes ─────────────────────────────────────────────────
+
+  adminUserAccess(): Observable<{ canRead: boolean; manageUrl: string | null }> {
+    return this.http.get<{ canRead: boolean; manageUrl: string | null }>(`${this.baseUrl}/admin/users/access`);
+  }
+
+  listAdminUsers(query: string, role: string, skip = 0, take = 50): Observable<AdminUsers> {
+    return this.http.get<AdminUsers>(`${this.baseUrl}/admin/users`, { params: { query, role, skip, take } });
+  }
 
   createSandbox(repositoryId: string, branch: string): Observable<Sandbox> {
     return this.http.post<Sandbox>(`${this.baseUrl}/sandboxes`, { repositoryId, branch });
