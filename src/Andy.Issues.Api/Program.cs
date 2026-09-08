@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Auth.M2MClient;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
 using Andy.Issues.Api.Telemetry;
@@ -107,6 +108,9 @@ else
     });
 }
 
+builder.Services.AddAuthorization(options => options.AddPolicy(AdminUsersAuthorization.Policy,
+    policy => policy.RequireAuthenticatedUser().RequireAssertion(context => AdminUsersAuthorization.CanRead(context.User))));
+
 // --- RBAC (Andy.Rbac.Client) ---
 var rbacBaseUrl = builder.Configuration["Rbac:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(rbacBaseUrl) && builder.Environment.IsDevelopment())
@@ -138,6 +142,21 @@ builder.Services.AddAndyAuthM2M(builder.Configuration);
 // keep working.
 var attachBearer = !string.IsNullOrWhiteSpace(builder.Configuration["AndyAuth:ClientId"]);
 
+
+builder.Services.AddMemoryCache();
+var rbacUsersClient = builder.Services.AddHttpClient("AndyRbacUsers", client =>
+{
+    if (!string.IsNullOrWhiteSpace(rbacBaseUrl)) client.BaseAddress = new Uri(rbacBaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+if (attachBearer)
+{
+    rbacUsersClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        sp.GetRequiredService<IDelegatedTokenProvider>(), sp.GetRequiredService<IServiceTokenProvider>(),
+        sp.GetRequiredService<IHttpContextAccessor>(), "urn:andy-rbac-api",
+        sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+}
+builder.Services.AddScoped<IAndyRbacUsersClient, AndyRbacUsersClient>();
 
 // --- LLM provider client (BacklogAiService / DraftBacklogGenerator /
 // BacklogRecategorizeService via LlmChatCompletion) ---
@@ -402,6 +421,7 @@ builder.Services.AddGrpc();
 builder.Services
     .AddMcpServer()
     .WithHttpTransport()
+    .AddAuthorizationFilters()
     .WithToolsFromAssembly();
 
 var app = builder.Build();

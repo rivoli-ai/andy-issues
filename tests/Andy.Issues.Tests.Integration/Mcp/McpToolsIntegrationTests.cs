@@ -65,6 +65,7 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         Assert.Contains("issue_triage", names);
         // Help tools should also be present
         Assert.Contains("list_help_topics", names);
+        Assert.DoesNotContain("admin_list_users", names);
     }
 
     [Fact]
