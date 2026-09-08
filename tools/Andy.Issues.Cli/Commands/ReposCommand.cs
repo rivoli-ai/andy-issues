@@ -14,6 +14,7 @@ public static class ReposCommand
     {
         var cmd = new Command("repos", "Manage repositories");
 
+        cmd.AddCommand(RulesCommand.Build(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildList(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildGet(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildAdd(apiUrlOption, tokenOption));

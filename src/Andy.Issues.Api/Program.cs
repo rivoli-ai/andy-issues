@@ -204,6 +204,8 @@ builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IAgentRulesService, AgentRulesService>();
+builder.Services.AddScoped<IAgentRuleProfiles, AgentRuleProfiles>();
+builder.Services.AddHostedService<AgentRuleBackfill>();
 builder.Services.AddScoped<IPullRequestStatusService, PullRequestStatusService>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
@@ -360,6 +362,7 @@ builder.Services.AddOpenTelemetry()
 // --- Swagger ---
 builder.Services.AddControllers(options =>
     {
+        options.Filters.Add<Andy.Issues.Api.Controllers.AgentRuleValidationFilter>();
         // Translate UnauthorizedAccessException → 401 (see issue #65).
         options.Filters.Add<Andy.Issues.Api.Auth.UnauthorizedExceptionFilter>();
     })

@@ -346,3 +346,7 @@ The Sandboxes page displays current/max capacity, disables creation at capacity,
 and refreshes every ten seconds. “Close all mine” requires confirmation, prevents
 duplicate submissions, and lists per-sandbox failures for retry. Create errors
 preserve entered values. Dialogs support keyboard focus and Escape dismissal.
+
+## Named agent-rule profiles
+
+Repository owners can manage named Markdown instruction profiles from the Backlog's **Agent rules** editor, including a sanitized preview, ordering and one default. Stories select a profile or inherit the repository default; effective rules fall back to the system setting only when no repository profile exists. Existing rule text migrates without changing legacy GET/PUT behavior. REST, MCP and CLI contracts are documented in [Agent rules](help/agent-rules.md).

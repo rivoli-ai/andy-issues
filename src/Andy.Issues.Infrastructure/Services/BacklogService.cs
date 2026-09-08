@@ -250,12 +250,17 @@ public class BacklogService : IBacklogService
         if (feature is null) return null;
         if (!await _guard.CanViewAsync(feature.Epic.RepositoryId, userId, ct)) return null;
 
+        await using var ruleMutation = request.AgentRuleId is null ? null
+            : await AgentRuleMutationScope.OpenAsync(_db, feature.Epic.RepositoryId, ct);
+        if (request.AgentRuleId is not null && !await _db.AgentRules.AnyAsync(x => x.Id == request.AgentRuleId && x.RepositoryId == feature.Epic.RepositoryId, ct))
+            throw new AgentRuleValidationException("The selected profile must belong to the story's repository.");
         var order = request.Order ?? await NextStoryOrderAsync(featureId, ct);
         var story = new UserStory
         {
             Id = Guid.NewGuid(),
             Seq = await _sequence.AllocateAsync(BacklogEntityType.Story, ct),
             FeatureId = featureId,
+            AgentRuleId = request.AgentRuleId,
             Title = request.Title,
             Description = request.Description,
             AcceptanceCriteria = request.AcceptanceCriteria,
@@ -267,6 +272,7 @@ public class BacklogService : IBacklogService
         _db.AppendStoryEvent(story, featureId, feature.Epic.Id, feature.Epic.RepositoryId, StoryEventKind.Created);
         await _db.SaveChangesAsync(ct);
         var dto = story.ToDto();
+        if (ruleMutation is not null) await ruleMutation.CommitAsync(ct);
         await _notifier.StoryAddedAsync(feature.Epic.RepositoryId, dto, ct);
         return dto;
     }

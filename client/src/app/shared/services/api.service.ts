@@ -71,7 +71,16 @@ export interface Feature {
   stories: UserStory[];
 }
 
+export interface AgentRuleProfile {
+  id?: string;
+  name: string;
+  body: string;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
 export interface UserStory {
+  agentRuleId?: string | null;
   id: string;
   featureId: string;
   title: string;
@@ -251,8 +260,24 @@ export class ApiService {
     return this.http.post<Feature>(`${this.baseUrl}/epics/${epicId}/features`, { title, description });
   }
 
-  createStory(featureId: string, title: string, description?: string, acceptanceCriteria?: string, storyPoints?: number): Observable<UserStory> {
-    return this.http.post<UserStory>(`${this.baseUrl}/features/${featureId}/stories`, { title, description, acceptanceCriteria, storyPoints });
+  createStory(featureId: string, title: string, description?: string, acceptanceCriteria?: string, storyPoints?: number, agentRuleId?: string | null): Observable<UserStory> {
+    return this.http.post<UserStory>(`${this.baseUrl}/features/${featureId}/stories`, { title, description, acceptanceCriteria, storyPoints, agentRuleId });
+  }
+
+  getAgentRules(repositoryId: string): Observable<{ rules: string; profiles: AgentRuleProfile[]; canEdit: boolean }> {
+    return this.http.get<{ rules: string; profiles: AgentRuleProfile[]; canEdit: boolean }>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules`);
+  }
+
+  listAgentRules(repositoryId: string): Observable<AgentRuleProfile[]> {
+    return this.http.get<AgentRuleProfile[]>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules/profiles`);
+  }
+
+  replaceAgentRules(repositoryId: string, profiles: AgentRuleProfile[]): Observable<AgentRuleProfile[]> {
+    return this.http.post<AgentRuleProfile[]>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules/replace`, profiles);
+  }
+
+  selectAgentRule(storyId: string, agentRuleId: string | null): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/stories/${storyId}/agent-rule`, { agentRuleId });
   }
 
   updateStoryStatus(storyId: string, status: string, pullRequestUrl?: string): Observable<UserStory> {

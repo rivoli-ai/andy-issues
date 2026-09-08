@@ -33,6 +33,7 @@ describe('BacklogComponent', () => {
 
   it('should load backlog on init with repo id from route', () => {
     fixture.detectChanges();
+    httpMock.expectOne('/api/repositories/test-repo-id/agent-rules/profiles').flush([]);
 
     const req = httpMock.expectOne('/api/repositories/test-repo-id/backlog');
     expect(req.request.method).toBe('GET');
@@ -56,6 +57,7 @@ describe('BacklogComponent', () => {
 
   it('should create an epic via API', () => {
     fixture.detectChanges();
+    httpMock.expectOne('/api/repositories/test-repo-id/agent-rules/profiles').flush([]);
     httpMock.expectOne('/api/repositories/test-repo-id/backlog').flush({ repositoryId: 'test-repo-id', epics: [] });
 
     component.newEpicTitle = 'New Epic';
