@@ -56,16 +56,43 @@
     "resourceTypes": [
       { "code": "issue",   "name": "Issue",   "supportsInstances": true },
       { "code": "backlog", "name": "Backlog", "supportsInstances": true },
-      { "code": "story",   "name": "Story",   "supportsInstances": true }
+      { "code": "story",   "name": "Story",   "supportsInstances": true },
+      { "code": "admin-users", "name": "Administrative user listing", "supportsInstances": false }
     ],
     "roles": [
-      { "code": "admin",  "name": "Administrator", "description": "Full access to issues", "isSystem": true },
+      { "code": "admin",  "name": "Administrator", "description": "Full access to issues", "isSystem": true, "permissions": ["andy-issues:admin-users:read"] },
       { "code": "user",   "name": "User",          "description": "Standard user",         "isSystem": true },
       { "code": "viewer", "name": "Viewer",        "description": "Read-only access",      "isSystem": true }
     ],
     "testUserRole": "admin"
   },
   "settings": {
-    "definitions": []
+    "definitions": [
+      {
+        "key": "andy-issues:sandbox:max-per-user",
+        "displayName": "Sandbox capacity per user",
+        "description": "Maximum provisioned sandboxes per user. Zero disables creation.",
+        "category": "Sandboxes",
+        "dataType": "Integer",
+        "defaultValue": "3",
+        "isSecret": false
+      },
+      {
+        "key": "andy-issues:sandbox:max-per-tenant",
+        "displayName": "Sandbox capacity per tenant",
+        "description": "Informational tenant capacity; not enforced yet.",
+        "category": "Sandboxes",
+        "dataType": "Integer",
+        "defaultValue": "20",
+        "isSecret": false
+      },
+      {
+        "key": "andy-rbac:admin-url",
+        "displayName": "Andy RBAC administration URL",
+        "dataType": "Uri",
+        "description": "Link from the read-only Users view to role management.",
+        "isSecret": false
+      }
+    ]
   }
 }

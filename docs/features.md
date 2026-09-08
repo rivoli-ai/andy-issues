@@ -276,6 +276,35 @@ without exposing the response or credential. Deployment verification must confir
 that the bundled service receives this URL and the delegated identity has that
 permission; local tests do not establish live RBAC grants.
 
+## Sandbox capacity and bulk close
+
+`GET /api/sandboxes/mine` returns the caller's sandbox summaries and
+`capacity: { current, max, tenantMax }`. Summaries include the repository name,
+status, connection endpoints, creation time, and purpose (`Interactive` for
+sandboxes created by this service). Headless analysis and triage runs are
+owned by andy-containers and are not persisted as interactive sandboxes here.
+
+`andy-issues:sandbox:max-per-user` is resolved from Andy Settings (default 3).
+Every provisioned row except `Destroyed` counts, including stopped and failed
+containers which can still hold resources. Creating at capacity returns HTTP
+409 with code `SandboxCapacityExceeded`. Creation and bulk close serialize
+per owner within the service process. The embedded deployment runs one service
+instance; shared-database multi-replica deployment needs a distributed capacity
+reservation before enabling concurrent replicas. `andy-issues:sandbox:max-per-tenant`
+(default 20) is reported for visibility and is not enforced.
+
+`DELETE /api/sandboxes/mine` returns `{ destroyed: [id], failed: [{ id, reason }] }`.
+It affects only the authenticated caller, continues after an individual remote
+failure, and supports retry. MCP tools are `list_my_sandboxes` and
+`close_all_my_sandboxes`. CLI equivalents are `sandboxes mine [--json]` and
+`sandboxes close-all [--force]` (`sandbox` remains an alias). Bulk close asks for
+confirmation unless `--force` is supplied and exits nonzero on partial failure.
+
+Ordinary Settings reads use `POST /api/effective/resolve` and
+`/api/effective/resolve-batch`, with application and caller context. Values are
+cached only in the scoped client; secret lookups continue using the uncached
+Secrets API.
+
 ## Cancelling story refinement
 
 `DELETE /api/stories/{id}/refine` uses the same authentication and repository
@@ -313,3 +342,66 @@ multiple replicas require a distributed queue and reservation before use.
 Conductor companion [#2351](https://github.com/rivoli-ai/conductor/issues/2351)
 adds compatible job polling and phase display and must ship before this API
 contract change.
+## Administrative users
+
+Settings → Users appears only for a caller with the admin user-read permission.
+It searches and filters the authoritative RBAC application membership, supports
+pagination, and links to role management via the `andy-rbac:admin-url` setting.
+No role changes or local user-directory fallback are provided.
+
+`GET /api/admin/users?query=&role=&skip=0&take=50` returns `{ items, total }`.
+The named `AdminUsersRead` policy requires the authenticated caller's
+`permission` claim `andy-issues:admin-users:read`, registered for the admin role.
+The original issue spelling `andy-issues:admin:users:read` is accepted as an alias;
+the seeded spelling follows the service:resource:action registration schema.
+There is no development authentication bypass for this permission.
+`GET /api/admin/users/access` exposes only the caller's visibility decision and
+configured management link so the client can hide the tab.
+
+Configure `Rbac:ApiBaseUrl` (including the `/rbac/` prefix when using the embedded
+proxy). Requests use delegated authentication for `urn:andy-rbac-api` and call
+RBAC's landed `GET /api/applications/by-code/andy-issues/users` contract
+([RBAC #9](https://github.com/rivoli-ai/andy-rbac/issues/9)). Results are cached
+for 30 seconds per caller, search, role, and page; failures are not cached.
+Browser responses use `no-store`. The MCP `admin_list_users` tool uses the same
+policy for discovery and invocation. CLI: `andy-issues admin users list
+[--query alice] [--role admin] [--skip 0] [--take 50]`.
+
+The Sandboxes page displays current/max capacity, disables creation at capacity,
+and refreshes every ten seconds. “Close all mine” requires confirmation, prevents
+duplicate submissions, and lists per-sandbox failures for retry. Create errors
+preserve entered values. Dialogs support keyboard focus and Escape dismissal.
+
+## Named agent-rule profiles
+
+Repository owners can manage named Markdown instruction profiles from the Backlog's **Agent rules** editor, including a sanitized preview, ordering and one default. Stories select a profile or inherit the repository default; effective rules fall back to the system setting only when no repository profile exists. Existing rule text migrates without changing legacy GET/PUT behavior. REST, MCP and CLI contracts are documented in [Agent rules](help/agent-rules.md).
+
+## LLM credential persistence
+
+New LLM API keys are encrypted with ASP.NET Data Protection before database
+storage. The `protected::llm:v1:` payload is resolved only for provider calls;
+ordinary LLM settings DTOs remain masked. Startup protects existing plaintext
+LLM rows and leaves `secret::` references for the existing Settings resolver.
+An unreadable encrypted payload fails resolution; it is never sent as a key.
+
+Retain the Data Protection key ring across restarts. `DataProtection:KeyRingPath`
+can select a persistent, access-restricted directory; otherwise ASP.NET's
+platform default applies. The application purpose is `andy-issues`. Keep the
+key ring separately protected from database backups. Losing the ring makes
+stored LLM keys unreadable and requires re-entry. Historical Settings references
+created without actually storing a secret also require re-entry; the original
+plaintext is not recoverable from those references.
+
+This storage change does not add the raw AI-config endpoint requested in #93;
+that endpoint remains pending explicit authorization following automated review.
+
+## Shared UI primitives
+
+The web client now uses published Andy UI shell, sidebar, breadcrumbs, theme toggle and mutation toasts. Light/dark preference persists, and the mobile drawer preserves keyboard focus. See [UI conventions](https://github.com/rivoli-ai/andy-issues/blob/main/content/help/ui-conventions.md) for the remaining upstream dock, Markdown, Mermaid and lightbox dependencies.
+## Triage audit references
+
+Issue detail now exposes `runId`, `triageInputDocsRefs` and `triageOutputDocRef`. Inputs are captured at triage start; later attachment edits do not rewrite the run's input snapshot. The `triaged` event adds `run_id`, `input_docs_refs`, `output_doc_ref` and top-level `severity` while retaining the existing v2 payload fields.
+
+Configure `AndyDocs:BaseUrl` (embedded proxy: `http://localhost:9100/docs/`) and a caller/service identity with access to the referenced documents. Completion with inline classification writes `triage-output.md` through Andy Docs. Alternatively, pass both `outputDocumentId` and `outputLinkId` query parameters to `POST /api/triage/{id}/complete`; the existing classification body remains compatible. A supplied document must have an output link to the current issue or run. With no body, its fenced JSON classification is read from the document. Missing Docs access returns 503 and preserves the active triage state.
+
+Container completion uses the current run's uploaded `triage-output.md` artifact, containing a fenced `json` block matching `triage-output.v1.json`. Missing or malformed output leaves the issue in Triaging; stale run IDs are ignored. Authenticated legacy manual completion without output remains supported and carries no output-document reference. Per-tool action logs and policy snapshots remain in Andy Tasks. Conductor's embedded Docs URL wiring is tracked in [PR2354](https://github.com/rivoli-ai/conductor/pull/2354).

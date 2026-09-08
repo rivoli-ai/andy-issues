@@ -36,7 +36,8 @@ public static class BacklogMapping
         // is set by the orchestrator while a run is in flight; pure
         // GETs see one of NotTriaged / Triaged / Obsolete.
         entity.DeriveTriageState(triaging),
-        entity.ToRefinementDto());
+        entity.ToRefinementDto(),
+        entity.AgentRuleId);
 
     public static FeatureDto ToDto(this Feature entity) => new(
         entity.Id,

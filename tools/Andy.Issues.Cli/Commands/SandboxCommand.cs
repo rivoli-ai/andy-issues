@@ -15,12 +15,53 @@ public static class SandboxCommand
     {
         var cmd = new Command("sandbox", "Manage sandboxes (container-based dev environments)");
 
+        cmd.AddAlias("sandboxes");
+        cmd.AddCommand(BuildMine(apiUrlOption, tokenOption));
+        cmd.AddCommand(BuildCloseAll(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildCreate(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildList(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildGet(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildConnect(apiUrlOption, tokenOption));
         cmd.AddCommand(BuildDestroy(apiUrlOption, tokenOption));
 
+        return cmd;
+    }
+
+    private static Command BuildMine(Option<string> apiUrlOption, Option<string?> tokenOption)
+    {
+        var jsonOption = new Option<bool>("--json", "Output raw JSON");
+        var cmd = new Command("mine", "List your sandboxes and capacity") { jsonOption };
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            using var api = CreateClient(ctx, apiUrlOption, tokenOption);
+            var result = await api.GetAsync<MySandboxesDto>("api/sandboxes/mine");
+            if (result is null) return;
+            if (ctx.ParseResult.GetValueForOption(jsonOption)) { Console.WriteLine(ApiClient.ToJson(result)); return; }
+            Console.WriteLine($"Sandboxes: {result.Capacity.Current}/{result.Capacity.Max}");
+            foreach (var item in result.Items)
+                Console.WriteLine($"  {item.Id}  {item.Status,-10}  {item.RepositoryName}  {item.Purpose}");
+        });
+        return cmd;
+    }
+
+    private static Command BuildCloseAll(Option<string> apiUrlOption, Option<string?> tokenOption)
+    {
+        var force = new Option<bool>("--force", "Skip confirmation");
+        var cmd = new Command("close-all", "Close all your sandboxes") { force };
+        cmd.SetHandler(async (InvocationContext ctx) =>
+        {
+            if (!ctx.ParseResult.GetValueForOption(force))
+            {
+                if (Console.IsInputRedirected)
+                    throw new CliException(400, "Use --force to confirm closing all your sandboxes in noninteractive mode.");
+                Console.Write("Close all your sandboxes? [y/N] ");
+                if (!string.Equals(Console.ReadLine()?.Trim(), "y", StringComparison.OrdinalIgnoreCase)) return;
+            }
+            using var api = CreateClient(ctx, apiUrlOption, tokenOption);
+            var result = await api.DeleteAsync<CloseMySandboxesDto>("api/sandboxes/mine");
+            Console.WriteLine(ApiClient.ToJson(result));
+            if (result?.Failed.Count > 0) ctx.ExitCode = 1;
+        });
         return cmd;
     }
 

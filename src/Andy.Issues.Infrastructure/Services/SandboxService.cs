@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Text.Json;
+using Andy.Issues.Infrastructure.External;
 using Andy.Issues.Application.Dtos;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Application.Mapping;
@@ -29,6 +30,8 @@ public class SandboxService : ISandboxService
     private const string FallbackTemplateCode = "ubuntu-dev";
 
     private readonly AppDbContext _db;
+    private readonly IAndySettingsClient _settings;
+    private readonly SandboxCapacityLock _capacityLock;
     private readonly IContainersClient _containers;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IArtifactFeedService _artifactFeeds;
@@ -43,7 +46,9 @@ public class SandboxService : ISandboxService
         IArtifactFeedService artifactFeeds,
         IMcpConfigService mcpConfigs,
         IConfiguration config,
-        ILogger<SandboxService> logger)
+        ILogger<SandboxService> logger,
+        IAndySettingsClient? settings = null,
+        SandboxCapacityLock? capacityLock = null)
     {
         _db = db;
         _containers = containers;
@@ -52,6 +57,8 @@ public class SandboxService : ISandboxService
         _mcpConfigs = mcpConfigs;
         _config = config;
         _logger = logger;
+        _settings = settings ?? new LocalSettingsClient(config);
+        _capacityLock = capacityLock ?? SandboxCapacityLock.Shared;
     }
 
     public async Task<SandboxDto?> CreateAsync(
@@ -65,6 +72,11 @@ public class SandboxService : ISandboxService
         var repo = await _db.Repositories.AsNoTracking()
             .FirstOrDefaultAsync(r => r.Id == request.RepositoryId, ct);
         if (repo is null) return null;
+
+        using var lease = await _capacityLock.AcquireAsync(userId, ct);
+        var capacity = await CapacityAsync(userId, ct);
+        if (capacity.Current >= capacity.Max)
+            throw new SandboxCapacityExceededException(capacity.Max);
 
         var templateCode = _config[DefaultTemplateCodeKey] ?? FallbackTemplateCode;
         var containerName = BuildContainerName(repo.Name, request.Branch);
@@ -114,6 +126,49 @@ public class SandboxService : ISandboxService
             await _db.SaveChangesAsync(ct);
 
         return locals.Select(s => s.ToDto()).ToList();
+    }
+
+    public async Task<MySandboxesDto> ListMineAsync(string userId, CancellationToken ct = default)
+    {
+        var items = await ListAsync(userId, ct);
+        var repoIds = items.Select(s => s.RepositoryId).Distinct().ToList();
+        var names = await _db.Repositories.AsNoTracking().Where(r => repoIds.Contains(r.Id))
+            .ToDictionaryAsync(r => r.Id, r => r.Name, ct);
+        return new(items.Select(s => new SandboxSummaryDto(s.Id, s.RepositoryId,
+            names.GetValueOrDefault(s.RepositoryId, "Repository"), s.Status, s.CreatedAt,
+            s.IdeEndpoint, s.VncEndpoint, "Interactive", s.Branch, s.ContainerId)).ToList(),
+            await CapacityAsync(userId, ct));
+    }
+
+    public async Task<CloseMySandboxesDto> CloseAllMineAsync(string userId, CancellationToken ct = default)
+    {
+        using var lease = await _capacityLock.AcquireAsync(userId, ct);
+        var ids = await _db.Sandboxes.Where(s => s.OwnerUserId == userId).Select(s => s.Id).ToListAsync(ct);
+        var destroyed = new List<Guid>();
+        var failed = new List<SandboxCloseFailureDto>();
+        foreach (var id in ids)
+        {
+            try
+            {
+                if (await DestroyAsync(id, userId, ct)) destroyed.Add(id);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // Remote errors can contain credentials; expose a stable, non-secret reason.
+                failed.Add(new(id, "Container could not be closed. Retry or contact an administrator."));
+                _db.ChangeTracker.Clear();
+            }
+        }
+        return new(destroyed, failed);
+    }
+
+    private async Task<SandboxCapacityDto> CapacityAsync(string userId, CancellationToken ct)
+    {
+        var max = await _settings.GetAsync<int?>("andy-issues:sandbox:max-per-user", ct) ?? 3;
+        var tenantMax = await _settings.GetAsync<int?>("andy-issues:sandbox:max-per-tenant", ct) ?? 20;
+        var current = await _db.Sandboxes.CountAsync(s => s.OwnerUserId == userId
+            && s.Status != SandboxStatus.Destroyed, ct);
+        return new(current, Math.Max(0, max), Math.Max(0, tenantMax));
     }
 
     public async Task<SandboxDto?> GetAsync(Guid sandboxId, string userId, CancellationToken ct = default)

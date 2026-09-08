@@ -1,0 +1,137 @@
+<div class="backlog-header">
+      <div><h1>Backlog</h1><p class="repository-context" *ngIf="repositoryId">{{ repositoryName || repositoryId }}</p></div>
+      <div class="actions">
+        <button class="btn-secondary" (click)="load()" [disabled]="loading || !repositoryId || pendingStatuses.size > 0 || pendingRules.size > 0 || pendingRefinements.size > 0">Refresh</button>
+        <button class="btn-secondary" *ngIf="repositoryId" (click)="showRules = !showRules">Agent rules</button>
+        <button class="btn-secondary" (click)="openEpic()" [disabled]="(loading && !backlog) || generating || !repositoryId">Add Epic</button>
+        <button class="btn-primary" (click)="generateDraft()" [disabled]="generating || loading || !repositoryId">
+          {{ generating ? 'Generating...' : 'Generate Draft' }}
+        </button>
+      </div>
+    </div>
+
+    <app-agent-rules *ngIf="repositoryId && showRules" [repositoryId]="repositoryId" (saved)="rulesSaved($event)" />
+    <p *ngIf="error" class="error-msg" role="alert">{{ error }} <button class="btn-secondary" *ngIf="loadFailed" (click)="load()">Retry</button></p>
+    <p *ngIf="loading" class="loading" role="status">Loading backlog…</p>
+
+    <div *ngIf="!repositoryId" class="empty">
+      <p>Select a repository to view its backlog.</p>
+      <a routerLink="/repositories">Go to Repositories</a>
+    </div>
+
+    <!-- Add Epic modal -->
+    <div class="modal-backdrop" *ngIf="showAddEpic" (click)="closeCreate()">
+      <form (ngSubmit)="addEpic()" class="modal" appDialog aria-labelledby="epic-dialog-title" (dialogDismiss)="closeCreate()" (click)="$event.stopPropagation()">
+        <h2 id="epic-dialog-title">New Epic</h2>
+        <p class="parent-context">Repository: {{ repositoryName || repositoryId }}</p>
+        <p *ngIf="createError" role="alert" class="error-msg">{{ createError }}</p>
+        <p *ngIf="pendingCreate" role="status">Creating {{ pendingCreate }}…</p>
+        <fieldset [disabled]="pendingCreate !== null">
+        <label for="newEpicTitle">Epic title</label>
+        <input id="newEpicTitle" class="input" placeholder="Title" name="newEpicTitle" [(ngModel)]="newEpicTitle" />
+        <label for="newEpicDesc">Epic description (optional)</label>
+        <textarea id="newEpicDesc" class="input textarea" placeholder="Description (optional)" name="newEpicDesc" [(ngModel)]="newEpicDesc" rows="3"></textarea>
+        </fieldset>
+        <div class="modal-actions">
+          <button type="button" [disabled]="pendingCreate !== null" class="btn-secondary" (click)="closeCreate()">Cancel</button>
+          <button class="btn-primary" type="submit" [disabled]="pendingCreate !== null || !newEpicTitle.trim()">{{ pendingCreate ? 'Creating…' : 'Create' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Add Feature modal -->
+    <div class="modal-backdrop" *ngIf="addFeatureEpicId" (click)="closeCreate()">
+      <form (ngSubmit)="addFeature()" class="modal" appDialog aria-labelledby="feature-dialog-title" (dialogDismiss)="closeCreate()" (click)="$event.stopPropagation()">
+        <h2 id="feature-dialog-title">New Feature</h2>
+        <p class="parent-context">{{ repositoryName || repositoryId }} → {{ featureParentTitle }}</p>
+        <p *ngIf="createError" role="alert" class="error-msg">{{ createError }}</p>
+        <p *ngIf="pendingCreate" role="status">Creating {{ pendingCreate }}…</p>
+        <fieldset [disabled]="pendingCreate !== null">
+        <label for="newFeatureTitle">Feature title</label>
+        <input id="newFeatureTitle" class="input" placeholder="Title" name="newFeatureTitle" [(ngModel)]="newFeatureTitle" />
+        </fieldset>
+        <div class="modal-actions">
+          <button type="button" [disabled]="pendingCreate !== null" class="btn-secondary" (click)="closeCreate()">Cancel</button>
+          <button class="btn-primary" type="submit" [disabled]="pendingCreate !== null || !newFeatureTitle.trim()">{{ pendingCreate ? 'Creating…' : 'Create' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Add Story modal -->
+    <div class="modal-backdrop" *ngIf="addStoryFeatureId" (click)="closeCreate()">
+      <form (ngSubmit)="addStory()" class="modal" appDialog aria-labelledby="story-dialog-title" (dialogDismiss)="closeCreate()" (click)="$event.stopPropagation()">
+        <h2 id="story-dialog-title">New Story</h2>
+        <p class="parent-context">{{ repositoryName || repositoryId }} → {{ storyParentTitle }}</p>
+        <p *ngIf="createError" role="alert" class="error-msg">{{ createError }}</p>
+        <p *ngIf="pendingCreate" role="status">Creating {{ pendingCreate }}…</p>
+        <fieldset [disabled]="pendingCreate !== null">
+        <label for="newStoryTitle">Story title</label>
+        <input id="newStoryTitle" class="input" placeholder="Title" name="newStoryTitle" [(ngModel)]="newStoryTitle" />
+        <label for="newStoryDesc">Story description (optional)</label>
+        <textarea id="newStoryDesc" class="input textarea" placeholder="Description (optional)" name="newStoryDesc" [(ngModel)]="newStoryDesc" rows="2"></textarea>
+        <label for="newStoryPoints">Story points</label>
+        <input id="newStoryPoints" class="input" placeholder="Story points" type="number" min="0" step="1" name="newStoryPoints" [(ngModel)]="newStoryPoints" />
+        <label for="new-story-rule">Agent rules</label>
+        <select id="new-story-rule" name="new-story-rule" [(ngModel)]="newStoryRuleId">
+          <option [ngValue]="null">Repository default</option>
+          <option *ngFor="let profile of ruleProfiles" [ngValue]="profile.id">{{ profile.name }}</option>
+        </select>
+        </fieldset>
+        <div class="modal-actions">
+          <button type="button" [disabled]="pendingCreate !== null" class="btn-secondary" (click)="closeCreate()">Cancel</button>
+          <button class="btn-primary" type="submit" [disabled]="pendingCreate !== null || !newStoryTitle.trim()">{{ pendingCreate ? 'Creating…' : 'Create' }}</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Backlog tree -->
+    <div class="backlog-tree" *ngIf="backlog">
+      <div *ngFor="let epic of backlog.epics" class="epic-card">
+        <div class="epic-header">
+          <h2>{{ epic.title }}</h2>
+          <button class="btn-sm btn-secondary" (click)="openFeature(epic.id)">+ Feature</button>
+        </div>
+        <p *ngIf="epic.description" class="desc">{{ epic.description }}</p>
+
+        <div *ngFor="let feature of epic.features" class="feature-card">
+          <div class="feature-header">
+            <h3>{{ feature.title }}</h3>
+            <button class="btn-sm btn-secondary" (click)="openStory(feature.id)">+ Story</button>
+          </div>
+
+          <div *ngFor="let story of feature.stories" class="story-row">
+            <div class="story-summary">
+              <span class="story-status" [ngClass]="'status-' + story.status.toLowerCase()">{{ story.status }}</span>
+              <strong class="story-title">{{ story.title }}</strong>
+              <span class="story-points" *ngIf="story.storyPoints !== null">{{ story.storyPoints }} pts</span>
+            </div>
+            <div class="story-controls">
+              <label>Agent rules
+                <select [attr.aria-label]="'Agent rules for ' + story.title" [value]="story.agentRuleId || ''" (change)="setRule(story, $any($event.target).value || null); $any($event.target).value = story.agentRuleId || ''" [disabled]="pendingRules.has(story.id)">
+                  <option value="">Repository default</option>
+                  <option *ngFor="let profile of ruleProfiles" [value]="profile.id">{{ profile.name }}</option>
+                </select>
+              </label>
+              <label>Status
+                <select [attr.aria-label]="'Status for ' + story.title" [value]="story.status" (change)="setStatus(story, $any($event.target).value); $any($event.target).value = story.status" [disabled]="pendingStatuses.has(story.id)">
+                  <option>Draft</option><option>Ready</option><option>InProgress</option><option>InReview</option><option>Done</option>
+                </select>
+              </label>
+              <button class="btn-secondary" [attr.aria-label]="'Refine ' + story.title" [disabled]="pendingRefinements.has(story.id) || story.triageState?.kind === 'Triaging'" (click)="refine(story)">{{ pendingRefinements.has(story.id) ? 'Starting…' : story.triageState?.kind === 'Triaging' ? 'Refining…' : 'Refine' }}</button>
+            </div>
+            <p *ngIf="storyErrors.get(story.id)" role="alert" class="error-msg">{{ storyErrors.get(story.id) }}</p>
+            <p *ngIf="story.triageState?.kind === 'Triaging'" role="status" class="story-feedback">Refinement is running. Refresh to check its result.</p>
+            <details *ngIf="story.refinement" class="refinement">
+              <summary>Refinement result for {{ story.title }}</summary>
+              <p class="refined-description">{{ story.refinement.refinedDescription }}</p>
+              <h4>Acceptance criteria</h4><ul><li *ngFor="let item of story.refinement.acceptanceCriteria">{{ item }}</li></ul>
+              <h4>Risks</h4><ul><li *ngFor="let item of story.refinement.risks">{{ item }}</li></ul>
+              <h4>Test plan</h4><ul><li *ngFor="let item of story.refinement.testPlan">{{ item }}</li></ul>
+            </details>
+          </div>
+          <p *ngIf="feature.stories.length === 0" class="empty-sm">No stories</p>
+        </div>
+        <p *ngIf="epic.features.length === 0" class="empty-sm">No features</p>
+      </div>
+      <p *ngIf="backlog.epics.length === 0" class="empty">No epics yet. Add one or generate a draft backlog.</p>
+    </div>

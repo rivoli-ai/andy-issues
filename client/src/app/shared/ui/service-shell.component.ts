@@ -1,6 +1,8 @@
-import { ChangeDetectorRef, Component, DestroyRef, ElementRef, HostListener, Input, ViewChild, inject } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { ChangeDetectorRef, Component, CUSTOM_ELEMENTS_SCHEMA, DestroyRef, ElementRef, HostListener, Input, OnChanges, ViewChild, inject } from '@angular/core';
+import { ThemeService } from './theme.service';
+import { type AndyCrumb } from '@andy-ui/angular';
+import { CommonModule, Location } from '@angular/common';
+import { NavigationEnd, Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 
@@ -14,11 +16,13 @@ export interface ServiceNavItem {
 @Component({
   selector: 'app-service-shell',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  schemas: [CUSTOM_ELEMENTS_SCHEMA],
+  imports: [CommonModule],
   templateUrl: './service-shell.component.html',
   styleUrls: ['./service-shell.component.css'],
 })
-export class ServiceShellComponent {
+export class ServiceShellComponent implements OnChanges {
+  breadcrumbs: AndyCrumb[] = [];
   @Input() chrome = true;
   @Input() serviceName = '';
   @Input() serviceDescription = '';
@@ -27,6 +31,9 @@ export class ServiceShellComponent {
   @ViewChild('menuButton') menuButton?: ElementRef<HTMLButtonElement>;
   @ViewChild('mainContent') mainContent?: ElementRef<HTMLElement>;
   private readonly router = inject(Router);
+  private readonly location = inject(Location);
+  readonly theme = inject(ThemeService);
+  collapsed = false;
   private readonly changeDetector = inject(ChangeDetectorRef);
   private readonly destroyRef = inject(DestroyRef);
   mobile = typeof window !== 'undefined' && window.innerWidth < 960;
@@ -37,6 +44,7 @@ export class ServiceShellComponent {
     this.router.events.pipe(filter((event): event is NavigationEnd => event instanceof NavigationEnd), takeUntilDestroyed(this.destroyRef))
       .subscribe(event => {
         this.currentPath = event.urlAfterRedirects.split(/[?#]/)[0];
+        this.updateBreadcrumbs();
         this.closeMenu(false);
         requestAnimationFrame(() => this.mainContent?.nativeElement.focus({ preventScroll: true }));
       });
@@ -48,7 +56,31 @@ export class ServiceShellComponent {
   linksIn(group: string): ServiceNavItem[] { return this.visibleLinks.filter(link => link.group === group); }
   get homePath(): string { return this.visibleLinks[0]?.path ?? '/'; }
   isCurrent(link: ServiceNavItem): boolean { return this.currentLink?.path === link.path; }
-  get currentLabel(): string { return this.currentLink?.label ?? this.serviceName; }
+  get currentLabel(): string {
+    let route = this.router.routerState.snapshot.root;
+    while (route.firstChild) route = route.firstChild;
+    return route.data['breadcrumb'] ?? this.currentLink?.label ?? this.serviceName;
+  }
+  ngOnChanges(): void { this.updateBreadcrumbs(); }
+  private updateBreadcrumbs(): void {
+    const items: AndyCrumb[] = [{ label: this.serviceName, href: this.href(this.homePath) }];
+    if (this.currentPath.startsWith('/backlog/')) items.push({ label: 'Repositories', href: this.href('/repositories') });
+    items.push({ label: this.currentLabel });
+    this.breadcrumbs = items;
+  }
+  href(path: string): string { return this.location.prepareExternalUrl(path); }
+  navigateLink(event: MouseEvent): void {
+    if (event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    const anchor = (event.target as Element).closest<HTMLAnchorElement>('a[href]');
+    if (!anchor || anchor.origin !== window.location.origin) return;
+    event.preventDefault();
+    void this.router.navigateByUrl(this.location.normalize(anchor.pathname + anchor.search + anchor.hash));
+  }
+  themeChanged(event: Event): void {
+    const value = (event as CustomEvent).detail;
+    if (value === 'light' || value === 'dark') this.theme.select(value);
+  }
+  collapseChanged(event: Event): void { this.collapsed = (event as CustomEvent<boolean>).detail; }
   get currentLink(): ServiceNavItem | undefined {
     return [...this.visibleLinks].sort((a, b) => b.path.length - a.path.length)
       .find(link => this.currentPath === link.path || this.currentPath.startsWith(link.path + '/'));

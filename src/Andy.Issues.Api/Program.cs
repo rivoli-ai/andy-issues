@@ -2,6 +2,8 @@
 // Licensed under the Apache License, Version 2.0.
 
 using Andy.Auth.M2MClient;
+using Microsoft.AspNetCore.DataProtection;
+using Andy.Issues.Api.Auth;
 using Andy.Issues.Api.Hubs;
 using Andy.Issues.Api.Infrastructure;
 using Andy.Issues.Api.Telemetry;
@@ -107,6 +109,9 @@ else
     });
 }
 
+builder.Services.AddAuthorization(options => options.AddPolicy(AdminUsersAuthorization.Policy,
+    policy => policy.RequireAuthenticatedUser().RequireAssertion(context => AdminUsersAuthorization.CanRead(context.User))));
+
 // --- RBAC (Andy.Rbac.Client) ---
 var rbacBaseUrl = builder.Configuration["Rbac:ApiBaseUrl"];
 if (!string.IsNullOrEmpty(rbacBaseUrl) && builder.Environment.IsDevelopment())
@@ -139,6 +144,26 @@ builder.Services.AddAndyAuthM2M(builder.Configuration);
 var attachBearer = !string.IsNullOrWhiteSpace(builder.Configuration["AndyAuth:ClientId"]);
 
 
+var dataProtection = builder.Services.AddDataProtection().SetApplicationName("andy-issues");
+var keyRingPath = builder.Configuration["DataProtection:KeyRingPath"];
+if (!string.IsNullOrWhiteSpace(keyRingPath)) dataProtection.PersistKeysToFileSystem(new DirectoryInfo(keyRingPath));
+builder.Services.AddScoped<ILlmSecretStore, LlmSecretStore>();
+builder.Services.AddHostedService<LlmKeyMigration>();
+builder.Services.AddMemoryCache();
+var rbacUsersClient = builder.Services.AddHttpClient("AndyRbacUsers", client =>
+{
+    if (!string.IsNullOrWhiteSpace(rbacBaseUrl)) client.BaseAddress = new Uri(rbacBaseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+if (attachBearer)
+{
+    rbacUsersClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        sp.GetRequiredService<IDelegatedTokenProvider>(), sp.GetRequiredService<IServiceTokenProvider>(),
+        sp.GetRequiredService<IHttpContextAccessor>(), "urn:andy-rbac-api",
+        sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+}
+builder.Services.AddScoped<IAndyRbacUsersClient, AndyRbacUsersClient>();
+
 // --- LLM provider client (BacklogAiService / DraftBacklogGenerator /
 // BacklogRecategorizeService via LlmChatCompletion) ---
 // Named-client registration so the timeout is NOT HttpClient's 100 s
@@ -169,7 +194,11 @@ if (!string.IsNullOrEmpty(settingsBaseUrl))
             SettingsAudience,
             sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
     }
-    builder.Services.AddScoped<IAndySettingsClient, AndySettingsClient>();
+    builder.Services.AddScoped<IAndySettingsClient>(sp => new AndySettingsClient(
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<ILogger<AndySettingsClient>>(),
+        sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User.FindFirst("sub")?.Value
+            ?? sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value));
 }
 else
 {
@@ -184,6 +213,8 @@ builder.Services.AddScoped<IUserDirectory, UserDirectoryService>();
 builder.Services.AddScoped<IRepositoryAccessGuard, RepositoryAccessGuard>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 builder.Services.AddScoped<IAgentRulesService, AgentRulesService>();
+builder.Services.AddScoped<IAgentRuleProfiles, AgentRuleProfiles>();
+builder.Services.AddHostedService<AgentRuleBackfill>();
 builder.Services.AddScoped<IPullRequestStatusService, PullRequestStatusService>();
 builder.Services.AddScoped<IRepositoryService, RepositoryService>();
 builder.Services.AddScoped<IBacklogSequenceAllocator, BacklogSequenceAllocator>();
@@ -261,6 +292,7 @@ if (attachBearer)
         sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
 }
 
+builder.Services.AddSingleton<SandboxCapacityLock>();
 builder.Services.AddScoped<ISandboxService, SandboxService>();
 builder.Services.AddScoped<IArtifactFeedService, ArtifactFeedService>();
 builder.Services.AddScoped<IMcpConfigService, McpConfigService>();
@@ -339,6 +371,7 @@ builder.Services.AddOpenTelemetry()
 // --- Swagger ---
 builder.Services.AddControllers(options =>
     {
+        options.Filters.Add<Andy.Issues.Api.Controllers.AgentRuleValidationFilter>();
         // Translate UnauthorizedAccessException → 401 (see issue #65).
         options.Filters.Add<Andy.Issues.Api.Auth.UnauthorizedExceptionFilter>();
     })
@@ -400,6 +433,7 @@ builder.Services.AddGrpc();
 builder.Services
     .AddMcpServer()
     .WithHttpTransport()
+    .AddAuthorizationFilters()
     .WithToolsFromAssembly();
 
 var app = builder.Build();

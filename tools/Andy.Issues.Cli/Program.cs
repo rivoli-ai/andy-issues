@@ -18,6 +18,8 @@ var tokenOption = new Option<string?>(
     description: "Bearer token for authentication");
 rootCommand.AddGlobalOption(tokenOption);
 
+rootCommand.AddCommand(AdminCommand.Build(apiUrlOption, tokenOption));
+rootCommand.AddCommand(RulesCommand.BuildStories(apiUrlOption, tokenOption));
 rootCommand.AddCommand(ReposCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(BacklogCommand.Build(apiUrlOption, tokenOption));
 rootCommand.AddCommand(IssuesCommand.Build(apiUrlOption, tokenOption));

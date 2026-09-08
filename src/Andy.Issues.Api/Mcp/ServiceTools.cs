@@ -284,6 +284,14 @@ public static class ServiceTools
         return Serialize(list);
     }
 
+    [McpServerTool, Description("List the caller's sandboxes with repository names and capacity.")]
+    public static async Task<string> ListMySandboxes(IHttpContextAccessor ctx, ISandboxService svc) =>
+        Serialize(await svc.ListMineAsync(GetUserId(ctx)));
+
+    [McpServerTool, Description("Close every sandbox owned by the caller. Reports partial failures for retry.")]
+    public static async Task<string> CloseAllMySandboxes(IHttpContextAccessor ctx, ISandboxService svc) =>
+        Serialize(await svc.CloseAllMineAsync(GetUserId(ctx)));
+
     [McpServerTool, Description("Get connection info (IDE, VNC, SSH endpoints) for a sandbox.")]
     public static async Task<string> GetSandboxConnection(
         IHttpContextAccessor ctx,
@@ -302,6 +310,16 @@ public static class ServiceTools
     {
         var ok = await svc.DestroyAsync(Guid.Parse(sandboxId), GetUserId(ctx));
         return ok ? "Sandbox destroyed." : "Sandbox not found.";
+    }
+
+    [McpServerTool, Description("List users with roles in Andy Issues. Requires the admin user-read permission.")]
+    [Microsoft.AspNetCore.Authorization.Authorize(Policy = Andy.Issues.Api.Auth.AdminUsersAuthorization.Policy)]
+    public static async Task<string> AdminListUsers(IHttpContextAccessor ctx, IAndyRbacUsersClient users,
+        string? query = null, string? role = null, int skip = 0, int take = 50)
+    {
+        if (!Andy.Issues.Api.Auth.AdminUsersAuthorization.CanRead(ctx.HttpContext?.User ?? new System.Security.Claims.ClaimsPrincipal()))
+            throw new UnauthorizedAccessException("Admin user-read permission required.");
+        return Serialize(await users.ListAsync(GetUserId(ctx), query, role, skip, take));
     }
 
     // ── Issues / Triage (Z9) ────────────────────────────────────────

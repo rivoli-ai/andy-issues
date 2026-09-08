@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Net;
+using System.Net.Http.Json;
 using System.Text.Json;
 using Andy.Issues.Application.Interfaces;
 using Microsoft.Extensions.Logging;
@@ -24,15 +25,18 @@ public class AndySettingsClient : IAndySettingsClient
     };
 
     private readonly HttpClient _http;
+    private readonly string? _userId;
     private readonly ILogger<AndySettingsClient> _logger;
     private readonly Dictionary<string, string?> _cache = new();
 
     public AndySettingsClient(
         IHttpClientFactory httpClientFactory,
-        ILogger<AndySettingsClient> logger)
+        ILogger<AndySettingsClient> logger,
+        string? userId = null)
     {
         _http = httpClientFactory.CreateClient("AndySettings");
         _logger = logger;
+        _userId = userId;
     }
 
     public async Task<T?> GetAsync<T>(string key, CancellationToken ct = default)
@@ -42,8 +46,8 @@ public class AndySettingsClient : IAndySettingsClient
 
         try
         {
-            var encoded = Uri.EscapeDataString(key);
-            using var response = await _http.GetAsync($"api/settings/{encoded}", ct);
+            using var response = await _http.PostAsJsonAsync("api/effective/resolve",
+                new { key, context = ResolutionContext() }, ct);
 
             if (response.StatusCode == HttpStatusCode.NotFound)
             {
@@ -53,16 +57,14 @@ public class AndySettingsClient : IAndySettingsClient
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("andy-settings GET /api/settings/{Key} returned {Status}.", key, (int)response.StatusCode);
+                _logger.LogWarning("andy-settings resolve {Key} returned {Status}.", key, (int)response.StatusCode);
                 return default;
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
 
-            var value = doc.RootElement.TryGetProperty("value", out var v)
-                ? v.GetRawText()
-                : null;
+            var value = ReadEffectiveValue(doc.RootElement);
 
             _cache[key] = value;
 
@@ -117,7 +119,7 @@ public class AndySettingsClient : IAndySettingsClient
             if (_cache.TryGetValue(key, out var cached))
             {
                 if (cached is not null)
-                    result[key] = cached;
+                    result[key] = BatchValue(cached);
             }
             else
             {
@@ -130,30 +132,25 @@ public class AndySettingsClient : IAndySettingsClient
 
         try
         {
-            var query = string.Join("&", uncached.Select(k => $"keys={Uri.EscapeDataString(k)}"));
-            using var response = await _http.GetAsync($"api/settings/batch?{query}", ct);
+            using var response = await _http.PostAsJsonAsync("api/effective/resolve-batch",
+                new { keys = uncached, context = ResolutionContext() }, ct);
 
             if (!response.IsSuccessStatusCode)
             {
-                _logger.LogWarning("andy-settings GET /api/settings/batch returned {Status}.", (int)response.StatusCode);
+                _logger.LogWarning("andy-settings resolve-batch returned {Status}.", (int)response.StatusCode);
                 return result;
             }
 
             await using var stream = await response.Content.ReadAsStreamAsync(ct);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: ct);
 
-            if (doc.RootElement.ValueKind == JsonValueKind.Object)
+            foreach (var entry in doc.RootElement.EnumerateArray())
             {
-                foreach (var prop in doc.RootElement.EnumerateObject())
-                {
-                    var value = prop.Value.ValueKind == JsonValueKind.String
-                        ? prop.Value.GetString()
-                        : prop.Value.GetRawText();
-
-                    _cache[prop.Name] = value;
-                    if (value is not null)
-                        result[prop.Name] = value;
-                }
+                var key = entry.GetProperty("key").GetString();
+                if (key is null || !uncached.Contains(key)) continue;
+                var value = ReadEffectiveValue(entry);
+                _cache[key] = value;
+                if (value is not null) result[key] = BatchValue(value);
             }
 
             // Mark keys not in the response as absent
@@ -170,4 +167,26 @@ public class AndySettingsClient : IAndySettingsClient
 
         return result;
     }
+    private object ResolutionContext() => new
+    {
+        applicationCode = "andy-issues",
+        userId = _userId
+    };
+
+    private static string? ReadEffectiveValue(JsonElement entry)
+    {
+        if (entry.TryGetProperty("isSecret", out var secret) && secret.ValueKind == JsonValueKind.True)
+            return null;
+        if (entry.TryGetProperty("isValid", out var valid) && valid.ValueKind == JsonValueKind.False)
+            return null;
+        return entry.TryGetProperty("effectiveValue", out var value) && value.ValueKind == JsonValueKind.String
+            ? value.GetString() : null;
+    }
+
+    private static string BatchValue(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        return doc.RootElement.ValueKind == JsonValueKind.String ? doc.RootElement.GetString()! : json;
+    }
+
 }

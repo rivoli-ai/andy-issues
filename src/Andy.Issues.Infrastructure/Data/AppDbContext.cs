@@ -31,6 +31,7 @@ public class AppDbContext : DbContext
         }
     }
 
+    public DbSet<AgentRule> AgentRules => Set<AgentRule>();
     public DbSet<Repository> Repositories => Set<Repository>();
     public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
     public DbSet<Epic> Epics => Set<Epic>();
@@ -147,6 +148,18 @@ public class AppDbContext : DbContext
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        modelBuilder.Entity<AgentRule>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.Name).HasMaxLength(120).IsRequired();
+            e.Property(x => x.NameKey).HasMaxLength(120).IsRequired();
+            e.Property(x => x.Body).HasMaxLength(65536).IsRequired();
+            e.HasOne(x => x.Repository).WithMany().HasForeignKey(x => x.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            e.HasIndex(x => new { x.RepositoryId, x.NameKey }).IsUnique();
+            e.HasIndex(x => x.RepositoryId).IsUnique().HasFilter("\"IsDefault\" = true");
+        });
+        modelBuilder.Entity<UserStory>().HasOne(x => x.AgentRule).WithMany()
+            .HasForeignKey(x => x.AgentRuleId).OnDelete(DeleteBehavior.SetNull);
         modelBuilder.Entity<UserStory>(e =>
         {
             e.HasKey(x => x.Id);
@@ -214,7 +227,8 @@ public class AppDbContext : DbContext
             e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.Title).IsRequired().HasMaxLength(512);
             e.Property(x => x.Body).HasMaxLength(8192);
-            e.Property(x => x.TriageState).HasConversion<string>().HasMaxLength(32);
+            e.Property(x => x.TriageState).HasConversion<string>().HasMaxLength(32).IsConcurrencyToken();
+            e.Property(x => x.TriageRunId).IsConcurrencyToken();
             e.Property(x => x.TriagedBy).HasMaxLength(256);
             // #187 — unified list endpoint filters by assignee. Null
             // means unassigned (the cockpit AF3 intake pane default).
@@ -227,6 +241,16 @@ public class AppDbContext : DbContext
             // Z2 — supports the consumer's "find issue by run id" path
             // when payload IssueId is absent but RunId is known.
             e.HasIndex(x => x.TriageRunId);
+            e.Property(x => x.TriageInputDocsRefs)
+                .HasConversion(v => JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
+                    v => string.IsNullOrEmpty(v) ? new List<Andy.Issues.Domain.ValueTypes.DocsRef>() : JsonSerializer.Deserialize<List<Andy.Issues.Domain.ValueTypes.DocsRef>>(v, Andy.Issues.Application.Messaging.EventJson.Options)!)
+                .HasColumnName("TriageInputDocsRefsJson")
+                .Metadata.SetValueComparer(new Microsoft.EntityFrameworkCore.ChangeTracking.ValueComparer<List<Andy.Issues.Domain.ValueTypes.DocsRef>>(
+                    (a, b) => a!.SequenceEqual(b!), v => v.Aggregate(0, (hash, item) => HashCode.Combine(hash, item.GetHashCode())), v => v.ToList()));
+            e.Property(x => x.TriageOutputDocRef)
+                .HasConversion(v => v == null ? null : JsonSerializer.Serialize(v, Andy.Issues.Application.Messaging.EventJson.Options),
+                    v => string.IsNullOrEmpty(v) ? null : JsonSerializer.Deserialize<Andy.Issues.Domain.ValueTypes.DocsRef?>(v, Andy.Issues.Application.Messaging.EventJson.Options))
+                .HasColumnName("TriageOutputDocRefJson");
 
             // Z3 — TriageOutput is a domain value, persisted as JSON
             // text (portable across SQLite + Postgres). The whole record
@@ -388,7 +412,7 @@ public class AppDbContext : DbContext
             e.Property(x => x.OwnerUserId).IsRequired().HasMaxLength(256);
             e.Property(x => x.Name).IsRequired().HasMaxLength(256);
             e.Property(x => x.Provider).HasConversion<string>().HasMaxLength(32);
-            e.Property(x => x.ApiKey).HasMaxLength(2048);
+            e.Property(x => x.ApiKey).HasMaxLength(8192);
             e.Property(x => x.Model).IsRequired().HasMaxLength(256);
             e.Property(x => x.BaseUrl).HasMaxLength(1024);
         });

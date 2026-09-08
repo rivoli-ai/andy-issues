@@ -20,4 +20,7 @@ public record IssueDto(
     string? TriagedBy,
     TriageOutput? TriageOutput,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? UpdatedAt);
+    DateTimeOffset? UpdatedAt,
+    Guid? RunId = null,
+    IReadOnlyList<DocsRef>? TriageInputDocsRefs = null,
+    DocsRef? TriageOutputDocRef = null);

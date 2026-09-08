@@ -21,6 +21,7 @@ namespace Andy.Issues.Infrastructure.Services;
 public class BacklogAiService : IBacklogAiService
 {
     private readonly AppDbContext _db;
+    private readonly ILlmSecretStore? _llmSecrets;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<BacklogAiService> _logger;
@@ -29,9 +30,10 @@ public class BacklogAiService : IBacklogAiService
         AppDbContext db,
         IRepositoryAccessGuard guard,
         IHttpClientFactory httpClientFactory,
-        ILogger<BacklogAiService> logger)
+        ILogger<BacklogAiService> logger, ILlmSecretStore? llmSecrets = null)
     {
         _db = db;
+        _llmSecrets = llmSecrets;
         _guard = guard;
         _httpClientFactory = httpClientFactory;
         _logger = logger;
@@ -182,7 +184,7 @@ public class BacklogAiService : IBacklogAiService
             maxTokens: 400,
             temperature: 0.7,
             requestJsonObject: false,
-            ct);
+            ct, _llmSecrets);
     }
 
     // MARK: - Prompt assembly

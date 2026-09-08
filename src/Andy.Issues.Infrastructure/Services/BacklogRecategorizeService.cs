@@ -42,6 +42,7 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
         "Respond with a single strict JSON object and nothing else.";
 
     private readonly AppDbContext _db;
+    private readonly ILlmSecretStore? _llmSecrets;
     private readonly IGitHubClient _gitHubClient;
     private readonly IRepositoryAccessGuard _guard;
     private readonly ISecretStore _secretStore;
@@ -58,9 +59,10 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
         IBacklogSequenceAllocator sequence,
         IHttpClientFactory httpClientFactory,
         ILogger<BacklogRecategorizeService> logger,
-        Func<string, string?>? environmentReader = null)
+        Func<string, string?>? environmentReader = null, ILlmSecretStore? llmSecrets = null)
     {
         _db = db;
+        _llmSecrets = llmSecrets;
         _gitHubClient = gitHubClient;
         _guard = guard;
         _secretStore = secretStore;
@@ -148,7 +150,7 @@ public class BacklogRecategorizeService : IBacklogRecategorizeService
                 maxTokens: 8192,
                 temperature: 0.2,
                 requestJsonObject: true,
-                ct);
+                ct, _llmSecrets ?? _secretStore);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
         {

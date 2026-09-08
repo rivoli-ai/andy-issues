@@ -5,6 +5,7 @@ import { provideRouter } from '@angular/router';
 import { provideHttpClient, withInterceptors } from '@angular/common/http';
 import { provideAuth } from 'angular-auth-oidc-client';
 import { routes } from './app.routes';
+import { mutationToastInterceptor } from './core/interceptors/mutation-toast.interceptor';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { environment } from '../environments/environment';
 
@@ -12,7 +13,7 @@ export const appConfig: ApplicationConfig = {
   providers: [
     provideZoneChangeDetection({ eventCoalescing: true }),
     provideRouter(routes),
-    provideHttpClient(withInterceptors([authInterceptor])),
+    provideHttpClient(withInterceptors([authInterceptor, mutationToastInterceptor])),
     provideAuth({
       config: {
         authority: environment.authAuthority,

@@ -52,6 +52,11 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         var names = tools.Select(t => t.GetProperty("name").GetString()).ToList();
 
         Assert.Contains("list_repositories", names);
+        Assert.Contains("list_agent_rules", names);
+        Assert.Contains("create_agent_rule", names);
+        Assert.Contains("update_agent_rule", names);
+        Assert.Contains("delete_agent_rule", names);
+        Assert.Contains("get_effective_agent_rules", names);
         Assert.Contains("create_repository", names);
         Assert.Contains("list_backlog", names);
         Assert.Contains("create_epic", names);
@@ -65,6 +70,7 @@ public class McpToolsIntegrationTests : IClassFixture<TestWebApplicationFactory>
         Assert.Contains("issue_triage", names);
         // Help tools should also be present
         Assert.Contains("list_help_topics", names);
+        Assert.DoesNotContain("admin_list_users", names);
     }
 
     [Fact]

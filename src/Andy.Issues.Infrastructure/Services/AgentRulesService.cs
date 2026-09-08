@@ -15,6 +15,7 @@ public class AgentRulesService : IAgentRulesService
     // the over-sized blob.
     public const int MaxRulesLength = 65536;
 
+    private readonly IAgentRuleProfiles? _profiles;
     private readonly AppDbContext _db;
     private readonly IRepositoryAccessGuard _guard;
     private readonly IAuditLogService _audit;
@@ -22,8 +23,9 @@ public class AgentRulesService : IAgentRulesService
     public AgentRulesService(
         AppDbContext db,
         IRepositoryAccessGuard guard,
-        IAuditLogService audit)
+        IAuditLogService audit, IAgentRuleProfiles? profiles = null)
     {
+        _profiles = profiles;
         _db = db;
         _guard = guard;
         _audit = audit;
@@ -45,7 +47,9 @@ public class AgentRulesService : IAgentRulesService
 
         // Empty-string fallback (not 404) — the contract for #91 is
         // "no rules yet" returns the same shape with a blank body.
-        return (AgentRulesGetOutcome.Ok, new AgentRulesDto(rules ?? string.Empty));
+        return (AgentRulesGetOutcome.Ok, new AgentRulesDto(rules ?? string.Empty,
+            _profiles is null ? null : await _profiles.ListAsync(repositoryId, userId, ct),
+            await _guard.IsOwnerAsync(repositoryId, userId, ct)));
     }
 
     public async Task<AgentRulesUpdateOutcome> UpdateAsync(
@@ -62,6 +66,12 @@ public class AgentRulesService : IAgentRulesService
             .FirstOrDefaultAsync(r => r.Id == repositoryId, ct);
         if (repo is null) return AgentRulesUpdateOutcome.NotFound;
         if (repo.OwnerUserId != ownerUserId) return AgentRulesUpdateOutcome.NotOwner;
+
+        if (_profiles is not null)
+        {
+            await _profiles.WriteAsync(repositoryId, ownerUserId, "legacy", new AgentRuleWriteRequest("Default", rules), ct: ct);
+            return AgentRulesUpdateOutcome.Updated;
+        }
 
         repo.AgentRules = rules.Length == 0 ? null : rules;
         repo.UpdatedAt = DateTimeOffset.UtcNow;

@@ -16,7 +16,9 @@ public class FakeContainersClient : IContainersClient
     public List<string> DestroyCalls { get; } = new();
     public List<(string name, string templateCode, IReadOnlyDictionary<string, string>? environmentVariables)> CreateCalls { get; } = new();
     public Func<string, string, ContainerInfo>? CreateOverride { get; set; }
+    public Func<Task>? BeforeCreate { get; set; }
     public Exception? ThrowOnCreate { get; set; }
+    public Func<string, Exception?>? DestroyError { get; set; }
     public Exception? ThrowOnDestroy { get; set; }
 
     public void SeedContainer(string id, string name, string status, string? ide = null, string? vnc = null)
@@ -26,12 +28,13 @@ public class FakeContainersClient : IContainersClient
 
     public void RemoveContainer(string id) => _containers.TryRemove(id, out _);
 
-    public Task<ContainerInfo> CreateContainerAsync(
+    public async Task<ContainerInfo> CreateContainerAsync(
         string name,
         string templateCode,
         IReadOnlyDictionary<string, string>? environmentVariables = null,
         CancellationToken ct = default)
     {
+        if (BeforeCreate is not null) await BeforeCreate();
         CreateCalls.Add((name, templateCode, environmentVariables));
         if (ThrowOnCreate is not null) throw ThrowOnCreate;
 
@@ -43,7 +46,7 @@ public class FakeContainersClient : IContainersClient
                 IdeEndpoint: null,
                 VncEndpoint: null);
         _containers[info.Id] = info;
-        return Task.FromResult(info);
+        return info;
     }
 
     public Task<ContainerInfo?> GetContainerAsync(string containerId, CancellationToken ct = default)
@@ -55,6 +58,7 @@ public class FakeContainersClient : IContainersClient
     public Task DestroyContainerAsync(string containerId, CancellationToken ct = default)
     {
         DestroyCalls.Add(containerId);
+        if (DestroyError?.Invoke(containerId) is { } error) throw error;
         if (ThrowOnDestroy is not null) throw ThrowOnDestroy;
         _containers.TryRemove(containerId, out _);
         return Task.CompletedTask;

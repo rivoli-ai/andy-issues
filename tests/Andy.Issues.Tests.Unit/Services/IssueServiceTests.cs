@@ -541,6 +541,8 @@ public class IssueServiceTests : IDisposable
 // the persisted row, not on andy-docs hydration.
 file class TestDocsClient : IDocsClient
 {
+    public Task<Andy.Issues.Domain.ValueTypes.DocsRef?> PutTriageOutputAsync(Guid issueId, Guid? runId, string markdown, CancellationToken ct = default) =>
+        Task.FromResult<Andy.Issues.Domain.ValueTypes.DocsRef?>(new(Guid.NewGuid(), Guid.NewGuid()));
     public Task<bool> VerifyLinkAsync(Guid linkId, string expectedTargetType, Guid expectedTargetId, CancellationToken ct = default) =>
         Task.FromResult(linkId != Guid.Empty
             && !string.IsNullOrWhiteSpace(expectedTargetType)

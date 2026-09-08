@@ -71,7 +71,18 @@ export interface Feature {
   stories: UserStory[];
 }
 
+export interface AgentRuleProfile {
+  id?: string;
+  name: string;
+  body: string;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
 export interface UserStory {
+  triageState?: { kind: string; refineRunId?: string };
+  refinement?: { refinedDescription: string | null; acceptanceCriteria: string[]; risks: string[]; testPlan: string[] } | null;
+  agentRuleId?: string | null;
   id: string;
   featureId: string;
   title: string;
@@ -94,6 +105,11 @@ export interface Backlog {
 
 // ── Sandbox ─────────────────────────────────────────────────────────
 
+export interface AdminUsers {
+  items: { userId: string; email: string | null; displayName: string | null; roles: string[]; lastSeenAt: string | null }[];
+  total: number;
+}
+
 export interface Sandbox {
   id: string;
   containerId: string;
@@ -105,6 +121,19 @@ export interface Sandbox {
   vncEndpoint: string | null;
   createdAt: string;
   updatedAt: string | null;
+}
+
+export interface SandboxSummary extends Omit<Sandbox, 'ownerUserId' | 'updatedAt'> {
+  repositoryName: string;
+  purpose: string;
+}
+export interface MySandboxes {
+  items: SandboxSummary[];
+  capacity: { current: number; max: number; tenantMax: number };
+}
+export interface CloseMySandboxes {
+  destroyed: string[];
+  failed: { id: string; reason: string }[];
 }
 
 export interface SandboxConnection {
@@ -233,8 +262,28 @@ export class ApiService {
     return this.http.post<Feature>(`${this.baseUrl}/epics/${epicId}/features`, { title, description });
   }
 
-  createStory(featureId: string, title: string, description?: string, acceptanceCriteria?: string, storyPoints?: number): Observable<UserStory> {
-    return this.http.post<UserStory>(`${this.baseUrl}/features/${featureId}/stories`, { title, description, acceptanceCriteria, storyPoints });
+  createStory(featureId: string, title: string, description?: string, acceptanceCriteria?: string, storyPoints?: number, agentRuleId?: string | null): Observable<UserStory> {
+    return this.http.post<UserStory>(`${this.baseUrl}/features/${featureId}/stories`, { title, description, acceptanceCriteria, storyPoints, agentRuleId });
+  }
+
+  getAgentRules(repositoryId: string): Observable<{ rules: string; profiles: AgentRuleProfile[]; canEdit: boolean }> {
+    return this.http.get<{ rules: string; profiles: AgentRuleProfile[]; canEdit: boolean }>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules`);
+  }
+
+  listAgentRules(repositoryId: string): Observable<AgentRuleProfile[]> {
+    return this.http.get<AgentRuleProfile[]>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules/profiles`);
+  }
+
+  replaceAgentRules(repositoryId: string, profiles: AgentRuleProfile[]): Observable<AgentRuleProfile[]> {
+    return this.http.post<AgentRuleProfile[]>(`${this.baseUrl}/repositories/${repositoryId}/agent-rules/replace`, profiles);
+  }
+
+  selectAgentRule(storyId: string, agentRuleId: string | null): Observable<void> {
+    return this.http.put<void>(`${this.baseUrl}/stories/${storyId}/agent-rule`, { agentRuleId });
+  }
+
+  refineStory(storyId: string): Observable<{ refineRunId: string; refineVersion: number }> {
+    return this.http.post<{ refineRunId: string; refineVersion: number }>(`${this.baseUrl}/stories/${storyId}/refine`, {});
   }
 
   updateStoryStatus(storyId: string, status: string, pullRequestUrl?: string): Observable<UserStory> {
@@ -247,12 +296,28 @@ export class ApiService {
 
   // ── Sandboxes ─────────────────────────────────────────────────
 
+  adminUserAccess(): Observable<{ canRead: boolean; manageUrl: string | null }> {
+    return this.http.get<{ canRead: boolean; manageUrl: string | null }>(`${this.baseUrl}/admin/users/access`);
+  }
+
+  listAdminUsers(query: string, role: string, skip = 0, take = 50): Observable<AdminUsers> {
+    return this.http.get<AdminUsers>(`${this.baseUrl}/admin/users`, { params: { query, role, skip, take } });
+  }
+
   createSandbox(repositoryId: string, branch: string): Observable<Sandbox> {
     return this.http.post<Sandbox>(`${this.baseUrl}/sandboxes`, { repositoryId, branch });
   }
 
   listSandboxes(): Observable<Sandbox[]> {
     return this.http.get<Sandbox[]>(`${this.baseUrl}/sandboxes`);
+  }
+
+  listMySandboxes(): Observable<MySandboxes> {
+    return this.http.get<MySandboxes>(`${this.baseUrl}/sandboxes/mine`);
+  }
+
+  closeAllMySandboxes(): Observable<CloseMySandboxes> {
+    return this.http.delete<CloseMySandboxes>(`${this.baseUrl}/sandboxes/mine`);
   }
 
   getSandboxConnection(id: string): Observable<SandboxConnection> {

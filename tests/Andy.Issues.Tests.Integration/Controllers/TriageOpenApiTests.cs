@@ -37,7 +37,7 @@ public class TriageOpenApiTests : IClassFixture<TestWebApplicationFactory>
     [InlineData("/api/triage", "GET", new[] { "200", "401" })]
     [InlineData("/api/triage/{id}", "GET", new[] { "200", "401", "404" })]
     [InlineData("/api/triage/{id}/start", "POST", new[] { "200", "401", "404", "409" })]
-    [InlineData("/api/triage/{id}/complete", "POST", new[] { "200", "401", "404", "409" })]
+    [InlineData("/api/triage/{id}/complete", "POST", new[] { "200", "400", "401", "404", "409", "503" })]
     [InlineData("/api/triage/{id}/accept", "POST", new[] { "200", "401", "404", "409" })]
     [InlineData("/api/triage/{id}/reject", "POST", new[] { "200", "401", "404", "409" })]
     // Z5 — human-edit + revisions surface

@@ -3,6 +3,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { AdminUsersComponent } from './admin-users.component';
 import {
   ApiService,
   LinkedProvider,
@@ -12,13 +13,15 @@ import {
 
 @Component({
   selector: 'app-settings',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, AdminUsersComponent],
   template: `
     <h1>Settings</h1>
 
     <div class="tab-strip">
       <button *ngFor="let tab of tabs" [class.active]="activeTab === tab" (click)="activeTab = tab">{{ tab }}</button>
     </div>
+
+    <app-admin-users *ngIf="activeTab === 'Users' && canReadUsers" [manageUrl]="manageUsersUrl" />
 
     <!-- Source Control tab -->
     <div *ngIf="activeTab === 'Source Control'" class="tab-panel">
@@ -138,6 +141,8 @@ import {
 export class SettingsComponent implements OnInit {
   tabs = ['Source Control', 'MCP', 'Artifact Feeds'];
   activeTab = 'Source Control';
+  canReadUsers = false;
+  manageUsersUrl: string | null = null;
 
   providers: LinkedProvider[] = [];
   mcpConfigs: McpServerConfig[] = [];
@@ -158,6 +163,11 @@ export class SettingsComponent implements OnInit {
   constructor(private api: ApiService) {}
 
   ngOnInit(): void {
+    this.api.adminUserAccess().subscribe({ next: access => {
+      this.canReadUsers = access.canRead;
+      this.manageUsersUrl = access.manageUrl;
+      if (access.canRead && !this.tabs.includes('Users')) this.tabs.push('Users');
+    }, error: () => { this.canReadUsers = false; } });
     this.loadProviders();
     this.loadMcp();
     this.loadFeeds();
