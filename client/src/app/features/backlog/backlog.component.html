@@ -91,7 +91,7 @@
           <h2>{{ epic.title }}</h2>
           <button class="btn-sm btn-secondary" (click)="openFeature(epic.id)">+ Feature</button>
         </div>
-        <p *ngIf="epic.description" class="desc">{{ epic.description }}</p>
+        <app-markdown *ngIf="epic.description" class="desc" [source]="epic.description"></app-markdown>
 
         <div *ngFor="let feature of epic.features" class="feature-card">
           <div class="feature-header">
@@ -99,12 +99,14 @@
             <button class="btn-sm btn-secondary" (click)="openStory(feature.id)">+ Story</button>
           </div>
 
+          <app-markdown *ngIf="feature.description" [source]="feature.description"></app-markdown>
           <div *ngFor="let story of feature.stories" class="story-row">
             <div class="story-summary">
               <span class="story-status" [ngClass]="'status-' + story.status.toLowerCase()">{{ story.status }}</span>
               <strong class="story-title">{{ story.title }}</strong>
               <span class="story-points" *ngIf="story.storyPoints !== null">{{ story.storyPoints }} pts</span>
             </div>
+            <app-markdown *ngIf="story.description" [source]="story.description"></app-markdown>
             <div class="story-controls">
               <label>Agent rules
                 <select [attr.aria-label]="'Agent rules for ' + story.title" [value]="story.agentRuleId || ''" (change)="setRule(story, $any($event.target).value || null); $any($event.target).value = story.agentRuleId || ''" [disabled]="pendingRules.has(story.id)">
@@ -123,7 +125,7 @@
             <p *ngIf="story.triageState?.kind === 'Triaging'" role="status" class="story-feedback">Refinement is running. Refresh to check its result.</p>
             <details *ngIf="story.refinement" class="refinement">
               <summary>Refinement result for {{ story.title }}</summary>
-              <p class="refined-description">{{ story.refinement.refinedDescription }}</p>
+              <app-markdown class="refined-description" [source]="story.refinement.refinedDescription"></app-markdown>
               <h4>Acceptance criteria</h4><ul><li *ngFor="let item of story.refinement.acceptanceCriteria">{{ item }}</li></ul>
               <h4>Risks</h4><ul><li *ngFor="let item of story.refinement.risks">{{ item }}</li></ul>
               <h4>Test plan</h4><ul><li *ngFor="let item of story.refinement.testPlan">{{ item }}</li></ul>

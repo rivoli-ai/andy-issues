@@ -3,6 +3,7 @@
 import { Component, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
+import { MarkdownComponent } from '../../shared/ui/markdown.component';
 import { environment } from '../../../environments/environment';
 
 interface HelpTopicSummary {
@@ -18,7 +19,7 @@ interface HelpTopic extends HelpTopicSummary {
 
 @Component({
   selector: 'app-help',
-  imports: [CommonModule],
+  imports: [CommonModule, MarkdownComponent],
   template: `
     <div class="help-layout">
       <aside class="help-sidebar">
@@ -48,11 +49,7 @@ interface HelpTopic extends HelpTopicSummary {
       <div class="help-content">
         <div *ngIf="loading" class="loading">Loading...</div>
         <div *ngIf="error" class="error">{{ error }}</div>
-        <div
-          *ngIf="currentTopic && !loading"
-          class="markdown-body"
-          [innerHTML]="renderedHtml"
-        ></div>
+        <app-markdown *ngIf="currentTopic && !loading" [source]="currentTopic.markdown"></app-markdown>
         <div *ngIf="!currentTopic && !loading && !error" class="empty">
           Select a topic from the sidebar.
         </div>
@@ -87,40 +84,12 @@ interface HelpTopic extends HelpTopicSummary {
     .loading, .error, .empty { color: var(--text-secondary); font-size: 14px; padding: 24px; }
     .error { color: var(--error); }
 
-    .markdown-body { font-size: 14px; line-height: 1.7; }
-    .markdown-body :first-child { margin-top: 0; }
-    .markdown-body h1 { font-size: 24px; margin: 0 0 16px; }
-    .markdown-body h2 { font-size: 18px; margin: 24px 0 12px; padding-bottom: 6px; border-bottom: 1px solid var(--border); }
-    .markdown-body h3 { font-size: 15px; margin: 20px 0 8px; }
-    .markdown-body p { margin: 8px 0; }
-    .markdown-body code {
-      background: var(--background); padding: 2px 6px; border-radius: 3px; font-size: 13px;
-    }
-    .markdown-body pre {
-      background: var(--background); padding: 16px; border-radius: 6px;
-      overflow-x: auto; margin: 12px 0;
-    }
-    .markdown-body pre code { background: none; padding: 0; }
-    .markdown-body table { width: 100%; border-collapse: collapse; margin: 12px 0; }
-    .markdown-body th, .markdown-body td {
-      padding: 8px 12px; border: 1px solid var(--border); text-align: left; font-size: 13px;
-    }
-    .markdown-body th { background: var(--background); font-weight: 600; }
-    .markdown-body ul, .markdown-body ol { padding-left: 24px; }
-    .markdown-body li { margin: 4px 0; }
-    .markdown-body blockquote {
-      border-left: 3px solid var(--primary); margin: 12px 0; padding: 8px 16px;
-      color: var(--text-secondary); background: rgba(26,115,232,0.04);
-    }
-    .markdown-body a { color: var(--primary); }
-    .markdown-body strong { font-weight: 600; }
   `],
 })
 export class HelpComponent implements OnInit {
   topics: HelpTopicSummary[] = [];
   currentTopic: HelpTopic | null = null;
   selectedSlug = '';
-  renderedHtml = '';
   loading = false;
   error = '';
   swaggerUrl = '/swagger';
@@ -154,7 +123,6 @@ export class HelpComponent implements OnInit {
     this.http.get<HelpTopic>(`${this.apiBase}/help/topics/${slug}`).subscribe({
       next: (topic) => {
         this.currentTopic = topic;
-        this.renderedHtml = this.renderMarkdown(topic.markdown);
         this.loading = false;
       },
       error: () => {
@@ -177,43 +145,4 @@ export class HelpComponent implements OnInit {
     });
   }
 
-  /**
-   * Minimal markdown-to-HTML renderer.
-   * For production, consider using 'marked' or 'ngx-markdown'.
-   */
-  private renderMarkdown(md: string): string {
-    let html = md
-      // Code blocks
-      .replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>')
-      // Inline code
-      .replace(/`([^`]+)`/g, '<code>$1</code>')
-      // Headers
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
-      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
-      // Bold
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      // Links
-      .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>')
-      // Blockquotes
-      .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
-      // Tables (basic: | col | col |)
-      .replace(/^\|(.+)\|$/gm, (match) => {
-        const cells = match.split('|').filter(c => c.trim()).map(c => c.trim());
-        if (cells.every(c => /^[-:]+$/.test(c))) return '';
-        const tag = match.includes('---') ? 'th' : 'td';
-        return '<tr>' + cells.map(c => `<${tag}>${c}</${tag}>`).join('') + '</tr>';
-      })
-      // Line breaks
-      .replace(/\n\n/g, '</p><p>')
-      // Unordered lists
-      .replace(/^- (.+)$/gm, '<li>$1</li>');
-
-    // Wrap <li> runs in <ul>
-    html = html.replace(/(<li>[\s\S]*?<\/li>\n?)+/g, '<ul>$&</ul>');
-    // Wrap <tr> runs in <table>
-    html = html.replace(/(<tr>[\s\S]*?<\/tr>\n?)+/g, '<table>$&</table>');
-
-    return `<p>${html}</p>`.replace(/<p><\/p>/g, '').replace(/<p>\s*<\/p>/g, '');
-  }
 }

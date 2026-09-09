@@ -1,3 +1,4 @@
+import { SandboxDockComponent } from './shared/ui/sandbox-dock.component';
 import { ServiceShellComponent, ServiceNavItem } from './shared/ui/service-shell.component';
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 
@@ -8,7 +9,7 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 
 @Component({
   selector: 'app-root',
-  imports: [ServiceShellComponent, RouterOutlet, CommonModule],
+  imports: [SandboxDockComponent, ServiceShellComponent, RouterOutlet, CommonModule],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss'],
 })
@@ -59,6 +60,7 @@ export class AppComponent implements OnInit {
   }
 
   logout(): void {
+    this.isAuthenticated = false;
     this.oidcService.logoff().subscribe();
   }
 }

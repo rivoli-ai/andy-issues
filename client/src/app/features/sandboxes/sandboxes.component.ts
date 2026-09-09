@@ -4,6 +4,7 @@ import { Component, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject, takeUntil } from 'rxjs';
+import { SandboxDockService } from '../../shared/services/sandbox-dock.service';
 import { DialogDirective } from '../../shared/ui/dialog.directive';
 import {
   ApiService,
@@ -141,7 +142,7 @@ export class SandboxesComponent implements OnInit, OnDestroy {
 
   private pollInterval: ReturnType<typeof setInterval> | null = null;
 
-  constructor(private api: ApiService) {}
+  constructor(private api: ApiService, private dock: SandboxDockService) {}
 
   ngOnInit(): void {
     this.load();
@@ -196,7 +197,8 @@ export class SandboxesComponent implements OnInit, OnDestroy {
 
   connect(sandbox: SandboxSummary): void {
     this.api.getSandboxConnection(sandbox.id).pipe(takeUntil(this.destroyed$)).subscribe({
-      next: (conn) => { this.connections[sandbox.id] = conn; },
+      next: (conn) => { this.connections[sandbox.id] = conn; this.dock.open(sandbox.id); },
+      error: () => { this.error = 'Could not connect to this sandbox. Please retry.'; },
     });
   }
 
