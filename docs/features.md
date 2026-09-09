@@ -409,3 +409,8 @@ Container completion uses the current run's uploaded `triage-output.md` artifact
 ### Sensitive AI configuration for sandboxes
 
 `GET /api/ai-config?repositoryId={id}` returns the authenticated owner's provider, model, base URL and raw API key. Omit the repository to select the owner's default; an owned repository uses its owned override or that default. Shared repositories do not grant credential access. Responses are never cached and access attempts/outcomes are recorded without secrets; the limit is ten requests per minute per caller per instance. Audit or credential-resolution failure returns 503 without a key. Consumers must use TLS at the remote edge and retain the key only in memory for sandbox injection. See the [security review](security/ai-config-review.md).
+
+The client uses Andy UI for sanitized GFM, lazy Mermaid diagrams, image
+lightboxes and the persistent sandbox dock, alongside its shell, theme and
+toasts. The dock reads only the signed-in user's sandboxes, preserves connections
+across route changes and keeps viewer dismissal separate from sandbox destruction.

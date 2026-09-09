@@ -7,11 +7,12 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { ApiService, Backlog, UserStory, AgentRuleProfile } from '../../shared/services/api.service';
 import { AgentRulesComponent } from './agent-rules.component';
+import { MarkdownComponent } from '../../shared/ui/markdown.component';
 import { DialogDirective } from '../../shared/ui/dialog.directive';
 
 @Component({
   selector: 'app-backlog',
-  imports: [AgentRulesComponent, DialogDirective, CommonModule, FormsModule, RouterLink],
+  imports: [MarkdownComponent, AgentRulesComponent, DialogDirective, CommonModule, FormsModule, RouterLink],
   templateUrl: './backlog.component.html',
   styleUrls: ['./backlog.component.css'],
 })

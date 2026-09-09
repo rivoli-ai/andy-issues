@@ -1,12 +1,12 @@
 import { Component, EventEmitter, Input, OnChanges, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { marked } from 'marked';
+import { MarkdownComponent } from '../../shared/ui/markdown.component';
 import { ApiService, AgentRuleProfile } from '../../shared/services/api.service';
 
 @Component({
   selector: 'app-agent-rules',
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MarkdownComponent],
   template: `
     <section aria-labelledby="agent-rules-title">
       <h2 id="agent-rules-title">Agent rules</h2>
@@ -24,7 +24,7 @@ import { ApiService, AgentRuleProfile } from '../../shared/services/api.service'
           <button type="button" (click)="remove(i)">Remove {{ profile.name }}</button>
           <label [for]="'rule-body-' + i">Instructions (Markdown)</label>
           <textarea [id]="'rule-body-' + i" [(ngModel)]="profile.body" rows="8" maxlength="65536"></textarea>
-          <details><summary>Preview {{ profile.name }}</summary><div class="preview" [innerHTML]="preview(profile.body)"></div></details>
+          <details><summary>Preview {{ profile.name }}</summary><app-markdown class="preview" [source]="profile.body"></app-markdown></details>
         </div>
         <button type="button" (click)="add()" [disabled]="profiles.length >= 100">Add profile</button>
         <button type="button" (click)="save()" [disabled]="!valid">{{ saving ? 'Saving…' : 'Save profiles' }}</button>
@@ -84,10 +84,6 @@ export class AgentRulesComponent implements OnChanges {
   get valid(): boolean {
     const names = this.profiles.map(p => p.name.trim().toLowerCase());
     return this.profiles.every(p => p.name.trim().length > 0 && p.body.length <= 65536) && new Set(names).size === names.length;
-  }
-  preview(body: string): string {
-    // Angular sanitizes this plain string at the innerHTML binding; never bypass sanitization.
-    return marked.parse(body, { async: false });
   }
   save(): void {
     if (!this.canEdit || !this.valid || this.saving) return;

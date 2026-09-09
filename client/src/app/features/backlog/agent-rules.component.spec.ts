@@ -33,10 +33,12 @@ describe('AgentRulesComponent', () => {
     http.expectOne('/api/repositories/repo/agent-rules/replace').flush({ error: 'conflict' }, { status: 409, statusText: 'Conflict' });
     expect(component.profiles[1].name).toBe('Review'); expect(component.error).toBe('conflict');
   });
-  it('sanitizes HTML in the Markdown preview', () => {
+  it('sanitizes HTML in the shared Markdown preview', async () => {
     component.add(); component.profiles[0].body = '**Safe**<img src="x" onerror="alert(1)"><script>alert(1)</script>';
     fixture.detectChanges();
-    const preview: HTMLElement = fixture.nativeElement.querySelector('.preview');
+    const element = fixture.nativeElement.querySelector('.preview andy-markdown') as HTMLElement & { updateComplete: Promise<boolean> };
+    await element.updateComplete;
+    const preview = element.shadowRoot!;
     expect(preview.querySelector('strong')?.textContent).toBe('Safe');
     expect(preview.querySelector('script')).toBeNull();
     expect(preview.querySelector('img')?.getAttribute('onerror')).toBeNull();
