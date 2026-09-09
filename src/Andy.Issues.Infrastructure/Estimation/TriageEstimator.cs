@@ -2,6 +2,7 @@
 // Licensed under the Apache License, Version 2.0.
 
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
 using Andy.Issues.Application.Interfaces;
 using Andy.Issues.Domain.Enums;
 using Andy.Issues.Domain.ValueTypes;
@@ -22,6 +23,19 @@ public sealed class TriageEstimator : ITriageEstimator
     public TriageEstimator()
     {
         _defaults = LoadEmbeddedDefaults();
+    }
+
+    public TriageEstimator(IConfiguration configuration) : this()
+    {
+        configuration.GetSection("Estimation:Defaults").Bind(_defaults);
+        foreach (var baseline in _defaults.Templates.Values)
+            if (!double.IsFinite(baseline.CostP50) || !double.IsFinite(baseline.CostP90)
+                || !double.IsFinite(baseline.TimeP50) || !double.IsFinite(baseline.TimeP90)
+                || baseline.CostP50 < 0 || baseline.TimeP50 < 0
+                || baseline.CostP90 < baseline.CostP50 || baseline.TimeP90 < baseline.TimeP50)
+                throw new InvalidOperationException("Estimator defaults must contain finite, ordered, nonnegative percentiles.");
+        if (_defaults.SeverityMultipliers.Values.Any(m => !double.IsFinite(m) || m < 0))
+            throw new InvalidOperationException("Estimator severity multipliers must be finite and nonnegative.");
     }
 
     // Constructor overload for tests that want to inject a known set of

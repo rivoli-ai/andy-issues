@@ -323,7 +323,7 @@ public class IssueService : IIssueService
         if (output is not null && string.IsNullOrWhiteSpace(output.Rationale))
             return IssueTriageResult.InvalidTransition("TriageOutput.Rationale must be non-empty.");
         if (output is not null && _estimator is not null && IsEmptyEstimate(output.InitialEstimate))
-            output = output with { InitialEstimate = _estimator.Estimate(userId, output.TemplateId, output.Severity) };
+            output = output with { InitialEstimate = await _estimator.EstimateAsync(userId, output.TemplateId, output.Severity, output.SuggestedRepo, issue.Title + "\n" + output.Rationale, ct) };
         if (output is not null) output = output with { InputsDocsRefs = issue.TriageInputDocsRefs.ToList() };
 
         DocsRef? stored = null;

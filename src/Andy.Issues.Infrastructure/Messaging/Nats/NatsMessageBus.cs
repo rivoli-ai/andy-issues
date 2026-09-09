@@ -92,8 +92,19 @@ public sealed class NatsMessageBus : IMessageBus, IAsyncDisposable
             MaxDeliver = options.MaxDeliver
         };
 
+        var streamName = _options.StreamName;
+        if (options.DiscoverStream)
+        {
+            string? discovered = null;
+            await foreach (var name in _jsContext.ListStreamNamesAsync(consumerConfig.FilterSubject, ct))
+            {
+                if (discovered is not null) throw new InvalidOperationException("Subscription matches multiple streams.");
+                discovered = name;
+            }
+            streamName = discovered ?? throw new InvalidOperationException("Upstream event stream is not provisioned yet.");
+        }
         var consumer = await _jsContext.CreateOrUpdateConsumerAsync(
-            _options.StreamName, consumerConfig, ct);
+            streamName, consumerConfig, ct);
 
         _logger.LogDebug(
             "Subscription opened on {Filter} durable {Durable}",

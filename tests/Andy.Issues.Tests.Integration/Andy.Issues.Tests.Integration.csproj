@@ -42,4 +42,7 @@
     <PackageReference Include="Microsoft.AspNetCore.DataProtection" Version="10.0.10" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Messaging/Fixtures/estimate-training-v3.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

@@ -90,6 +90,44 @@ public class TriagePipelineTests : IClassFixture<TestWebApplicationFactory>
         Assert.Equal(TriageState.Triaged, issue.TriageState);
     }
 
+    [Fact]
+    public async Task LearnedEstimate_IsPersistedAndEmittedAfterClassification()
+    {
+        using var factory = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
+            services.AddSingleton<Andy.Issues.Infrastructure.Estimation.ICompletionCountClient>(new TenCompletions())));
+        using var client = factory.CreateClient();
+        var created = await client.PostAsJsonAsync("/api/triage", new CreateIssueRequest("intake", "body", null), JsonOptions);
+        var issue = (await created.Content.ReadFromJsonAsync<IssueDto>(JsonOptions))!;
+        (await client.PostAsync($"/api/triage/{issue.Id}/start", null)).EnsureSuccessStatusCode();
+        using var scope = factory.Services.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var store = scope.ServiceProvider.GetRequiredService<Andy.Issues.Infrastructure.Estimation.EstimateTrainingStore>();
+        var fixture = await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Messaging", "Fixtures", "estimate-training-v3.json"));
+        for (var i = 0; i < 10; i++)
+        {
+            var sample = System.Text.Json.Nodes.JsonNode.Parse(fixture)!.AsObject();
+            sample["goal_id"] = Guid.NewGuid().ToString();
+            sample["tenant_id"] = TestAuthHandler.UserId;
+            await store.RecordAsync(JsonSerializer.SerializeToUtf8Bytes(sample));
+        }
+        await store.TrainAsync();
+        var run = (await db.Issues.SingleAsync(i => i.Id == issue.Id)).TriageRunId;
+        var result = await scope.ServiceProvider.GetRequiredService<IIssueService>().CompleteTriageAsync(issue.Id,
+            TestAuthHandler.UserId, new Andy.Issues.Domain.ValueTypes.TriageOutput(
+                TriageTemplateId.BugFix, TriageSeverity.Moderate, "repo", "summary", [], new()), runId: run);
+        Assert.Equal(IssueTriageOutcome.Updated, result.Outcome);
+        var row = await db.Outbox.SingleAsync(o => o.Subject == $"andy.issues.events.issue.{issue.Id}.triaged");
+        var payload = JsonSerializer.Deserialize<IssueEventPayload>(row.PayloadJson, EventJson.Options)!;
+        Assert.StartsWith("learned:", payload.TriageOutput!.InitialEstimate.EstimatedBy);
+        Assert.True(payload.TriageOutput.InitialEstimate.CostP90 >= payload.TriageOutput.InitialEstimate.CostP50);
+        Assert.Contains("learned:", (await db.Issues.SingleAsync(i => i.Id == issue.Id)).TriageOutput!.InitialEstimate.EstimatedBy);
+    }
+
+    private sealed class TenCompletions : Andy.Issues.Infrastructure.Estimation.ICompletionCountClient
+    {
+        public Task<int?> GetAsync(string tenant, string template, CancellationToken ct) => Task.FromResult<int?>(10);
+    }
+
     [Theory]
     [InlineData("failed")]
     [InlineData("cancelled")]
