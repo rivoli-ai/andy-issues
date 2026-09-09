@@ -111,4 +111,6 @@ public sealed record SubscriptionOptions(
     // Optional narrower filter within the base subject filter. Useful
     // for splitting one subscription into multiple handlers without
     // creating multiple durable consumers.
-    string? SubjectFilter = null);
+    string? SubjectFilter = null,
+    // Cross-service consumers discover the existing owner stream; they never provision it.
+    bool DiscoverStream = false);

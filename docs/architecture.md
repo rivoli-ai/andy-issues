@@ -197,3 +197,54 @@ User → Angular SPA → Andy Auth (OIDC) → JWT Token → API (Bearer Auth)
 - **Andy Settings** (port 5300) - Centralized configuration (optional)
 
 Triage audit history is owned by **Andy Tasks**, with input/output payloads in **Andy Docs**. Issues keeps document references and the correlated run ID, alongside its existing classification state; it does not create a second per-tool action-log store.
+
+
+## Learned triage estimates
+
+After classification, an empty initial estimate is filled by the server-side
+triage estimator; explicit agent estimates remain intact. Cold-start baselines
+apply until both the model has ten valid samples and Tasks reports ten completed
+goals for that owner-subject/template partition. The owner subject is the tenant
+key already used by Issues headless dispatch; this does not introduce an
+organization-wide tenant mapping.
+
+```mermaid
+flowchart LR
+  T[Tasks goal completion] --> E[Version 3 training event]
+  E --> S[Issues sample store]
+  S --> M[Nightly tenant/template model]
+  A[Triage classification] --> P[Estimator]
+  M --> P
+  C[Tasks completion count] --> P
+  P --> I[Issue initial estimate]
+  I --> G[Accepted Goal initial slot]
+```
+
+The trainer consumes `andy.tasks.events.goal.*.estimate_training_sample_recorded`
+from its existing owner stream (JetStream stream discovery permission is needed).
+It keeps immutable goal-keyed samples with SHA-256-derived repository/text
+features, and fits ridge regression on log USD and log hours. Empirical residual
+quantiles produce p50/p90. Each model uses at most its latest 1,000 samples;
+coefficients, sample fingerprint/count, version and training time are persisted.
+Training runs at startup and daily at 02:00 UTC. No new version is written when
+the sample fingerprint is unchanged. Samples with unknown, negative, non-finite
+or projected actuals are ignored; measured zero is valid.
+
+`AndyTasks:BaseUrl` points to the Tasks service (include `/tasks/` under the
+embedded proxy). Count reads use the Tasks audience with the shared OBO/M2M
+handler, a five-second timeout and no stale count cache. Tasks permits the owner
+or the positively identified `andy-issues-api` workload to read the count.
+Unavailable counts or fewer than ten completions retain `cold-start` provenance.
+Learned results stamp `learned:ridge-residual-v1:model-N`; stored sample features
+and the model version let operators trace the fit. Units are USD and hours;
+Tasks training-event seconds are divided by 3,600 at ingestion.
+
+Baseline values and severity multipliers can be overridden under
+`Estimation:Defaults:Templates` and `Estimation:Defaults:SeverityMultipliers`;
+invalid or unordered percentile overrides fail startup.
+
+`Messaging:ConsumeEstimateTrainingSamples=false` disables ingestion and scheduled
+training. Existing models remain readable; clearing `AndyTasks:BaseUrl` disables
+promotion. Model percentiles are empirical estimates, not guaranteed bounds;
+small cohorts, hash collisions and changing workloads can affect calibration.
+See [Tasks model card](https://github.com/rivoli-ai/andy-tasks/blob/main/docs/estimator-model-card.md).

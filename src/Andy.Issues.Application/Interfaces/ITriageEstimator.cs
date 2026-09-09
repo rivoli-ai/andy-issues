@@ -6,17 +6,11 @@ using Andy.Issues.Domain.ValueTypes;
 
 namespace Andy.Issues.Application.Interfaces;
 
-// Z7 — cold-start estimator. Returns an EstimateSlot for a triage
-// classification using per-template seed defaults modulated by
-// severity. Today this is the only path; once andy-tasks AI6 starts
-// emitting `estimate_training_sample_recorded` events and N=10
-// completions accumulate per `{tenant, template}`, the learned model
-// kicks in (out of scope for this story).
-//
-// The estimator is called from IssueService.CompleteTriageAsync only
-// when the agent left InitialEstimate empty — agent-supplied
-// estimates are preserved.
+// Server-side estimates; implementations fall back to per-template defaults.
 public interface ITriageEstimator
 {
     EstimateSlot Estimate(string tenantId, TriageTemplateId templateId, TriageSeverity severity);
+    Task<EstimateSlot> EstimateAsync(string tenantId, TriageTemplateId templateId, TriageSeverity severity,
+        string? repository, string? description, CancellationToken ct = default) =>
+        Task.FromResult(Estimate(tenantId, templateId, severity));
 }

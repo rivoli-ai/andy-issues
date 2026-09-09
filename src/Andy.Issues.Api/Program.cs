@@ -1,3 +1,4 @@
+using Andy.Issues.Infrastructure.Messaging.Consumers;
 // Copyright (c) Rivoli AI 2026. All rights reserved.
 // Licensed under the Apache License, Version 2.0.
 
@@ -258,10 +259,27 @@ else
 {
     builder.Services.AddSingleton<IDocsClient, StubDocsClient>();
 }
-// Z7 — cold-start triage estimator. Loads per-template seed defaults
-// from an embedded JSON file; learned-model retraining lands once
-// andy-tasks AI6 starts emitting training samples (cross-repo).
-builder.Services.AddSingleton<ITriageEstimator, TriageEstimator>();
+// Z7: versioned tenant/template models with authoritative Tasks promotion counts.
+builder.Services.AddSingleton<TriageEstimator>();
+builder.Services.AddScoped<ITriageEstimator, LearnedTriageEstimator>();
+builder.Services.AddScoped<EstimateTrainingStore>();
+builder.Services.AddScoped<ICompletionCountClient, CompletionCountClient>();
+var estimateClient = builder.Services.AddHttpClient("AndyTasksEstimates", client =>
+{
+    var baseUrl = builder.Configuration["AndyTasks:BaseUrl"];
+    if (!string.IsNullOrWhiteSpace(baseUrl)) client.BaseAddress = new Uri(baseUrl.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(5);
+});
+if (attachBearer)
+    estimateClient.AddHttpMessageHandler(sp => new DelegatedBearerHandler(
+        sp.GetRequiredService<IDelegatedTokenProvider>(), sp.GetRequiredService<IServiceTokenProvider>(),
+        sp.GetRequiredService<IHttpContextAccessor>(), "urn:andy-tasks-api",
+        sp.GetRequiredService<ILogger<DelegatedBearerHandler>>()));
+if (builder.Configuration.GetValue("Messaging:ConsumeEstimateTrainingSamples", true))
+{
+    builder.Services.AddHostedService<EstimateTrainingSampleConsumer>();
+    builder.Services.AddHostedService<TriageEstimatorTrainingWorker>();
+}
 // Z2 — config-backed triage agent resolver. Reads `Triage:AgentId`
 // from configuration; dynamic discovery against andy-agents lands
 // once Epic W is fully ramped.

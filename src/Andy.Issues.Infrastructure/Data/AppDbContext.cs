@@ -38,6 +38,8 @@ public class AppDbContext : DbContext
     public DbSet<Feature> Features => Set<Feature>();
     public DbSet<UserStory> UserStories => Set<UserStory>();
     public DbSet<Issue> Issues => Set<Issue>();
+    public DbSet<TriageEstimatorSample> TriageEstimatorSamples => Set<TriageEstimatorSample>();
+    public DbSet<TriageEstimatorModel> TriageEstimatorModels => Set<TriageEstimatorModel>();
     public DbSet<TriageOutputRevision> TriageOutputRevisions => Set<TriageOutputRevision>();
     public DbSet<IssueAttachment> IssueAttachments => Set<IssueAttachment>();
     public DbSet<RecategorizationJob> RecategorizationJobs => Set<RecategorizationJob>();
@@ -75,6 +77,21 @@ public class AppDbContext : DbContext
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<TriageEstimatorSample>(e =>
+        {
+            e.HasKey(x => x.GoalId);
+            e.Property(x => x.TenantId).HasMaxLength(256).IsRequired();
+            e.Property(x => x.TemplateKey).HasMaxLength(100).IsRequired();
+            e.HasIndex(x => new { x.TenantId, x.TemplateKey, x.RecordedAt });
+        });
+        modelBuilder.Entity<TriageEstimatorModel>(e =>
+        {
+            e.HasKey(x => new { x.TenantId, x.TemplateKey });
+            e.Property(x => x.TenantId).HasMaxLength(256);
+            e.Property(x => x.TemplateKey).HasMaxLength(100);
+            e.Property(x => x.Version).IsConcurrencyToken();
+        });
 
         modelBuilder.Entity<Repository>(e =>
         {
